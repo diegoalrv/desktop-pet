@@ -46,4 +46,21 @@ describe("stateMachine", () => {
     const c = run(initial(), { type: "timerStart" }, { type: "drag" }, { type: "drop" }, { type: "land" });
     expect(c.state).toBe("focus");
   });
+  it("pausa a mano y reset", () => {
+    let c = run(initial(), { type: "breakStart" });
+    expect(c.state).toBe("break");
+    c = run(c, { type: "timerStop" });
+    expect(c.state).toBe("idle");
+  });
+  it("reset mientras la arrastran vuelve a idle", () => {
+    const c = run(
+      initial(),
+      { type: "timerStart" },
+      { type: "drag" },
+      { type: "timerStop" },
+      { type: "drop" },
+      { type: "land" },
+    );
+    expect(c.state).toBe("idle");
+  });
 });

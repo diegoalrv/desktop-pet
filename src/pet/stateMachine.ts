@@ -7,7 +7,9 @@ export type PetEvent =
   | { type: "drop" }
   | { type: "land" }
   | { type: "input" }
-  | { type: "timerStart" }
+  | { type: "timerStart" } // arranca un foco
+  | { type: "breakStart" } // arranca una pausa a mano
+  | { type: "timerStop" } // reset / fin de pausa: vuelve a idle
   | { type: "timerEnd" } // fin de foco -> celebrate -> break; fin de break -> idle
   | { type: "taskDone" };
 
@@ -49,6 +51,16 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       return c.state === "dragged" || c.state === "fall"
         ? { ...c, after: "focus" }
         : { ...to(c, "focus"), quiet: 0 };
+    case "breakStart":
+      if (c.state === "dragged" || c.state === "fall") return { ...c, after: "break" };
+      return c.state === "idle" || c.state === "walk" || c.state === "sleep"
+        ? { ...to(c, "break"), quiet: 0 }
+        : c;
+    case "timerStop":
+      if (c.state === "focus" || c.state === "break") return goIdle(c, r);
+      return (c.state === "dragged" || c.state === "fall") && (c.after === "focus" || c.after === "break")
+        ? { ...c, after: "idle" }
+        : c;
     case "timerEnd":
       if (c.state === "focus") return to(c, "celebrate", CELEBRATE_S, "break");
       if (c.state === "break") return goIdle(c, r);

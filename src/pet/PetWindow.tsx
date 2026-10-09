@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { Sprite } from "./Sprite";
+import { PILL_H, TimerPill } from "./TimerPill";
+import { togglePanel } from "../lib/ipc";
+import { useTimer } from "../store/useTimer";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
 import { initial, transition, type PetEvent, type PetState } from "./stateMachine";
 
@@ -14,11 +18,14 @@ export function PetWindow() {
   const hit = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<{ state: PetState; dir: number }>({ state: "idle", dir: 1 });
 
-  // Informa a Rust la zona opaca para el click-through.
+  const active = useTimer((s) => s.snap.status !== "idle");
+  const snap = useTimer((s) => s.snap);
+
+  // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer).
   useEffect(() => {
     const r = hit.current!.getBoundingClientRect();
-    invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
-  }, []);
+    invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height - (active ? 0 : PILL_H)] });
+  }, [active]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -66,10 +73,22 @@ export function PetWindow() {
       return p;
     };
 
-    const onMouseDown = () => {
+    // Clic (sin mover) abre el panel; mover > 3 px inicia el arrastre nativo.
+    let press: { x: number; y: number } | null = null;
+    const onMouseDown = (e: MouseEvent) => {
+      press = { x: e.screenX, y: e.screenY };
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!press || Math.hypot(e.screenX - press.x, e.screenY - press.y) < 3) return;
+      press = null;
       dragging = true;
       send({ type: "drag" });
       win.startDragging();
+    };
+    const onMouseUp = () => {
+      if (press) togglePanel();
+      press = null;
+      endDrag();
     };
     const endDrag = async () => {
       if (!dragging) return;
@@ -87,9 +106,22 @@ export function PetWindow() {
       dragTimer = setTimeout(endDrag, DRAG_END_MS);
     };
     const unMoved = win.onMoved(bump);
-    document.addEventListener("mouseup", endDrag);
+    document.addEventListener("mouseup", onMouseUp);
     const el = hit.current!;
     el.addEventListener("mousedown", onMouseDown);
+    el.addEventListener("mousemove", onMouseMove);
+
+    // Timer (vive en Rust) -> estados de la mascota.
+    const unsub = useTimer.subscribe((s, p) => {
+      const [a, b] = [s.snap, p.snap];
+      if (a.status !== "idle" && (b.status === "idle" || a.mode !== b.mode))
+        send({ type: a.mode === "focus" ? "timerStart" : "breakStart" });
+      else if (a.status === "idle" && b.status !== "idle") send({ type: "timerStop" });
+    });
+    const unDone = listen<{ mode: string }>(
+      "timer://done",
+      (e) => e.payload.mode === "focus" && send({ type: "timerEnd" }),
+    );
 
     const frame = (now: number) => {
       if (!alive) return;
@@ -133,7 +165,10 @@ export function PetWindow() {
       clearInterval(areaTimer);
       clearTimeout(dragTimer);
       unMoved.then((f) => f());
-      document.removeEventListener("mouseup", endDrag);
+      document.removeEventListener("mouseup", onMouseUp);
+      el.removeEventListener("mousemove", onMouseMove);
+      unsub();
+      unDone.then((f) => f());
       el.removeEventListener("mousedown", onMouseDown);
     };
   }, []);
@@ -144,6 +179,7 @@ export function PetWindow() {
     >
       <div ref={hit} style={{ cursor: view.state === "dragged" ? "grabbing" : "grab" }}>
         <Sprite state={view.state} dir={view.dir} />
+        <TimerPill snap={snap} />
       </div>
     </div>
   );

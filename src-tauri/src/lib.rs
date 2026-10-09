@@ -1,3 +1,6 @@
+mod timer;
+mod windows;
+
 use std::{sync::Mutex, thread, time::Duration};
 use tauri::{Manager, State};
 
@@ -50,12 +53,26 @@ fn spawn_cursor_poll(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(HitRect::default())
-        .invoke_handler(tauri::generate_handler![set_hit_rect])
+        .manage(windows::LastBlur::default())
+        .manage(timer::TimerState::new(timer::Timer::new()))
+        .invoke_handler(tauri::generate_handler![
+            set_hit_rect,
+            windows::toggle_panel,
+            timer::timer_get,
+            timer::timer_start,
+            timer::timer_pause,
+            timer::timer_resume,
+            timer::timer_reset,
+            timer::timer_skip
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             spawn_cursor_poll(app.handle().clone());
+            windows::hide_panel_on_blur(app.handle());
+            timer::spawn(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
