@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { Sprite } from "./Sprite";
+import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
+import { useSettings } from "../store/useSettings";
 import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
@@ -12,13 +14,36 @@ import { useTimer } from "../store/useTimer";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
 import { initial, transition, type PetEvent, type PetState } from "./stateMachine";
 
-const WALK_SPEED = 40; // px lógicos/s (luego sale del manifest)
 const GRAVITY = 2400; // px lógicos/s²
 const DRAG_END_MS = 150; // sin onMoved por este tiempo = soltó
 
 export function PetWindow() {
   const hit = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<{ state: PetState; dir: number }>({ state: "idle", dir: 1 });
+
+  const skinId = useSettings((s) => s.skin);
+  const skinRev = useSettings((s) => s.skinRev);
+  const [skin, setSkin] = useState<Skin>({ kind: "builtin" });
+  // Valores del skin que lee el loop de animación (walkSpeed px lógicos/s, groundOffset px lógicos).
+  const cfg = useRef({ walkSpeed: 40, groundOffset: 0 });
+
+  // Carga (y recarga en caliente) el skin activo; si falla, vuelve al integrado.
+  useEffect(() => {
+    let cancelled = false;
+    loadSkin(skinId)
+      .catch(() => loadSkin(BUILTIN))
+      .then((next) => {
+        if (cancelled) return revokeSkin(next);
+        cfg.current =
+          next.kind === "pack"
+            ? { walkSpeed: next.manifest.walkSpeed, groundOffset: next.manifest.groundOffset }
+            : { walkSpeed: 40, groundOffset: 0 };
+        setSkin((prev) => (revokeSkin(prev), next));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [skinId, skinRev]);
 
   const active = useTimer((s) => s.snap.status !== "idle");
   const snap = useTimer((s) => s.snap);
@@ -27,7 +52,7 @@ export function PetWindow() {
   useEffect(() => {
     const r = hit.current!.getBoundingClientRect();
     invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height - (active ? 0 : PILL_H)] });
-  }, [active]);
+  }, [active, skin]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -149,9 +174,9 @@ export function PetWindow() {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       send({ type: "tick", dt });
-      const floor = groundY(area, size.h);
+      const floor = groundY(area, size.h, cfg.current.groundOffset * scale);
       if (ctx.state === "walk") {
-        const s = walkStep(x, clamp(target, area.x, maxX()), WALK_SPEED * scale, dt);
+        const s = walkStep(x, clamp(target, area.x, maxX()), cfg.current.walkSpeed * scale, dt);
         x = s.x;
         y = floor;
         if (s.dir !== dir) {
@@ -174,7 +199,7 @@ export function PetWindow() {
       const p = await refreshArea();
       if (!p) return;
       x = clamp(p.x, area.x, maxX());
-      y = groundY(area, size.h);
+      y = groundY(area, size.h, cfg.current.groundOffset * scale);
       move();
       raf = requestAnimationFrame(frame);
     })();
@@ -201,7 +226,7 @@ export function PetWindow() {
       style={{ position: "fixed", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "center" }}
     >
       <div ref={hit} style={{ cursor: view.state === "dragged" ? "grabbing" : "grab" }}>
-        <Sprite state={view.state} dir={view.dir} />
+        <Sprite skin={skin} state={view.state} dir={view.dir} />
         <TimerPill snap={snap} />
       </div>
     </div>

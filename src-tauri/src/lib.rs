@@ -54,6 +54,9 @@ fn spawn_cursor_poll(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
@@ -85,6 +88,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             windows::toggle_panel,
+            windows::open_settings,
             timer::timer_get,
             timer::timer_start,
             timer::timer_pause,
@@ -98,6 +102,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             spawn_cursor_poll(app.handle().clone());
             windows::hide_panel_on_blur(app.handle());
+            windows::hide_settings_on_close(app.handle());
             timer::spawn(app.handle().clone());
             Ok(())
         })

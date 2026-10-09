@@ -21,3 +21,9 @@
 - Atajo global `Cmd/Ctrl+Shift+Space` (Rust): abre el panel en Tareas con el input enfocado.
 - Recordatorios: la ventana mascota revisa cada 20 s tareas con fecha vencida y notifica una vez (`send_notification`).
 - Completar una tarea hace celebrar a la mascota.
+
+## F5: Skins — hecha (pendiente verificación del usuario)
+- `skins/schema.ts` (zod + `resolveAnim` con respaldo a idle + pack de imagen única) y `loader.ts` (lista, carga con blob URLs, import de carpeta / .zip / imagen). Tests en `schema.test.ts`.
+- Skins en `$APPDATA/skins/<id>/`; skin original integrado (zorro SVG). Activo guardado con `tauri-plugin-store`; cambio en caliente por evento `settings://skin`.
+- Ventana `settings` (⚙ en el panel): elegir, importar y quitar skins. Ejemplo para probar: `examples/slime-demo/`.
+- `walkSpeed`, `groundOffset` y `scale` del manifest se aplican; el sprite se limita a 150 px por la ventana fija de la mascota.

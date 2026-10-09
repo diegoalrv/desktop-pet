@@ -52,3 +52,22 @@ pub fn show_panel(app: &AppHandle) -> Option<()> {
     panel.set_focus().ok()?;
     Some(())
 }
+
+/// Ventana de ajustes: se oculta al cerrar (no se destruye).
+pub fn hide_settings_on_close(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("settings") else { return };
+    let win = w.clone();
+    w.on_window_event(move |e| {
+        if let WindowEvent::CloseRequested { api, .. } = e {
+            api.prevent_close();
+            let _ = win.hide();
+        }
+    });
+}
+
+#[tauri::command]
+pub fn open_settings(app: AppHandle) -> Option<()> {
+    let w = app.get_webview_window("settings")?;
+    w.show().ok()?;
+    w.set_focus().ok()
+}

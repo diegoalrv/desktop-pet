@@ -38,6 +38,17 @@
         "resizable": false,
         "visibleOnAllWorkspaces": true,
         "focus": true
+      },
+      {
+        "label": "settings",
+        "title": "Ajustes",
+        "url": "index.html",
+        "width": 440,
+        "height": 420,
+        "visible": false,
+        "resizable": true,
+        "alwaysOnTop": true,
+        "center": true
       }
     ],
     "security": {

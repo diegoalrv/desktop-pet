@@ -1,6 +1,8 @@
 import type { PetState } from "./stateMachine";
+import type { Skin } from "../skins/loader";
+import { resolveAnim } from "../skins/schema";
 
-// Placeholder: blob-zorro SVG; la animación por estado es CSS. Se reemplaza por skins en F5.
+// Animación CSS por estado: zorro SVG integrado y skins de imagen única (1 frame).
 const ANIM: Record<PetState, string> = {
   idle: "bob 1.1s ease-in-out infinite",
   walk: "hop .35s ease-in-out infinite",
@@ -18,35 +20,98 @@ const CSS = `
 @keyframes jump{0%,100%{transform:translateY(0)}50%{transform:translateY(-22px)}}
 @keyframes dangle{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}`;
 
-export function Sprite({ state, dir = 1, size = 128 }: { state: PetState; dir?: number; size?: number }) {
-  const asleep = state === "sleep";
+/** Tamaño máximo del sprite dentro de la ventana de la mascota (px lógicos). */
+export const MAX_SPRITE = 150;
+
+export function spriteSize(skin: Skin) {
+  if (skin.kind === "builtin") return { w: 128, h: 128 };
+  const { frameWidth: fw, frameHeight: fh, scale } = skin.manifest;
+  const s = Math.min(scale, MAX_SPRITE / fw, MAX_SPRITE / fh);
+  return { w: Math.round(fw * s), h: Math.round(fh * s) };
+}
+
+export function Sprite({ skin, state, dir = 1 }: { skin: Skin; state: PetState; dir?: number }) {
+  const { w, h } = spriteSize(skin);
   return (
-    <div style={{ transform: `scaleX(${dir})` }}>
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 128 128"
+    <div style={{ transform: `scaleX(${dir})`, width: w, height: h }}>
+      <style>{CSS}</style>
+      {skin.kind === "builtin" ? <Builtin state={state} /> : <Pack skin={skin} state={state} w={w} h={h} />}
+    </div>
+  );
+}
+
+function Pack({
+  skin,
+  state,
+  w,
+  h,
+}: {
+  skin: Extract<Skin, { kind: "pack" }>;
+  state: PetState;
+  w: number;
+  h: number;
+}) {
+  const { key, anim } = resolveAnim(skin.manifest, state);
+  const url = skin.urls[anim.file];
+  if (anim.frames === 1)
+    return (
+      <img
+        src={url}
+        draggable={false}
         style={{
+          width: w,
+          height: h,
+          objectFit: "contain",
           animation: ANIM[state],
           transformOrigin: "50% 100%",
           display: "block",
-          opacity: asleep ? 0.8 : 1,
         }}
-      >
-        <style>{CSS}</style>
-        <path d="M30 50 L36 14 L56 38 Z M98 50 L92 14 L72 38 Z" fill="#e8742c" />
-        <ellipse cx="64" cy="82" rx="46" ry="38" fill="#f08a3c" />
-        <ellipse cx="64" cy="96" rx="26" ry="20" fill="#fff3e0" />
-        {asleep ? (
-          <path d="M42 76 h12 M74 76 h12" stroke="#222" strokeWidth="3" strokeLinecap="round" />
-        ) : (
-          <>
-            <circle cx="48" cy="76" r="5" fill="#222" />
-            <circle cx="80" cy="76" r="5" fill="#222" />
-          </>
-        )}
-        <ellipse cx="64" cy="88" rx="5" ry="3.5" fill="#222" />
-      </svg>
+      />
+    );
+  const name = `sheet_${skin.manifest.id.replace(/\W/g, "_")}_${key}`;
+  return (
+    <div
+      key={`${skin.manifest.id}-${key}`} // reinicia la animación al cambiar de estado (celebrate no loop)
+      style={{
+        width: w,
+        height: h,
+        backgroundImage: `url(${url})`,
+        backgroundSize: `${anim.frames * w}px ${h}px`,
+        imageRendering: "pixelated",
+        animation: `${name} ${anim.frames / anim.fps}s steps(${anim.frames}) ${anim.loop ? "infinite" : "1 forwards"}`,
+      }}
+    >
+      <style>{`@keyframes ${name}{from{background-position-x:0}to{background-position-x:-${anim.frames * w}px}}`}</style>
     </div>
+  );
+}
+
+function Builtin({ state }: { state: PetState }) {
+  const asleep = state === "sleep";
+  return (
+    <svg
+      width={128}
+      height={128}
+      viewBox="0 0 128 128"
+      style={{
+        animation: ANIM[state],
+        transformOrigin: "50% 100%",
+        display: "block",
+        opacity: asleep ? 0.8 : 1,
+      }}
+    >
+      <path d="M30 50 L36 14 L56 38 Z M98 50 L92 14 L72 38 Z" fill="#e8742c" />
+      <ellipse cx="64" cy="82" rx="46" ry="38" fill="#f08a3c" />
+      <ellipse cx="64" cy="96" rx="26" ry="20" fill="#fff3e0" />
+      {asleep ? (
+        <path d="M42 76 h12 M74 76 h12" stroke="#222" strokeWidth="3" strokeLinecap="round" />
+      ) : (
+        <>
+          <circle cx="48" cy="76" r="5" fill="#222" />
+          <circle cx="80" cy="76" r="5" fill="#222" />
+        </>
+      )}
+      <ellipse cx="64" cy="88" rx="5" ry="3.5" fill="#222" />
+    </svg>
   );
 }

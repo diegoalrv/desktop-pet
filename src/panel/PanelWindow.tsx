@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TaskList } from "./TaskList";
@@ -46,6 +47,13 @@ export function PanelWindow() {
             {t === "timer" ? "Timer" : "Tareas"}
           </button>
         ))}
+        <button
+          style={{ ...btn, border: 0, color: "#888" }}
+          title="Ajustes"
+          onClick={() => invoke("open_settings")}
+        >
+          ⚙
+        </button>
         <button style={{ ...btn, border: 0, color: "#888" }} onClick={() => getCurrentWindow().hide()}>
           ✕
         </button>

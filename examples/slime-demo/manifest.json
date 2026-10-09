@@ -1,0 +1,13 @@
+{
+  "id": "slime-demo",
+  "name": "Slime (demo)",
+  "frameWidth": 64,
+  "frameHeight": 64,
+  "scale": 2,
+  "animations": {
+    "idle": { "file": "idle.png", "frames": 4, "fps": 6, "loop": true },
+    "walk": { "file": "walk.png", "frames": 6, "fps": 10, "loop": true }
+  },
+  "walkSpeed": 50,
+  "groundOffset": 0
+}

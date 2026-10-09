@@ -5,10 +5,14 @@ import { PetWindow } from "./pet/PetWindow";
 import { PanelWindow } from "./panel/PanelWindow";
 import { initTimerStore } from "./store/useTimer";
 import { initTasksStore } from "./store/useTasks";
+import { initSettingsStore } from "./store/useSettings";
+import { SettingsWindow } from "./settings/SettingsWindow";
 
 initTimerStore();
 initTasksStore();
-const Root = getCurrentWindow().label === "panel" ? PanelWindow : PetWindow;
+initSettingsStore();
+const label = getCurrentWindow().label;
+const Root = label === "panel" ? PanelWindow : label === "settings" ? SettingsWindow : PetWindow;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

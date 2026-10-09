@@ -11,3 +11,5 @@
 - **Clic vs arrastre**: `startDragging()` bloquea el `mouseup`, así que solo se llama tras mover > 3 px; un clic sin mover abre el panel.
 - **SQLite con varias ventanas**: si cada ventana hace `Database.load` a la vez, las migraciones chocan (`database is locked`).
   Se evita con `plugins.sql.preload` en `tauri.conf.json`: Rust abre y migra una vez; los `load` de JS reutilizan el pool.
+- **Skins**: las imágenes se leen con `plugin-fs` y se sirven como blob URLs (no hace falta asset protocol ni CSP). Los nombres de archivo del manifest
+  son planos (`^[\w.-]+\.(png|webp|gif|jpe?g)$`) para evitar path traversal desde un zip. Rutas elegidas por diálogo se agregan solas al scope de fs.
