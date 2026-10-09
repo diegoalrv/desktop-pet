@@ -57,6 +57,7 @@ export function PetWindow() {
       shortS: prefs.shortMin * 60,
       longS: prefs.longMin * 60,
       longEvery: prefs.longEvery,
+      autoCycle: prefs.autoCycle,
     });
     invoke("set_quick_shortcut", { accel: prefs.shortcut }).catch(() => {});
   }, [prefs]);
@@ -166,7 +167,7 @@ export function PetWindow() {
       (e) => {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
-        if (!d.skipped && sound.current) chime();
+        if (!d.skipped && sound.current) chime(d.mode === "focus" ? "rest" : "work");
         if (!d.skipped) {
           const end = Date.now();
           db.recordSession({ start: end - d.elapsed * 1000, end, mode: d.mode, task_id: d.task_id });

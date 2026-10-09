@@ -38,3 +38,7 @@
 ## Extra: skin "Tortu" (tortuga original)
 - `examples/tortu/`: pixel art propio con las 6 animaciones (idle, walk, focus, celebrate, sleep, dragged); `generate.py` lo regenera.
 - Test que valida que los manifests de `examples/` parsean y sus archivos existen.
+
+## Extra: ciclo automático
+- Pref `autoCycle` (Ajustes, por defecto activo): al terminar una pausa arranca el siguiente foco solo, conservando la tarea del foco anterior; la pausa larga sigue cada N focos.
+- Notificación en cada cambio ("Suelta el trabajo: pausa de N min" / "A trabajar: foco de N min") y sonido distinto: sube al descansar, baja al volver a trabajar.

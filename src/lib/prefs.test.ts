@@ -17,6 +17,7 @@ describe("prefs", () => {
       shortMin: 5,
       longMin: 15,
       longEvery: 4,
+      autoCycle: true,
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
     });

@@ -9,6 +9,7 @@ export const prefsSchema = z.object({
   shortMin: mins(5),
   longMin: mins(15),
   longEvery: mins(4, 12),
+  autoCycle: z.boolean().catch(true),
   sound: z.boolean().catch(true),
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
 });

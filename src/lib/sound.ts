@@ -1,9 +1,10 @@
-// Campanilla corta con WebAudio (sin assets). Si el webview la bloquea por política de autoplay, falla en silencio.
-export function chime() {
+// Campanilla corta con WebAudio (sin assets). "rest" sube (descansa), "work" baja (a trabajar).
+// Si el webview la bloquea por política de autoplay, falla en silencio.
+export function chime(kind: "rest" | "work" = "rest") {
   try {
     const ctx = new AudioContext();
     void ctx.resume();
-    [660, 880, 1320].forEach((f, i) => {
+    (kind === "rest" ? [660, 880, 1320] : [1320, 880, 660]).forEach((f, i) => {
       const o = ctx.createOscillator();
       const g = ctx.createGain();
       const t = ctx.currentTime + i * 0.18;

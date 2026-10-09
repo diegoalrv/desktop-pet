@@ -29,6 +29,8 @@ pub struct Cfg {
     pub short_s: u64,
     pub long_s: u64,
     pub long_every: u32,
+    /// Al terminar una pausa, arranca el siguiente foco solo.
+    pub auto_cycle: bool,
 }
 
 pub struct Timer {
@@ -39,6 +41,7 @@ pub struct Timer {
     end: Option<Instant>,
     count: u32,
     task_id: Option<i64>,
+    last_task: Option<i64>, // tarea del último foco, para continuar el ciclo
     cfg: Cfg,
 }
 
@@ -71,7 +74,8 @@ impl Timer {
             end: None,
             count: 0,
             task_id: None,
-            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4 },
+            last_task: None,
+            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false },
         }
     }
 
@@ -122,6 +126,7 @@ impl Timer {
         let elapsed = self.total.saturating_sub(self.remaining(now)).as_secs();
         if mode == Mode::Focus {
             self.count += 1;
+            self.last_task = task_id;
             let (next, secs) = if self.count % self.cfg.long_every == 0 {
                 (Mode::Long, self.cfg.long_s)
             } else {
@@ -129,6 +134,9 @@ impl Timer {
             };
             self.start(next, secs, None, now);
             Some(Done { mode, next: Some(next), task_id, elapsed, skipped })
+        } else if self.cfg.auto_cycle {
+            self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now);
+            Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped })
         } else {
             self.reset();
             Some(Done { mode, next: None, task_id, elapsed, skipped })
@@ -162,9 +170,11 @@ fn emit_tick(app: &AppHandle, t: &Timer) {
 }
 
 fn notify(app: &AppHandle, done: &Done, t: &Timer) {
-    let (title, body) = match done.next {
-        Some(_) => ("¡Foco terminado!".to_string(), format!("Toca una pausa de {} min.", t.snap(Instant::now()).total / 60)),
-        None => ("¡A trabajar!".to_string(), "La pausa terminó.".to_string()),
+    let mins = t.snap(Instant::now()).total / 60;
+    let (title, body) = match (done.mode, done.next) {
+        (Mode::Focus, _) => ("¡Foco terminado! Descansa".to_string(), format!("Suelta el trabajo: pausa de {mins} min.")),
+        (_, Some(_)) => ("¡A trabajar!".to_string(), format!("La pausa terminó. Arranca un foco de {mins} min.")),
+        (_, None) => ("¡A trabajar!".to_string(), "La pausa terminó.".to_string()),
     };
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -191,9 +201,9 @@ pub fn spawn(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, s: State<TimerState>) {
+pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1) };
+    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle };
 }
 
 /// Inicia un foco con la duración configurada (menú del tray).
@@ -260,6 +270,22 @@ mod tests {
         assert_eq!(t.remaining(t0 + Duration::from_secs(500)), Duration::from_secs(40));
         t.resume(t0 + Duration::from_secs(500));
         assert_eq!(t.remaining(t0 + Duration::from_secs(510)), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn ciclo_automatico_continua_con_otro_foco_y_conserva_tarea() {
+        let mut now = Instant::now();
+        let mut t = Timer::new();
+        t.cfg.auto_cycle = true;
+        t.cfg.focus_s = 60;
+        t.start(Mode::Focus, 60, Some(7), now);
+        now += Duration::from_secs(61);
+        assert_eq!(t.due(now).unwrap().next, Some(Mode::Short));
+        now += Duration::from_secs(301);
+        let d = t.due(now).unwrap();
+        assert_eq!((d.mode, d.next), (Mode::Short, Some(Mode::Focus)));
+        let s = t.snap(now);
+        assert_eq!((s.mode, s.status, s.total, s.task_id), (Mode::Focus, Status::Running, 60, Some(7)));
     }
 
     #[test]

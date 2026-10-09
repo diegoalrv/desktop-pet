@@ -132,6 +132,14 @@ export function SettingsWindow() {
       {num("shortMin", "Pausa corta (min)")}
       {num("longMin", "Pausa larga (min)")}
       {num("longEvery", "Pausa larga cada (focos)")}
+      <label>
+        <input
+          type="checkbox"
+          checked={prefs.autoCycle}
+          onChange={(e) => setPrefs({ autoCycle: e.target.checked })}
+        />{" "}
+        Ciclo automático (al terminar una pausa arranca el siguiente foco)
+      </label>
 
       <h2 style={h}>Sonido</h2>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -143,9 +151,14 @@ export function SettingsWindow() {
           />{" "}
           Sonar al terminar
         </label>
-        <button style={{ ...btn, padding: "2px 8px" }} onClick={chime}>
-          Probar
-        </button>
+        <span style={{ display: "flex", gap: 6 }}>
+          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("rest")}>
+            Probar descanso
+          </button>
+          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("work")}>
+            Probar trabajo
+          </button>
+        </span>
       </div>
 
       <h2 style={h}>Captura rápida</h2>
