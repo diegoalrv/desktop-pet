@@ -4,23 +4,26 @@ import { fmt } from "../lib/time";
 import { MODE_COLOR } from "../pet/TimerPill";
 import { useTimer } from "../store/useTimer";
 import { useTasks } from "../store/useTasks";
+import { useSettings } from "../store/useSettings";
 import { btn } from "./ui";
 
-const MODES: { mode: Mode; label: string; min: number }[] = [
-  { mode: "focus", label: "Foco", min: 25 },
-  { mode: "short", label: "Pausa corta", min: 5 },
-  { mode: "long", label: "Pausa larga", min: 15 },
+const LABELS: { mode: Mode; label: string }[] = [
+  { mode: "focus", label: "Foco" },
+  { mode: "short", label: "Pausa corta" },
+  { mode: "long", label: "Pausa larga" },
 ];
 const QUICK = [...(import.meta.env.DEV ? [1] : []), 5, 15, 30];
 
 export function TimerControls() {
   const { snap } = useTimer();
+  const p = useSettings((s) => s.prefs);
+  const MINS = { focus: p.focusMin, short: p.shortMin, long: p.longMin };
   const { tasks, selected, select } = useTasks();
   const [mode, setMode] = useState<Mode>("focus");
   const [custom, setCustom] = useState("");
   const active = snap.status !== "idle";
   const shown = active ? snap.mode : mode;
-  const defMin = MODES.find((m) => m.mode === mode)!.min;
+  const defMin = MINS[mode];
   const taskId = active ? snap.task_id : mode === "focus" ? selected : null;
   const task = tasks.find((t) => t.id === taskId);
   const start = (min: number) =>
@@ -29,7 +32,7 @@ export function TimerControls() {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 6 }}>
-        {MODES.map((m) => (
+        {LABELS.map((m) => (
           <button
             key={m.mode}
             disabled={active}

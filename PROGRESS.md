@@ -27,3 +27,10 @@
 - Skins en `$APPDATA/skins/<id>/`; skin original integrado (zorro SVG). Activo guardado con `tauri-plugin-store`; cambio en caliente por evento `settings://skin`.
 - Ventana `settings` (⚙ en el panel): elegir, importar y quitar skins. Ejemplo para probar: `examples/slime-demo/`.
 - `walkSpeed`, `groundOffset` y `scale` del manifest se aplican; el sprite se limita a 150 px por la ventana fija de la mascota.
+
+## F6: Pulido — hecha en Mac (pendiente verificación visual y build en Windows)
+- Tray (`tray.rs`): mostrar/ocultar mascota, iniciar foco, abrir tareas, ajustes, salir.
+- Ajustes completos: duraciones (foco, pausas, pausa larga cada N), sonido (campanilla WebAudio + botón Probar), atajo global configurable (captura de teclas, validado en Rust), autostart (LaunchAgent).
+- Preferencias validadas con zod (`lib/prefs.ts`, con tests) y empujadas a Rust (`timer_config`).
+- Ícono original (zorro) generado y aplicado con `pnpm tauri icon`. README con instrucciones de build y firma.
+- El `.msi` solo se puede generar construyendo en Windows.

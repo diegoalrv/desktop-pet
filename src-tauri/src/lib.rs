@@ -1,4 +1,5 @@
 mod timer;
+mod tray;
 mod windows;
 
 use std::{sync::Mutex, thread, time::Duration};
@@ -54,6 +55,7 @@ fn spawn_cursor_poll(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -72,8 +74,6 @@ pub fn run() {
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts(["CommandOrControl+Shift+Space"])
-                .expect("atajo global inválido")
                 .with_handler(|app, _, ev| {
                     if ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         windows::show_panel(app);
@@ -84,11 +84,14 @@ pub fn run() {
         )
         .manage(HitRect::default())
         .manage(windows::LastBlur::default())
+        .manage(windows::QuickShortcut(Mutex::new(String::new())))
         .manage(timer::TimerState::new(timer::Timer::new()))
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             windows::toggle_panel,
             windows::open_settings,
+            windows::set_quick_shortcut,
+            timer::timer_config,
             timer::timer_get,
             timer::timer_start,
             timer::timer_pause,
@@ -104,6 +107,12 @@ pub fn run() {
             windows::hide_panel_on_blur(app.handle());
             windows::hide_settings_on_close(app.handle());
             timer::spawn(app.handle().clone());
+            let _ = windows::set_quick_shortcut(
+                windows::DEFAULT_SHORTCUT.into(),
+                app.handle().clone(),
+                app.state::<windows::QuickShortcut>(),
+            );
+            tray::build(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

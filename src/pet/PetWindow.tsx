@@ -6,6 +6,7 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { Sprite } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
+import { chime } from "../lib/sound";
 import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
@@ -44,6 +45,21 @@ export function PetWindow() {
       cancelled = true;
     };
   }, [skinId, skinRev]);
+
+  const prefs = useSettings((s) => s.prefs);
+  const sound = useRef(prefs.sound);
+  sound.current = prefs.sound;
+
+  // Duraciones y atajo viven en Rust: se les empuja la config al arrancar y al cambiar.
+  useEffect(() => {
+    invoke("timer_config", {
+      focusS: prefs.focusMin * 60,
+      shortS: prefs.shortMin * 60,
+      longS: prefs.longMin * 60,
+      longEvery: prefs.longEvery,
+    });
+    invoke("set_quick_shortcut", { accel: prefs.shortcut }).catch(() => {});
+  }, [prefs]);
 
   const active = useTimer((s) => s.snap.status !== "idle");
   const snap = useTimer((s) => s.snap);
@@ -150,6 +166,7 @@ export function PetWindow() {
       (e) => {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
+        if (!d.skipped && sound.current) chime();
         if (!d.skipped) {
           const end = Date.now();
           db.recordSession({ start: end - d.elapsed * 1000, end, mode: d.mode, task_id: d.task_id });

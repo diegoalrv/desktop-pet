@@ -25,6 +25,7 @@ pub enum Status {
 
 /// Pausas automáticas tras un foco (configurable desde Settings en F6).
 pub struct Cfg {
+    pub focus_s: u64,
     pub short_s: u64,
     pub long_s: u64,
     pub long_every: u32,
@@ -70,7 +71,7 @@ impl Timer {
             end: None,
             count: 0,
             task_id: None,
-            cfg: Cfg { short_s: 300, long_s: 900, long_every: 4 },
+            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4 },
         }
     }
 
@@ -187,6 +188,21 @@ pub fn spawn(app: AppHandle) {
         }
         emit_tick(&app, &t);
     });
+}
+
+#[tauri::command]
+pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, s: State<TimerState>) {
+    let mut t = s.lock().unwrap();
+    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1) };
+}
+
+/// Inicia un foco con la duración configurada (menú del tray).
+pub fn start_focus(app: &AppHandle) {
+    let state = app.state::<TimerState>();
+    let mut t = state.lock().unwrap();
+    let secs = t.cfg.focus_s;
+    t.start(Mode::Focus, secs, None, Instant::now());
+    emit_tick(app, &t);
 }
 
 #[tauri::command]

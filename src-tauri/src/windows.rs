@@ -71,3 +71,27 @@ pub fn open_settings(app: AppHandle) -> Option<()> {
     w.show().ok()?;
     w.set_focus().ok()
 }
+
+/// Atajo global de captura rápida actual (para poder reemplazarlo).
+pub struct QuickShortcut(pub Mutex<String>);
+pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+
+/// Registra `accel` como atajo de captura rápida, reemplazando el anterior. Devuelve error legible si es inválido.
+#[tauri::command]
+pub fn set_quick_shortcut(accel: String, app: AppHandle, cur: State<QuickShortcut>) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let new: Shortcut = accel.parse().map_err(|e| format!("Atajo inválido: {e}"))?;
+    let gs = app.global_shortcut();
+    let mut cur = cur.0.lock().unwrap();
+    if *cur == accel && gs.is_registered(new) {
+        return Ok(());
+    }
+    gs.register(new).map_err(|e| format!("No se pudo registrar (¿en uso?): {e}"))?;
+    if let Ok(old) = cur.parse::<Shortcut>() {
+        if old != new {
+            let _ = gs.unregister(old);
+        }
+    }
+    *cur = accel;
+    Ok(())
+}
