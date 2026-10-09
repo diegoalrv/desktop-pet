@@ -13,3 +13,11 @@
 - Notificación nativa desde Rust al terminar (funciona con ventanas ocultas).
 - Píldora bajo la mascota (color por modo, parpadea en pausa); panel anclado sobre la mascota con controles, 5/15/30 y minutos custom (+1 min solo en dev).
 - Clic en la mascota abre/cierra el panel; arrastre empieza al mover > 3 px.
+
+## F4: Tareas — hecha (pendiente verificación del usuario)
+- SQLite (`tauri-plugin-sql`, migración `src-tauri/migrations/001_init.sql`, preload en `tauri.conf.json`): categorías, tareas, sesiones.
+- Panel con pestañas Timer / Tareas: CRUD (doble clic para renombrar), categorías editables (⚙), prioridad, estimación, fecha/hora, filtro Hoy y contador de focos del día.
+- 🎯 enfoca una tarea: el timer la lleva en Rust (`task_id`) y al terminar cada foco suma pomodoros reales y guarda la sesión.
+- Atajo global `Cmd/Ctrl+Shift+Space` (Rust): abre el panel en Tareas con el input enfocado.
+- Recordatorios: la ventana mascota revisa cada 20 s tareas con fecha vencida y notifica una vez (`send_notification`).
+- Completar una tarea hace celebrar a la mascota.

@@ -7,14 +7,17 @@ export interface TimerSnap {
   remaining: number; // s
   total: number; // s
   count: number; // focos completados
+  task_id: number | null;
 }
 
 export const timer = {
   get: () => invoke<TimerSnap>("timer_get"),
-  start: (mode: Mode, seconds: number) => invoke("timer_start", { mode, seconds }),
+  start: (mode: Mode, seconds: number, taskId: number | null = null) =>
+    invoke("timer_start", { mode, seconds, taskId }),
   pause: () => invoke("timer_pause"),
   resume: () => invoke("timer_resume"),
   reset: () => invoke("timer_reset"),
   skip: () => invoke("timer_skip"),
 };
 export const togglePanel = () => invoke("toggle_panel");
+export const notify = (title: string, body: string) => invoke("send_notification", { title, body });

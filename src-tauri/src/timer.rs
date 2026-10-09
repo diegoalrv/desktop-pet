@@ -37,6 +37,7 @@ pub struct Timer {
     left: Duration, // válido en Paused
     end: Option<Instant>,
     count: u32,
+    task_id: Option<i64>,
     cfg: Cfg,
 }
 
@@ -44,6 +45,9 @@ pub struct Timer {
 pub struct Done {
     mode: Mode,
     next: Option<Mode>,
+    task_id: Option<i64>,
+    elapsed: u64, // s realmente transcurridos
+    skipped: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -53,6 +57,7 @@ pub struct Snap {
     remaining: u64,
     total: u64,
     count: u32,
+    task_id: Option<i64>,
 }
 
 impl Timer {
@@ -64,6 +69,7 @@ impl Timer {
             left: Duration::ZERO,
             end: None,
             count: 0,
+            task_id: None,
             cfg: Cfg { short_s: 300, long_s: 900, long_every: 4 },
         }
     }
@@ -76,8 +82,9 @@ impl Timer {
         }
     }
 
-    pub fn start(&mut self, mode: Mode, secs: u64, now: Instant) {
+    pub fn start(&mut self, mode: Mode, secs: u64, task_id: Option<i64>, now: Instant) {
         self.mode = mode;
+        self.task_id = task_id;
         self.total = Duration::from_secs(secs);
         self.status = Status::Running;
         self.end = Some(now + self.total);
@@ -105,11 +112,13 @@ impl Timer {
     }
 
     /// Termina el temporizador actual (por vencimiento o skip). Tras un foco arranca la pausa.
-    pub fn complete(&mut self, now: Instant) -> Option<Done> {
+    pub fn complete(&mut self, now: Instant, skipped: bool) -> Option<Done> {
         if self.status == Status::Idle {
             return None;
         }
         let mode = self.mode;
+        let task_id = self.task_id;
+        let elapsed = self.total.saturating_sub(self.remaining(now)).as_secs();
         if mode == Mode::Focus {
             self.count += 1;
             let (next, secs) = if self.count % self.cfg.long_every == 0 {
@@ -117,17 +126,17 @@ impl Timer {
             } else {
                 (Mode::Short, self.cfg.short_s)
             };
-            self.start(next, secs, now);
-            Some(Done { mode, next: Some(next) })
+            self.start(next, secs, None, now);
+            Some(Done { mode, next: Some(next), task_id, elapsed, skipped })
         } else {
             self.reset();
-            Some(Done { mode, next: None })
+            Some(Done { mode, next: None, task_id, elapsed, skipped })
         }
     }
 
     pub fn due(&mut self, now: Instant) -> Option<Done> {
         if self.status == Status::Running && self.remaining(now).is_zero() {
-            self.complete(now)
+            self.complete(now, false)
         } else {
             None
         }
@@ -140,6 +149,7 @@ impl Timer {
             remaining: self.remaining(now).as_secs_f64().ceil() as u64,
             total: self.total.as_secs(),
             count: self.count,
+            task_id: self.task_id,
         }
     }
 }
@@ -185,9 +195,9 @@ pub fn timer_get(s: State<TimerState>) -> Snap {
 }
 
 #[tauri::command]
-pub fn timer_start(mode: Mode, seconds: u64, app: AppHandle, s: State<TimerState>) {
+pub fn timer_start(mode: Mode, seconds: u64, task_id: Option<i64>, app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.start(mode, seconds, Instant::now());
+    t.start(mode, seconds, task_id, Instant::now());
     emit_tick(&app, &t);
 }
 
@@ -215,7 +225,7 @@ pub fn timer_reset(app: AppHandle, s: State<TimerState>) {
 #[tauri::command]
 pub fn timer_skip(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    if let Some(done) = t.complete(Instant::now()) {
+    if let Some(done) = t.complete(Instant::now(), true) {
         finish(&app, &t, done);
     }
     emit_tick(&app, &t);
@@ -229,7 +239,7 @@ mod tests {
     fn pause_congela_y_resume_continua() {
         let t0 = Instant::now();
         let mut t = Timer::new();
-        t.start(Mode::Focus, 60, t0);
+        t.start(Mode::Focus, 60, None, t0);
         t.pause(t0 + Duration::from_secs(20));
         assert_eq!(t.remaining(t0 + Duration::from_secs(500)), Duration::from_secs(40));
         t.resume(t0 + Duration::from_secs(500));
@@ -241,7 +251,7 @@ mod tests {
         let mut now = Instant::now();
         let mut t = Timer::new();
         for i in 1..=4 {
-            t.start(Mode::Focus, 60, now);
+            t.start(Mode::Focus, 60, None, now);
             assert!(t.due(now + Duration::from_secs(59)).is_none());
             now += Duration::from_secs(61);
             let d = t.due(now).unwrap();
@@ -249,7 +259,12 @@ mod tests {
             assert_eq!(t.status, Status::Running);
         }
         now += Duration::from_secs(901);
-        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None }));
+        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false }));
         assert_eq!(t.status, Status::Idle);
     }
+}
+
+#[tauri::command]
+pub fn send_notification(app: AppHandle, title: String, body: String) {
+    let _ = app.notification().builder().title(title).body(body).show();
 }

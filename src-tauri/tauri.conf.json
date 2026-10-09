@@ -29,8 +29,8 @@
         "label": "panel",
         "title": "panel",
         "url": "index.html",
-        "width": 340,
-        "height": 440,
+        "width": 360,
+        "height": 520,
         "visible": false,
         "decorations": false,
         "alwaysOnTop": true,
@@ -54,5 +54,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "sql": {
+      "preload": [
+        "sqlite:pet.db"
+      ]
+    }
   }
 }

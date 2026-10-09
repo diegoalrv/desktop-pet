@@ -2,7 +2,7 @@ mod timer;
 mod windows;
 
 use std::{sync::Mutex, thread, time::Duration};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 /// Zona opaca (px lógicos, relativa a la ventana) donde la ventana captura el mouse.
 #[derive(Default)]
@@ -54,6 +54,31 @@ fn spawn_cursor_poll(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_sql::Builder::default()
+                .add_migrations(
+                    "sqlite:pet.db",
+                    vec![tauri_plugin_sql::Migration {
+                        version: 1,
+                        description: "init",
+                        sql: include_str!("../migrations/001_init.sql"),
+                        kind: tauri_plugin_sql::MigrationKind::Up,
+                    }],
+                )
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts(["CommandOrControl+Shift+Space"])
+                .expect("atajo global inválido")
+                .with_handler(|app, _, ev| {
+                    if ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        windows::show_panel(app);
+                        let _ = app.emit_to("panel", "panel://quick-capture", ());
+                    }
+                })
+                .build(),
+        )
         .manage(HitRect::default())
         .manage(windows::LastBlur::default())
         .manage(timer::TimerState::new(timer::Timer::new()))
@@ -65,7 +90,8 @@ pub fn run() {
             timer::timer_pause,
             timer::timer_resume,
             timer::timer_reset,
-            timer::timer_skip
+            timer::timer_skip,
+            timer::send_notification
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

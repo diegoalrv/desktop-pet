@@ -5,7 +5,9 @@ import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { Sprite } from "./Sprite";
 import { PILL_H, TimerPill } from "./TimerPill";
-import { togglePanel } from "../lib/ipc";
+import { notify, togglePanel } from "../lib/ipc";
+import * as db from "../lib/db";
+import { needsReminder } from "../lib/tasks";
 import { useTimer } from "../store/useTimer";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
 import { initial, transition, type PetEvent, type PetState } from "./stateMachine";
@@ -118,10 +120,29 @@ export function PetWindow() {
         send({ type: a.mode === "focus" ? "timerStart" : "breakStart" });
       else if (a.status === "idle" && b.status !== "idle") send({ type: "timerStop" });
     });
-    const unDone = listen<{ mode: string }>(
+    const unDone = listen<{ mode: string; elapsed: number; skipped: boolean; task_id: number | null }>(
       "timer://done",
-      (e) => e.payload.mode === "focus" && send({ type: "timerEnd" }),
+      (e) => {
+        const d = e.payload;
+        if (d.mode === "focus") send({ type: "timerEnd" });
+        if (!d.skipped) {
+          const end = Date.now();
+          db.recordSession({ start: end - d.elapsed * 1000, end, mode: d.mode, task_id: d.task_id });
+        }
+      },
     );
+    const unTask = listen("task://done", () => send({ type: "taskDone" }));
+
+    // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
+    const remind = async () => {
+      const now = Date.now();
+      for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {
+        await db.markNotified(t.id);
+        notify("Recordatorio", t.title);
+      }
+    };
+    remind();
+    const remindTimer = setInterval(remind, 20_000);
 
     const frame = (now: number) => {
       if (!alive) return;
@@ -169,6 +190,8 @@ export function PetWindow() {
       el.removeEventListener("mousemove", onMouseMove);
       unsub();
       unDone.then((f) => f());
+      unTask.then((f) => f());
+      clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
     };
   }, []);

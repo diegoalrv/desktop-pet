@@ -1,8 +1,8 @@
 use std::{sync::Mutex, time::{Duration, Instant}};
 use tauri::{AppHandle, Manager, PhysicalPosition, State, WindowEvent};
 
-pub const PANEL_W: f64 = 340.0;
-pub const PANEL_H: f64 = 440.0;
+pub const PANEL_W: f64 = 360.0;
+pub const PANEL_H: f64 = 520.0;
 
 /// Momento en que el panel se ocultó por perder foco (evita que el clic en la mascota lo reabra al instante).
 #[derive(Default)]
@@ -23,7 +23,6 @@ pub fn hide_panel_on_blur(app: &AppHandle) {
 #[tauri::command]
 pub fn toggle_panel(app: AppHandle, blur: State<LastBlur>) -> Option<()> {
     let panel = app.get_webview_window("panel")?;
-    let pet = app.get_webview_window("pet")?;
     if panel.is_visible().ok()? {
         panel.hide().ok()?;
         return Some(());
@@ -31,6 +30,13 @@ pub fn toggle_panel(app: AppHandle, blur: State<LastBlur>) -> Option<()> {
     if blur.0.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
         return Some(());
     }
+    show_panel(&app)
+}
+
+/// Muestra el panel anclado sobre la mascota (también lo usa el atajo global).
+pub fn show_panel(app: &AppHandle) -> Option<()> {
+    let panel = app.get_webview_window("panel")?;
+    let pet = app.get_webview_window("pet")?;
     // Anclado sobre la mascota, dentro del work area de su monitor.
     let (pos, size, scale) = (pet.outer_position().ok()?, pet.outer_size().ok()?, pet.scale_factor().ok()?);
     let (pw, ph) = (PANEL_W * scale, PANEL_H * scale);
