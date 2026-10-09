@@ -34,3 +34,7 @@
 - Preferencias validadas con zod (`lib/prefs.ts`, con tests) y empujadas a Rust (`timer_config`).
 - Ícono original (zorro) generado y aplicado con `pnpm tauri icon`. README con instrucciones de build y firma.
 - El `.msi` solo se puede generar construyendo en Windows.
+
+## Extra: skin "Tortu" (tortuga original)
+- `examples/tortu/`: pixel art propio con las 6 animaciones (idle, walk, focus, celebrate, sleep, dragged); `generate.py` lo regenera.
+- Test que valida que los manifests de `examples/` parsean y sus archivos existen.

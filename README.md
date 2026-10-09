@@ -42,7 +42,7 @@ Los instaladores salen **sin firmar**. Para distribuirlos:
 ## Skins
 
 Un skin es una carpeta o `.zip` con `manifest.json` y sprite sheets horizontales. Importa desde Ajustes → "Importar carpeta…" / "Importar .zip / imagen…".
-Una sola imagen también sirve: se anima con efectos CSS. Hay un ejemplo en `examples/slime-demo/`.
+Una sola imagen también sirve: se anima con efectos CSS. Hay ejemplos en `examples/`: `tortu` (tortuga original con las 6 animaciones; `generate.py` la regenera) y `slime-demo`.
 
 ```json
 {

@@ -51,3 +51,14 @@ describe("manifest", () => {
     expect(Object.keys(normalizeZipPaths({ "a.png": new Uint8Array() }))).toEqual(["a.png"]);
   });
 });
+
+describe("skins de ejemplo", () => {
+  for (const dir of ["slime-demo", "tortu"]) {
+    it(`${dir}: manifest válido y archivos presentes`, async () => {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const root = `examples/${dir}`;
+      const m = parseManifest(JSON.parse(readFileSync(`${root}/manifest.json`, "utf8")));
+      for (const a of Object.values(m.animations)) expect(existsSync(`${root}/${a.file}`)).toBe(true);
+    });
+  }
+});
