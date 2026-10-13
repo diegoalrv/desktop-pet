@@ -11,6 +11,7 @@ export const prefsSchema = z.object({
   longEvery: mins(4, 12),
   autoCycle: z.boolean().catch(true),
   sound: z.boolean().catch(true),
+  loud: z.boolean().catch(true), // volumen del sistema al máximo mientras suena
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
 });
 export type Prefs = z.infer<typeof prefsSchema>;

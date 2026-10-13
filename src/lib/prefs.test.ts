@@ -19,6 +19,7 @@ describe("prefs", () => {
       longEvery: 4,
       autoCycle: true,
       sound: true,
+      loud: true,
       shortcut: "CommandOrControl+Shift+Space",
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });

@@ -9,6 +9,41 @@ use tauri::{Emitter, Manager, State};
 #[derive(Default)]
 struct HitRect(Mutex<[f64; 4]>); // x, y, w, h
 
+/// Sube el volumen del sistema a 100 (y quita el mute) durante `secs` y luego lo restaura.
+/// macOS vía osascript; otras plataformas: no-op. Si ya está subido, no vuelve a guardar el estado.
+#[tauri::command]
+fn boost_volume(secs: u64) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        use std::sync::OnceLock;
+        static SAVED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+        let saved = SAVED.get_or_init(|| Mutex::new(None));
+        let osa = |s: &str| Command::new("osascript").args(["-e", s]).output().ok();
+        let mut g = saved.lock().unwrap();
+        if g.is_none() {
+            // "60,false" -> volumen y mute previos
+            let out = osa("set v to (get volume settings)\n(output volume of v as text) & \",\" & (output muted of v as text)");
+            let prev = out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+            if prev.is_empty() {
+                return;
+            }
+            *g = Some(prev);
+        }
+        drop(g);
+        osa("set volume output volume 100 without output muted");
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(secs));
+            let Some(prev) = saved.lock().unwrap().take() else { return };
+            let (vol, muted) = prev.split_once(',').unwrap_or((&prev, "false"));
+            let m = if muted == "true" { "with" } else { "without" };
+            osa(&format!("set volume output volume {vol} {m} output muted"));
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = secs;
+}
+
 #[tauri::command]
 fn set_hit_rect(rect: [f64; 4], state: State<HitRect>) {
     *state.0.lock().unwrap() = rect;
@@ -88,6 +123,7 @@ pub fn run() {
         .manage(timer::TimerState::new(timer::Timer::new()))
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
+            boost_volume,
             windows::toggle_panel,
             windows::open_settings,
             windows::set_quick_shortcut,

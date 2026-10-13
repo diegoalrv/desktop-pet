@@ -47,8 +47,8 @@ export function PetWindow() {
   }, [skinId, skinRev]);
 
   const prefs = useSettings((s) => s.prefs);
-  const sound = useRef(prefs.sound);
-  sound.current = prefs.sound;
+  const sound = useRef(prefs);
+  sound.current = prefs;
 
   // Duraciones y atajo viven en Rust: se les empuja la config al arrancar y al cambiar.
   useEffect(() => {
@@ -167,7 +167,7 @@ export function PetWindow() {
       (e) => {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
-        if (!d.skipped && sound.current) chime(d.mode === "focus" ? "rest" : "work");
+        if (!d.skipped && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work", sound.current.loud);
         if (!d.skipped) {
           const end = Date.now();
           db.recordSession({ start: end - d.elapsed * 1000, end, mode: d.mode, task_id: d.task_id });

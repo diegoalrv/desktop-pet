@@ -42,3 +42,4 @@
 ## Extra: ciclo automático
 - Pref `autoCycle` (Ajustes, por defecto activo): al terminar una pausa arranca el siguiente foco solo, conservando la tarea del foco anterior; la pausa larga sigue cada N focos.
 - Notificación en cada cambio ("Suelta el trabajo: pausa de N min" / "A trabajar: foco de N min") y sonido distinto: sube al descansar, baja al volver a trabajar.
+- Sonido fuerte: campanilla a ganancia 1.0, onda triangular, arpegio x2; pref `loud` (por defecto activa) sube el volumen del sistema a 100 y quita el mute mientras suena (macOS vía osascript, comando `boost_volume`) y lo restaura a los 3 s. Silenciar otras apps no es posible en macOS sin extensiones; se cubre con el volumen máximo.

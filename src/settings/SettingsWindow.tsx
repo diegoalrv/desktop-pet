@@ -152,14 +152,18 @@ export function SettingsWindow() {
           Sonar al terminar
         </label>
         <span style={{ display: "flex", gap: 6 }}>
-          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("rest")}>
+          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("rest", prefs.loud)}>
             Probar descanso
           </button>
-          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("work")}>
+          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => chime("work", prefs.loud)}>
             Probar trabajo
           </button>
         </span>
       </div>
+      <label>
+        <input type="checkbox" checked={prefs.loud} onChange={(e) => setPrefs({ loud: e.target.checked })} />{" "}
+        Volumen del sistema al máximo mientras suena (se restaura después)
+      </label>
 
       <h2 style={h}>Captura rápida</h2>
       <div style={{ display: "flex", gap: 8 }}>
