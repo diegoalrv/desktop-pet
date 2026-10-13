@@ -17,6 +17,20 @@
 
   const player = () => document.getElementById("movie_player");
   const video = () => document.querySelector("video");
+  const txt = (el, sel) => el.querySelector(sel)?.textContent.trim().replace(/\s+/g, " ") ?? "";
+  const queueItems = () => [...document.querySelectorAll("ytmusic-player-queue-item")];
+  // Los siguientes (hasta 12) tras el que suena; `i` es el índice absoluto para `jump`.
+  const upNext = (title) => {
+    const items = queueItems();
+    let cur = items.findIndex((el) => el.hasAttribute("selected"));
+    if (cur < 0) cur = items.findIndex((el) => txt(el, ".song-title") === title);
+    return items.slice(cur + 1, cur + 13).map((el, k) => ({
+      t: txt(el, ".song-title"),
+      a: txt(el, ".byline"),
+      i: cur + 1 + k,
+    }));
+  };
+
   let last = "";
   const push = () => {
     const v = video(), p = player(), m = navigator.mediaSession?.metadata;
@@ -27,6 +41,7 @@
       playing: !!v && !v.paused,
       t: v ? Math.floor(v.currentTime) : 0,
       d: v && isFinite(v.duration) ? Math.floor(v.duration) : 0,
+      q: upNext(m?.title ?? ""),
       vol: p?.getVolume?.() ?? (v ? Math.round(v.volume * 100) : 100),
     });
     if (j !== last) desc.set.call(document, P + (last = j));
@@ -39,7 +54,10 @@
     if (cmd === "toggle") v && (v.paused ? v.play() : v.pause());
     else if (cmd === "next") actions.nexttrack?.({ action: "nexttrack" });
     else if (cmd === "prev") actions.previoustrack?.({ action: "previoustrack" });
-    else if (cmd === "vol") p?.setVolume ? p.setVolume(arg) : v && (v.volume = arg / 100);
+    else if (cmd === "jump") {
+      const el = queueItems()[arg];
+      (el?.querySelector("ytmusic-play-button-renderer") ?? el)?.click();
+    } else if (cmd === "vol") p?.setVolume ? p.setVolume(arg) : v && (v.volume = arg / 100);
     else if (cmd === "seek" && v) v.currentTime = arg;
     else if (cmd === "search") location.href = "/search?q=" + encodeURIComponent(arg);
     else if (cmd === "duck" && v && !v.paused && !v.muted) {

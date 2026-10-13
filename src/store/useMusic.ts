@@ -10,6 +10,8 @@ export interface MusicState {
   t: number;
   d: number;
   vol: number;
+  /** lo que sigue en la cola; `i` es el índice absoluto para `jump` */
+  q?: { t: string; a: string; i: number }[];
 }
 
 // Estado de la ventana de YouTube Music (llega cada ~1 s vía `music://state`). null = ventana no abierta.

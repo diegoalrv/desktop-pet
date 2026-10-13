@@ -50,3 +50,4 @@
 - Controles: reproducir/pausar (elemento `<video>`), siguiente/anterior (manejadores de `mediaSession` capturados, porque los botones de YTM viven en shadow DOM), volumen (`movie_player.setVolume`), posición, búsqueda.
 - La campanilla del cambio de ciclo silencia la música 3 s (`duck`) mientras sube el volumen del sistema.
 - Probado a mano en la app: estado, pausa, siguiente, volumen, seek, búsqueda, duck y títulos largos. Frágil ante cambios del DOM de YouTube Music: si algo deja de responder, revisar `music_bridge.js`.
+- Cola "A continuación": `music_bridge.js` lee `ytmusic-player-queue-item` (los 12 siguientes al seleccionado) y los publica en el estado (`q`); el panel los lista y al hacer clic salta a esa canción (`jump`).
