@@ -152,6 +152,8 @@ pub fn run() {
                 app.state::<windows::QuickShortcut>(),
             );
             tray::build(app.handle())?;
+            // YouTube Music listo desde el arranque (oculto, sin reproducir).
+            let _ = music::ensure(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

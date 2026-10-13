@@ -6,7 +6,7 @@ const PREFIX: &str = "PETSTATE:";
 // UA de Safari: con el UA por defecto del webview Google puede rechazar el login.
 const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
-fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+pub fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     if let Some(w) = app.get_webview_window("music") {
         return Ok(w);
     }
