@@ -128,6 +128,7 @@ pub fn run() {
             music::music_open,
             music::music_cmd,
             windows::toggle_panel,
+            windows::hide_panel,
             windows::open_settings,
             windows::set_quick_shortcut,
             timer::timer_config,

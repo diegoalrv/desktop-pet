@@ -1,4 +1,4 @@
-export type PetState = "idle" | "walk" | "focus" | "celebrate" | "break" | "sleep" | "dragged" | "fall";
+export type PetState = "idle" | "walk" | "focus" | "celebrate" | "break" | "sleep" | "dragged" | "fall" | "attention";
 
 export type PetEvent =
   | { type: "tick"; dt: number }
@@ -11,7 +11,9 @@ export type PetEvent =
   | { type: "breakStart" } // arranca una pausa a mano
   | { type: "timerStop" } // reset / fin de pausa: vuelve a idle
   | { type: "timerEnd" } // fin de foco -> celebrate -> break; fin de break -> idle
-  | { type: "taskDone" };
+  | { type: "taskDone" }
+  | { type: "panelOpen" } // se abrió el panel: quieta y atenta
+  | { type: "panelClose" }; // se cerró: sigue con lo suyo
 
 export interface Ctx {
   state: PetState;
@@ -21,6 +23,8 @@ export interface Ctx {
   after: PetState;
   /** segundos sin input (solo cuenta fuera de focus/break) */
   quiet: number;
+  /** el panel está abierto: al quedar libre se queda en `attention` en vez de idle/walk */
+  watching: boolean;
 }
 
 export const IDLE_MIN = 5;
@@ -30,10 +34,10 @@ export const SLEEP_AFTER_S = 600;
 
 const idleFor = (r: number) => IDLE_MIN + r * IDLE_SPAN;
 const to = (c: Ctx, state: PetState, left = Infinity, after = c.after): Ctx => ({ ...c, state, left, after });
-const goIdle = (c: Ctx, r: number) => to(c, "idle", idleFor(r));
+const goIdle = (c: Ctx, r: number) => (c.watching ? to(c, "attention") : to(c, "idle", idleFor(r)));
 
 export const initial = (r = Math.random()): Ctx =>
-  goIdle({ state: "idle", left: 0, after: "idle", quiet: 0 }, r);
+  goIdle({ state: "idle", left: 0, after: "idle", quiet: 0, watching: false }, r);
 
 /** Transición pura. `r` en [0,1) aporta la aleatoriedad (inyectable para tests). */
 export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
@@ -53,7 +57,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
         : { ...to(c, "focus"), quiet: 0 };
     case "breakStart":
       if (c.state === "dragged" || c.state === "fall") return { ...c, after: "break" };
-      return c.state === "idle" || c.state === "walk" || c.state === "sleep"
+      return c.state === "idle" || c.state === "walk" || c.state === "sleep" || c.state === "attention"
         ? { ...to(c, "break"), quiet: 0 }
         : c;
     case "timerStop":
@@ -70,6 +74,14 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate") return c;
       return to(c, "celebrate", CELEBRATE_S, c.state === "sleep" ? "idle" : c.state);
     }
+    case "panelOpen": {
+      const w = { ...c, watching: true, quiet: 0 };
+      return w.state === "idle" || w.state === "walk" || w.state === "sleep" ? to(w, "attention") : w;
+    }
+    case "panelClose": {
+      const w = { ...c, watching: false };
+      return w.state === "attention" ? goIdle(w, r) : w;
+    }
     case "input":
       return c.state === "sleep" ? goIdle({ ...c, quiet: 0 }, r) : { ...c, quiet: 0 };
     case "arrive":
@@ -82,7 +94,9 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       if (left > 0) return { ...c, left, quiet };
       if (c.state === "idle") return { ...to(c, "walk"), quiet };
       if (c.state === "celebrate")
-        return c.after === "walk" ? goIdle({ ...c, quiet }, r) : to({ ...c, quiet }, c.after);
+        return c.after === "walk" || c.after === "attention"
+          ? goIdle({ ...c, quiet }, r)
+          : to({ ...c, quiet }, c.after);
       return { ...c, left, quiet };
     }
   }

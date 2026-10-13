@@ -110,7 +110,7 @@ export function MusicPlayer() {
       {!!s.q?.length && (
         <div>
           <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>A continuación</div>
-          <div style={{ maxHeight: 112, overflowY: "auto", display: "grid" }}>
+          <div style={{ maxHeight: 232, overflowY: "auto", display: "grid" }}>
             {s.q.map((it) => (
               <button
                 key={it.i}

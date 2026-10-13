@@ -63,4 +63,36 @@ describe("stateMachine", () => {
     );
     expect(c.state).toBe("idle");
   });
+  it("panel abierto: quieta y atenta; al cerrar vuelve a idle", () => {
+    let c = run(initial(0), { type: "panelOpen" });
+    expect(c.state).toBe("attention");
+    expect(run(c, tick(300)).state).toBe("attention"); // ni camina ni se duerme
+    c = run(c, { type: "panelClose" });
+    expect(c.state).toBe("idle");
+    expect(run(c, tick(10.1)).state).toBe("walk"); // r=0.5 -> espera de 10 s
+  });
+  it("panel abierto mientras camina o duerme: se queda quieta", () => {
+    const walking = run(initial(0), tick(5.1));
+    expect(run(walking, { type: "panelOpen" }).state).toBe("attention");
+    const asleep = run(initial(), tick(300), tick(301));
+    expect(run(asleep, { type: "panelOpen" }).state).toBe("attention");
+  });
+  it("focus no cambia con el panel; al terminar con el panel abierto queda atenta", () => {
+    let c = run(initial(), { type: "timerStart" }, { type: "panelOpen" });
+    expect(c.state).toBe("focus");
+    c = run(c, { type: "timerStop" });
+    expect(c.state).toBe("attention");
+    expect(run(c, { type: "panelClose" }).state).toBe("idle");
+  });
+  it("celebrate con panel abierto vuelve a atenta y al cerrar a idle (no se queda pegada)", () => {
+    let c = run(initial(), { type: "panelOpen" }, { type: "taskDone" }, tick(2.1));
+    expect(c.state).toBe("attention");
+    c = run(initial(), { type: "panelOpen" }, { type: "taskDone" }, { type: "panelClose" }, tick(2.1));
+    expect(c.state).toBe("idle");
+  });
+  it("arrastrada estando atenta: al soltar vuelve a atenta o idle según el panel", () => {
+    const base = run(initial(), { type: "panelOpen" }, { type: "drag" }, { type: "drop" });
+    expect(run(base, { type: "land" }).state).toBe("attention");
+    expect(run(base, { type: "panelClose" }, { type: "land" }).state).toBe("idle");
+  });
 });

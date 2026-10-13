@@ -1,12 +1,26 @@
 use std::{sync::Mutex, time::{Duration, Instant}};
-use tauri::{AppHandle, Manager, PhysicalPosition, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent};
 
 pub const PANEL_W: f64 = 360.0;
-pub const PANEL_H: f64 = 520.0;
+pub const PANEL_H: f64 = 640.0;
 
 /// Momento en que el panel se ocultó por perder foco (evita que el clic en la mascota lo reabra al instante).
 #[derive(Default)]
 pub struct LastBlur(pub Mutex<Option<Instant>>);
+
+/// Avisa a la mascota (y a quien escuche) de que el panel se abrió o cerró.
+fn emit_visible(app: &AppHandle, visible: bool) {
+    let _ = app.emit("panel://visible", visible);
+}
+
+/// Oculta el panel (botón ✕).
+#[tauri::command]
+pub fn hide_panel(app: AppHandle) {
+    if let Some(p) = app.get_webview_window("panel") {
+        let _ = p.hide();
+    }
+    emit_visible(&app, false);
+}
 
 pub fn hide_panel_on_blur(app: &AppHandle) {
     let Some(panel) = app.get_webview_window("panel") else { return };
@@ -16,6 +30,7 @@ pub fn hide_panel_on_blur(app: &AppHandle) {
         if let WindowEvent::Focused(false) = e {
             let _ = p.hide();
             *handle.state::<LastBlur>().0.lock().unwrap() = Some(Instant::now());
+            emit_visible(&handle, false);
         }
     });
 }
@@ -25,6 +40,7 @@ pub fn toggle_panel(app: AppHandle, blur: State<LastBlur>) -> Option<()> {
     let panel = app.get_webview_window("panel")?;
     if panel.is_visible().ok()? {
         panel.hide().ok()?;
+        emit_visible(&app, false);
         return Some(());
     }
     if blur.0.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
@@ -50,6 +66,7 @@ pub fn show_panel(app: &AppHandle) -> Option<()> {
     panel.set_position(PhysicalPosition::new(x.round(), y.round())).ok()?;
     panel.show().ok()?;
     panel.set_focus().ok()?;
+    emit_visible(app, true);
     Some(())
 }
 

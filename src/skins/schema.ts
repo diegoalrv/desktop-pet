@@ -34,6 +34,7 @@ const ANIM_OF: Record<PetState, string> = {
   dragged: "dragged",
   fall: "dragged",
   break: "idle",
+  attention: "idle",
 };
 
 /** Animación para un estado; si el skin no la trae, usa `idle`. */

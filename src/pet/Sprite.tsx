@@ -12,10 +12,12 @@ const ANIM: Record<PetState, string> = {
   sleep: "bob 3.5s ease-in-out infinite",
   dragged: "dangle .4s ease-in-out infinite alternate",
   fall: "dangle .4s ease-in-out infinite alternate",
+  attention: "perk 1.6s ease-in-out infinite",
 };
 
 const CSS = `
 @keyframes bob{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.94) translateY(2px)}}
+@keyframes perk{0%,100%{transform:translateY(0) scale(1.03)}50%{transform:translateY(-3px) scale(1.03)}}
 @keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 @keyframes jump{0%,100%{transform:translateY(0)}50%{transform:translateY(-22px)}}
 @keyframes dangle{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}`;

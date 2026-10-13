@@ -175,6 +175,8 @@ export function PetWindow() {
       },
     );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
+    // Panel abierto: la mascota se queda quieta y atenta; al cerrarlo sigue.
+    const unPanel = listen<boolean>("panel://visible", (e) => send({ type: e.payload ? "panelOpen" : "panelClose" }));
 
     // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
     const remind = async () => {
@@ -234,6 +236,7 @@ export function PetWindow() {
       unsub();
       unDone.then((f) => f());
       unTask.then((f) => f());
+      unPanel.then((f) => f());
       clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
     };

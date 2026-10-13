@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
 import { MusicPlayer } from "./MusicPlayer";
@@ -56,7 +55,7 @@ export function PanelWindow() {
         >
           ⚙
         </button>
-        <button style={{ ...btn, border: 0, color: "#888" }} onClick={() => getCurrentWindow().hide()}>
+        <button style={{ ...btn, border: 0, color: "#888" }} onClick={() => invoke("hide_panel")}>
           ✕
         </button>
       </div>

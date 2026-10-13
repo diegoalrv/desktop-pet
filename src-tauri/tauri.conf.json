@@ -30,7 +30,7 @@
         "title": "panel",
         "url": "index.html",
         "width": 360,
-        "height": 520,
+        "height": 640,
         "visible": false,
         "decorations": false,
         "alwaysOnTop": true,
