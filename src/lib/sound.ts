@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 // Fuerte a propósito: marca el cambio de ciclo. Si `loud`, además sube el volumen del sistema (macOS)
 // mientras suena. Si el webview la bloquea por política de autoplay, falla en silencio.
 export async function chime(kind: "rest" | "work" = "rest", loud = true) {
+  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // silencia YouTube Music mientras suena
   if (loud) await invoke("boost_volume", { secs: 3 }).catch(() => {});
   try {
     const ctx = new AudioContext();

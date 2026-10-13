@@ -6,11 +6,13 @@ import { PanelWindow } from "./panel/PanelWindow";
 import { initTimerStore } from "./store/useTimer";
 import { initTasksStore } from "./store/useTasks";
 import { initSettingsStore } from "./store/useSettings";
+import { initMusicStore } from "./store/useMusic";
 import { SettingsWindow } from "./settings/SettingsWindow";
 
 initTimerStore();
 initTasksStore();
 initSettingsStore();
+initMusicStore();
 const label = getCurrentWindow().label;
 const Root = label === "panel" ? PanelWindow : label === "settings" ? SettingsWindow : PetWindow;
 

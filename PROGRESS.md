@@ -43,3 +43,10 @@
 - Pref `autoCycle` (Ajustes, por defecto activo): al terminar una pausa arranca el siguiente foco solo, conservando la tarea del foco anterior; la pausa larga sigue cada N focos.
 - Notificación en cada cambio ("Suelta el trabajo: pausa de N min" / "A trabajar: foco de N min") y sonido distinto: sube al descansar, baja al volver a trabajar.
 - Sonido fuerte: campanilla a ganancia 1.0, onda triangular, arpegio x2; pref `loud` (por defecto activa) sube el volumen del sistema a 100 y quita el mute mientras suena (macOS vía osascript, comando `boost_volume`) y lo restaura a los 3 s. Silenciar otras apps no es posible en macOS sin extensiones; se cubre con el volumen máximo.
+
+## Extra: YouTube Music integrado (solo macOS)
+- Ventana "music" (WKWebView con UA de Safari) con music.youtube.com; cerrarla la oculta y la música sigue. Se crea desde la pestaña "Música" del panel.
+- Sin IPC para la web: `music_bridge.js` (initialization script) publica el estado en `document.title` (Rust lo reenvía como `music://state` vía `on_document_title_changed`) y recibe comandos por `eval` -> `window.__pet(cmd, arg)`.
+- Controles: reproducir/pausar (elemento `<video>`), siguiente/anterior (manejadores de `mediaSession` capturados, porque los botones de YTM viven en shadow DOM), volumen (`movie_player.setVolume`), posición, búsqueda.
+- La campanilla del cambio de ciclo silencia la música 3 s (`duck`) mientras sube el volumen del sistema.
+- Probado a mano en la app: estado, pausa, siguiente, volumen, seek, búsqueda, duck y títulos largos. Frágil ante cambios del DOM de YouTube Music: si algo deja de responder, revisar `music_bridge.js`.

@@ -4,9 +4,11 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
+import { MusicPlayer } from "./MusicPlayer";
 import { btn } from "./ui";
 
-type Tab = "timer" | "tasks";
+type Tab = "timer" | "tasks" | "music";
+const TABS: Record<Tab, string> = { timer: "Timer", tasks: "Tareas", music: "Música" };
 
 export function PanelWindow() {
   const [tab, setTab] = useState<Tab>("timer");
@@ -33,7 +35,7 @@ export function PanelWindow() {
       }}
     >
       <div style={{ display: "flex", gap: 6 }}>
-        {(["timer", "tasks"] as const).map((t) => (
+        {(Object.keys(TABS) as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -44,7 +46,7 @@ export function PanelWindow() {
               color: tab === t ? "#fff" : "#222",
             }}
           >
-            {t === "timer" ? "Timer" : "Tareas"}
+            {TABS[t]}
           </button>
         ))}
         <button
@@ -58,11 +60,9 @@ export function PanelWindow() {
           ✕
         </button>
       </div>
-      {tab === "timer" ? (
-        <TimerControls />
-      ) : (
-        <TaskList focusKey={focusKey} onFocusTask={() => setTab("timer")} />
-      )}
+      {tab === "timer" && <TimerControls />}
+      {tab === "tasks" && <TaskList focusKey={focusKey} onFocusTask={() => setTab("timer")} />}
+      {tab === "music" && <MusicPlayer />}
     </div>
   );
 }

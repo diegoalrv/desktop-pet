@@ -1,3 +1,4 @@
+mod music;
 mod timer;
 mod tray;
 mod windows;
@@ -124,6 +125,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             boost_volume,
+            music::music_open,
+            music::music_cmd,
             windows::toggle_panel,
             windows::open_settings,
             windows::set_quick_shortcut,
