@@ -6,9 +6,9 @@ import { accelFromEvent, DEFAULT_SHORTCUT } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
-import { btn } from "../panel/ui";
+import { btn, T, PANEL_CSS } from "../panel/ui";
 
-const h = { margin: "8px 0 0", fontSize: 15 } as const;
+const h = { margin: "8px 0 0", fontSize: 13, letterSpacing: ".06em", textTransform: "uppercase", color: T.accent } as const;
 
 export function SettingsWindow() {
   const { skin, setSkin, reloadSkin, prefs, setPrefs } = useSettings();
@@ -71,17 +71,21 @@ export function SettingsWindow() {
         padding: 20,
         display: "grid",
         gap: 10,
-        color: "#222",
+        color: T.text,
+        background: `linear-gradient(160deg, #1f1f2b, ${T.bg} 60%)`,
+        minHeight: "100vh",
+        boxSizing: "border-box",
         alignContent: "start",
       }}
     >
+      <style>{PANEL_CSS}</style>
       <h2 style={{ ...h, marginTop: 0 }}>Skin de la mascota</h2>
       <div style={{ display: "grid", gap: 6 }}>
         {skins.map((s) => (
           <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <label style={{ flex: 1, display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
               <input type="radio" name="skin" checked={skin === s.id} onChange={() => setSkin(s.id)} />
-              {s.name} <small style={{ color: "#888" }}>{s.id}</small>
+              {s.name} <small style={{ color: T.dim }}>{s.id}</small>
             </label>
             {s.id !== BUILTIN && (
               <button
@@ -125,7 +129,7 @@ export function SettingsWindow() {
           Importar .zip / imagen…
         </button>
       </div>
-      {msg && <div style={{ fontSize: 12, color: "#666" }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 12, color: T.dim }}>{msg}</div>}
 
       <h2 style={h}>Timer</h2>
       {num("focusMin", "Foco (min)")}
@@ -185,7 +189,7 @@ export function SettingsWindow() {
           Restablecer
         </button>
       </div>
-      {shortcutErr && <small style={{ color: "#c33" }}>{shortcutErr}</small>}
+      {shortcutErr && <small style={{ color: "#ff6b6b" }}>{shortcutErr}</small>}
 
       <h2 style={h}>Sistema</h2>
       <label>

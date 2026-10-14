@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fmt } from "../lib/time";
 import { music, openMusic, useMusic } from "../store/useMusic";
-import { btn } from "./ui";
+import { btn, T } from "./ui";
 
 const round = { ...btn, width: 44, height: 44, padding: 0, borderRadius: 22, fontSize: 18 } as const;
 
@@ -14,7 +14,7 @@ export function MusicPlayer() {
 
   if (!s)
     return (
-      <div style={{ display: "grid", gap: 10, justifyItems: "center", paddingTop: 30, color: "#666" }}>
+      <div style={{ display: "grid", gap: 10, justifyItems: "center", paddingTop: 30, color: T.dim }}>
         <div style={{ fontSize: 40 }}>♫</div>
         <div>YouTube Music no está abierto.</div>
         <button style={btn} onClick={() => openMusic()}>
@@ -38,13 +38,13 @@ export function MusicPlayer() {
         {s.art ? (
           <img src={s.art} width={72} height={72} style={{ borderRadius: 8, objectFit: "cover" }} />
         ) : (
-          <div style={{ width: 72, height: 72, borderRadius: 8, background: "#eee", display: "grid", placeItems: "center", fontSize: 28 }}>♫</div>
+          <div style={{ width: 72, height: 72, borderRadius: 8, background: T.card, display: "grid", placeItems: "center", fontSize: 28 }}>♫</div>
         )}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {s.title || "Nada sonando"}
           </div>
-          <div style={{ color: "#666", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.artist}</div>
+          <div style={{ color: T.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.artist}</div>
         </div>
       </div>
 
@@ -61,7 +61,7 @@ export function MusicPlayer() {
           onKeyUp={() => seek !== null && (music("seek", seek), setSeek(null))}
           style={{ width: "100%" }}
         />
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#888" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.dim }}>
           <span>{fmt(seek ?? s.t)}</span>
           <span>{fmt(s.d)}</span>
         </div>
@@ -69,7 +69,7 @@ export function MusicPlayer() {
 
       <div style={{ display: "flex", justifyContent: "center", gap: 14 }}>
         <button style={round} aria-label="Anterior" onClick={() => music("prev")}>⏮</button>
-        <button style={{ ...round, background: "#222", color: "#fff" }} aria-label={s.playing ? "Pausar" : "Reproducir"} onClick={() => music("toggle")}>
+        <button style={{ ...round, background: T.accent, color: "#fff", border: 0 }} aria-label={s.playing ? "Pausar" : "Reproducir"} onClick={() => music("toggle")}>
           {s.playing ? "⏸" : "▶"}
         </button>
         <button style={round} aria-label="Siguiente" onClick={() => music("next")}>⏭</button>
@@ -103,13 +103,13 @@ export function MusicPlayer() {
         />
         <button style={btn} onClick={search}>Buscar</button>
       </div>
-      <button style={{ ...btn, color: "#666" }} onClick={() => openMusic()}>
+      <button style={{ ...btn, color: T.dim }} onClick={() => openMusic()}>
         Mostrar YouTube Music
       </button>
 
       {!!s.q?.length && (
         <div>
-          <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>A continuación</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 4 }}>A continuación</div>
           <div style={{ maxHeight: 232, overflowY: "auto", display: "grid" }}>
             {s.q.map((it) => (
               <button
@@ -119,7 +119,7 @@ export function MusicPlayer() {
                 style={{ ...btn, border: 0, borderRadius: 6, padding: "4px 6px", textAlign: "left", minWidth: 0 }}
               >
                 <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.t}</div>
-                <div style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontSize: 12, color: T.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {it.a}
                 </div>
               </button>

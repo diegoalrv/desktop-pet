@@ -5,7 +5,7 @@ import { MODE_COLOR } from "../pet/TimerPill";
 import { useTimer } from "../store/useTimer";
 import { useTasks } from "../store/useTasks";
 import { useSettings } from "../store/useSettings";
-import { btn } from "./ui";
+import { btn, T } from "./ui";
 
 const LABELS: { mode: Mode; label: string }[] = [
   { mode: "focus", label: "Foco" },
@@ -41,8 +41,8 @@ export function TimerControls() {
               ...btn,
               flex: 1,
               padding: "6px 4px",
-              background: shown === m.mode ? MODE_COLOR[m.mode] : "#fff",
-              color: shown === m.mode ? "#fff" : "#222",
+              background: shown === m.mode ? MODE_COLOR[m.mode] : T.card,
+              color: shown === m.mode ? "#fff" : T.text,
             }}
           >
             {m.label}
@@ -51,7 +51,7 @@ export function TimerControls() {
       </div>
 
       <div
-        style={{ textAlign: "center", font: "700 56px ui-monospace, monospace", color: MODE_COLOR[shown] }}
+        style={{ textAlign: "center", font: "700 56px ui-monospace, monospace", color: MODE_COLOR[shown], textShadow: `0 0 28px ${MODE_COLOR[shown]}66` }}
       >
         {fmt(active ? snap.remaining : defMin * 60)}
       </div>

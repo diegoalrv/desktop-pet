@@ -15,6 +15,8 @@ export function TimerPill({ snap }: { snap: TimerSnap }) {
             color: "#fff",
             font: "600 13px ui-monospace, monospace",
             padding: "3px 10px",
+            boxShadow: `0 2px 10px ${MODE_COLOR[snap.mode]}88, inset 0 0 0 1px rgba(255,255,255,.25)`,
+            letterSpacing: ".04em",
             borderRadius: 999,
             animation: snap.status === "paused" ? "blink 1s step-end infinite" : undefined,
           }}

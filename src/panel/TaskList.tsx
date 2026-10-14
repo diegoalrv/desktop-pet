@@ -3,7 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import * as db from "../lib/db";
 import { groupByCategory, isToday, PRIORITIES } from "../lib/tasks";
 import { useTasks } from "../store/useTasks";
-import { btn } from "./ui";
+import { btn, T } from "./ui";
 
 const tiny = { ...btn, padding: "2px 6px", border: 0, background: "transparent" } as const;
 
@@ -135,7 +135,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
 
       {groupByCategory(shown, cats).map(({ cat: c, tasks: ts }) => (
         <div key={c?.id ?? "none"}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: c?.color ?? "#888", margin: "4px 0" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: c?.color ?? T.dim, margin: "4px 0" }}>
             {c ? `${c.icon} ${c.name}` : "Sin categoría"}
           </div>
           {ts.map((t) => (
@@ -146,7 +146,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
                 alignItems: "center",
                 gap: 6,
                 padding: "3px 0",
-                borderLeft: `3px solid ${["#bbb", "#e8a33c", "#e8523c"][t.priority]}`,
+                borderLeft: `3px solid ${[T.dim, "#e8a33c", "#e8523c"][t.priority]}`,
                 paddingLeft: 6,
               }}
             >
@@ -180,7 +180,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
                   }}
                 >
                   {t.title}
-                  <small style={{ color: "#888" }}>
+                  <small style={{ color: T.dim }}>
                     {" "}
                     {t.done_pomodoros}/{t.est_pomodoros}🍅
                     {t.due_at
@@ -208,7 +208,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
           ))}
         </div>
       ))}
-      {!shown.length && <div style={{ color: "#888", textAlign: "center", fontSize: 13 }}>Sin tareas.</div>}
+      {!shown.length && <div style={{ color: T.dim, textAlign: "center", fontSize: 13 }}>Sin tareas.</div>}
     </div>
   );
 }

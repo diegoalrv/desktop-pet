@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
 import { MusicPlayer } from "./MusicPlayer";
-import { btn } from "./ui";
+import { btn, T, PANEL_CSS } from "./ui";
 
 type Tab = "timer" | "tasks" | "music";
 const TABS: Record<Tab, string> = { timer: "Timer", tasks: "Tareas", music: "Música" };
@@ -29,10 +29,14 @@ export function PanelWindow() {
         padding: 16,
         display: "grid",
         gap: 14,
-        color: "#222",
+        color: T.text,
+        background: `linear-gradient(160deg, #1f1f2b, ${T.bg} 60%)`,
+        minHeight: "100vh",
+        boxSizing: "border-box",
         alignContent: "start",
       }}
     >
+      <style>{PANEL_CSS}</style>
       <div style={{ display: "flex", gap: 6 }}>
         {(Object.keys(TABS) as Tab[]).map((t) => (
           <button
@@ -41,21 +45,23 @@ export function PanelWindow() {
             style={{
               ...btn,
               flex: 1,
-              background: tab === t ? "#222" : "#fff",
-              color: tab === t ? "#fff" : "#222",
+              background: tab === t ? T.accent : T.card,
+              color: tab === t ? "#fff" : T.text,
+              border: tab === t ? "1px solid transparent" : btn.border,
+              fontWeight: 600,
             }}
           >
             {TABS[t]}
           </button>
         ))}
         <button
-          style={{ ...btn, border: 0, color: "#888" }}
+          style={{ ...btn, border: 0, color: T.dim }}
           title="Ajustes"
           onClick={() => invoke("open_settings")}
         >
           ⚙
         </button>
-        <button style={{ ...btn, border: 0, color: "#888" }} onClick={() => invoke("hide_panel")}>
+        <button style={{ ...btn, border: 0, color: T.dim }} onClick={() => invoke("hide_panel")}>
           ✕
         </button>
       </div>
