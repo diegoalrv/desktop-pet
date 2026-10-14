@@ -18,8 +18,9 @@ export const btn = {
   transition: "background .15s, transform .1s",
 } as const;
 
-// Estilos globales del panel: hover/active, foco, sliders y scroll en tono oscuro.
+// Estilos globales de panel/ajustes/gestor: scroll (index.html lo apaga para la mascota), hover/active, foco, sliders.
 export const PANEL_CSS = `
+  html,body{overflow-y:auto}
   body{background:${T.bg}}
   button:not(:disabled):hover{filter:brightness(1.25)}
   button:not(:disabled):active{transform:scale(.96)}

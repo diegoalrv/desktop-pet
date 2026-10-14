@@ -17,15 +17,19 @@ export const listTasks = () => select<Task>("SELECT * FROM tasks");
 export interface NewTask {
   title: string;
   category_id: number | null;
+  project: string | null;
   priority: number;
   due_at: number | null;
   est_pomodoros: number;
 }
 export const addTask = (t: NewTask) =>
   exec(
-    "INSERT INTO tasks (title, category_id, priority, due_at, est_pomodoros, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
-    [t.title, t.category_id, t.priority, t.due_at, t.est_pomodoros, Date.now()],
+    "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    [t.title, t.category_id, t.project, t.priority, t.due_at, t.est_pomodoros, Date.now()],
   );
+/** Edita un campo de la tarea (el nombre de columna sale del tipo, nunca del usuario). */
+export const updateTask = <K extends keyof NewTask>(id: number, field: K, value: NewTask[K]) =>
+  exec(`UPDATE tasks SET ${field} = $1 WHERE id = $2`, [value, id]);
 export const renameTask = (id: number, title: string) =>
   exec("UPDATE tasks SET title = $1 WHERE id = $2", [title, id]);
 export const setDone = (id: number, done: boolean) =>

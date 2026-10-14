@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import * as db from "../lib/db";
-import { groupByCategory, isToday, PRIORITIES } from "../lib/tasks";
+import { groupByCategory, isToday, PRIORITIES, projectsOf } from "../lib/tasks";
 import { useTasks } from "../store/useTasks";
 import { btn, T } from "./ui";
 
@@ -12,6 +13,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
   const input = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [cat, setCat] = useState<number | null>(null);
+  const [project, setProject] = useState("");
   const [prio, setPrio] = useState(1);
   const [est, setEst] = useState(1);
   const [due, setDue] = useState("");
@@ -28,6 +30,7 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
     await db.addTask({
       title: title.trim(),
       category_id: catId,
+      project: project.trim() || null,
       priority: prio,
       est_pomodoros: est,
       due_at: due ? new Date(due).getTime() : null,
@@ -85,13 +88,27 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
             style={{ ...btn, padding: 4, width: 44 }}
           />
         </div>
-        <input
-          type="datetime-local"
-          value={due}
-          onChange={(e) => setDue(e.target.value)}
-          title="Fecha y hora (recordatorio)"
-          style={{ ...btn, padding: 4, fontSize: 12 }}
-        />
+        <div style={{ display: "flex", gap: 6, fontSize: 12 }}>
+          <input
+            list="pet-projects"
+            value={project}
+            onChange={(e) => setProject(e.target.value)}
+            placeholder="Proyecto"
+            style={{ ...btn, padding: 4, flex: 1, minWidth: 0 }}
+          />
+          <input
+            type="datetime-local"
+            value={due}
+            onChange={(e) => setDue(e.target.value)}
+            title="Fecha y hora (recordatorio)"
+            style={{ ...btn, padding: 4 }}
+          />
+        </div>
+        <datalist id="pet-projects">
+          {projectsOf(tasks).map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
       </form>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
@@ -107,6 +124,9 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
           </button>
           <button style={tiny} title="Editar categorías" onClick={() => setEditCats(!editCats)}>
             ⚙
+          </button>
+          <button style={tiny} title="Abrir gestor de tareas" onClick={() => invoke("open_window", { label: "tasks" })}>
+            ↗
           </button>
         </span>
       </div>
@@ -180,6 +200,11 @@ export function TaskList({ focusKey, onFocusTask }: { focusKey: number; onFocusT
                   }}
                 >
                   {t.title}
+                  {t.project && (
+                    <small style={{ marginLeft: 6, padding: "0 6px", borderRadius: 8, background: T.card, color: T.dim }}>
+                      {t.project}
+                    </small>
+                  )}
                   <small style={{ color: T.dim }}>
                     {" "}
                     {t.done_pomodoros}/{t.est_pomodoros}🍅

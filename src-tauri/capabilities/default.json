@@ -5,7 +5,8 @@
   "windows": [
     "pet",
     "panel",
-    "settings"
+    "settings",
+    "tasks"
   ],
   "permissions": [
     "core:default",
@@ -14,6 +15,7 @@
     "sql:default",
     "sql:allow-execute",
     "dialog:allow-open",
+    "dialog:allow-ask",
     "store:default",
     "fs:allow-exists",
     "fs:allow-mkdir",

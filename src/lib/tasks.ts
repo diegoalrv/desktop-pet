@@ -9,6 +9,7 @@ export interface Task {
   id: number;
   title: string;
   category_id: number | null;
+  project: string | null; // frente al que pertenece (texto libre)
   priority: number; // 0 baja, 1 media, 2 alta
   done: number;
   due_at: number | null; // ms epoch
@@ -47,3 +48,7 @@ export function groupByCategory(tasks: Task[], cats: Category[]) {
   if (rest.length) groups.push({ cat: null, tasks: rest });
   return groups.filter((g) => g.tasks.length);
 }
+
+/** Proyectos distintos en uso, ordenados (para autocompletar y filtrar). */
+export const projectsOf = (tasks: Task[]) =>
+  [...new Set(tasks.map((t) => t.project).filter((p): p is string => !!p))].sort((a, b) => a.localeCompare(b));

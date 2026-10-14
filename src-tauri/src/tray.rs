@@ -14,6 +14,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &item("toggle", "Mostrar/ocultar mascota")?,
             &item("focus", "Iniciar foco")?,
             &item("tasks", "Abrir tareas")?,
+            &item("manager", "Gestor de tareas…")?,
             &item("settings", "Ajustes…")?,
             &PredefinedMenuItem::separator(app)?,
             &item("quit", "Salir")?,
@@ -34,7 +35,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 windows::show_panel(app);
                 let _ = app.emit_to("panel", "panel://quick-capture", ());
             }
-            "settings" => { windows::open_settings(app.clone()); }
+            "manager" => { windows::open_window(app.clone(), "tasks".into()); }
+            "settings" => { windows::open_window(app.clone(), "settings".into()); }
             "quit" => app.exit(0),
             _ => {}
         })

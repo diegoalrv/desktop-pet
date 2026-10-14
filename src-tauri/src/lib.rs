@@ -99,12 +99,20 @@ pub fn run() {
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
                     "sqlite:pet.db",
-                    vec![tauri_plugin_sql::Migration {
-                        version: 1,
-                        description: "init",
-                        sql: include_str!("../migrations/001_init.sql"),
-                        kind: tauri_plugin_sql::MigrationKind::Up,
-                    }],
+                    vec![
+                        tauri_plugin_sql::Migration {
+                            version: 1,
+                            description: "init",
+                            sql: include_str!("../migrations/001_init.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 2,
+                            description: "project",
+                            sql: include_str!("../migrations/002_project.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                    ],
                 )
                 .build(),
         )
@@ -129,7 +137,7 @@ pub fn run() {
             music::music_cmd,
             windows::toggle_panel,
             windows::hide_panel,
-            windows::open_settings,
+            windows::open_window,
             windows::set_quick_shortcut,
             timer::timer_config,
             timer::timer_get,
@@ -145,7 +153,8 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             spawn_cursor_poll(app.handle().clone());
             windows::hide_panel_on_blur(app.handle());
-            windows::hide_settings_on_close(app.handle());
+            windows::hide_on_close(app.handle(), "settings");
+            windows::hide_on_close(app.handle(), "tasks");
             timer::spawn(app.handle().clone());
             let _ = windows::set_quick_shortcut(
                 windows::DEFAULT_SHORTCUT.into(),

@@ -57,7 +57,7 @@ export function PanelWindow() {
         <button
           style={{ ...btn, border: 0, color: T.dim }}
           title="Ajustes"
-          onClick={() => invoke("open_settings")}
+          onClick={() => invoke("open_window", { label: "settings" })}
         >
           ⚙
         </button>

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { compareTasks, groupByCategory, isToday, needsReminder, type Category, type Task } from "./tasks";
+import { compareTasks, groupByCategory, isToday, needsReminder, projectsOf, type Category, type Task } from "./tasks";
 
 const now = new Date(2026, 9, 8, 12, 0).getTime();
 const mk = (o: Partial<Task>): Task => ({
   id: 1,
   title: "t",
   category_id: 1,
+  project: null,
   priority: 1,
   done: 0,
   due_at: null,
@@ -17,6 +18,10 @@ const mk = (o: Partial<Task>): Task => ({
 });
 
 describe("tasks", () => {
+  it("projectsOf: únicos, ordenados, sin vacíos", () => {
+    const ts = [mk({ project: "pet" }), mk({ project: "Ana" }), mk({ project: "pet" }), mk({ project: "" }), mk({})];
+    expect(projectsOf(ts)).toEqual(["Ana", "pet"]);
+  });
   it("isToday: hoy o vencida, no mañana, no hecha", () => {
     expect(isToday(mk({ due_at: new Date(2026, 9, 8, 23, 0).getTime() }), now)).toBe(true);
     expect(isToday(mk({ due_at: new Date(2026, 9, 1).getTime() }), now)).toBe(true);

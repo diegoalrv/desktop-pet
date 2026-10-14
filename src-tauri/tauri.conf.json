@@ -49,6 +49,18 @@
         "resizable": true,
         "alwaysOnTop": true,
         "center": true
+      },
+      {
+        "label": "tasks",
+        "title": "Gestor de tareas",
+        "url": "index.html",
+        "width": 980,
+        "height": 640,
+        "minWidth": 640,
+        "minHeight": 400,
+        "visible": false,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
