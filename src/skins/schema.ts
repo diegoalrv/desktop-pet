@@ -45,6 +45,30 @@ export function resolveAnim(m: Manifest, state: PetState): { key: string; anim: 
     : { key: "idle", anim: m.animations.idle };
 }
 
+/** Ánimos: variantes por estado que se alternan cada MOOD_S. Con música van las musicales.
+ *  Solo se usan las que el skin trae; si no trae ninguna, cae a `resolveAnim`. */
+export const MOOD_S = 12;
+const ROCK = ["guitar", "drums", "maracas"]; // los skins traen batería o maracas
+const MOODS: Partial<Record<PetState, { calm: string[]; music: string[] }>> = {
+  idle: { calm: ["idle"], music: ROCK },
+  break: { calm: ["tea", "idle"], music: ["tea", ...ROCK] },
+  focus: { calm: ["focus", "read", "write"], music: ["listen", "read", "listen", "write"] },
+};
+
+export function pickAnim(m: Manifest, state: PetState, music: boolean, slot: number) {
+  const mood = MOODS[state];
+  const list = (mood ? (music ? mood.music : mood.calm) : []).filter((k) => k in m.animations);
+  if (!list.length) return resolveAnim(m, state);
+  const key = list[slot % list.length];
+  return { key, anim: m.animations[key] };
+}
+
+/** Fracción vacía arriba del sprite (filas totalmente transparentes) en un RGBA de w×h. */
+export function topInset(rgba: Uint8ClampedArray, w: number, h: number) {
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (rgba[(y * w + x) * 4 + 3]) return y / h;
+  return 0;
+}
+
 /** Pack para una imagen única: todas las animaciones la reutilizan (1 frame) y el movimiento es CSS. */
 export function singleImageManifest(
   id: string,

@@ -16,6 +16,8 @@ export default defineConfig(() => ({
   server: {
     port: 1420,
     strictPort: true,
+    // Web local en dev: http://localhost:1420 en el navegador habla con la app (src-tauri/src/web.rs).
+    proxy: { "/api": { target: "http://127.0.0.1:4747", changeOrigin: true } },
     host: host || false,
     hmr: host
       ? {

@@ -1,7 +1,9 @@
+mod db;
 mod music;
 mod timer;
 mod tray;
 mod windows;
+mod web;
 
 use std::{sync::Mutex, thread, time::Duration};
 use tauri::{Emitter, Manager, State};
@@ -138,6 +140,7 @@ pub fn run() {
             windows::toggle_panel,
             windows::hide_panel,
             windows::open_window,
+            web::open_web,
             windows::set_quick_shortcut,
             timer::timer_config,
             timer::timer_get,
@@ -155,7 +158,10 @@ pub fn run() {
             windows::hide_panel_on_blur(app.handle());
             windows::hide_on_close(app.handle(), "settings");
             windows::hide_on_close(app.handle(), "tasks");
+            db::init(app.handle())?;
+            timer::restore(app.handle());
             timer::spawn(app.handle().clone());
+            web::spawn(app.handle().clone());
             let _ = windows::set_quick_shortcut(
                 windows::DEFAULT_SHORTCUT.into(),
                 app.handle().clone(),

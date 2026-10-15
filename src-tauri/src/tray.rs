@@ -4,7 +4,7 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 
-use crate::{timer, windows};
+use crate::{timer, web, windows};
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let item = |id: &str, label: &str| MenuItem::with_id(app, id, label, true, None::<&str>);
@@ -15,6 +15,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &item("focus", "Iniciar foco")?,
             &item("tasks", "Abrir tareas")?,
             &item("manager", "Gestor de tareas…")?,
+            &item("web", "Abrir web de tareas")?,
             &item("settings", "Ajustes…")?,
             &PredefinedMenuItem::separator(app)?,
             &item("quit", "Salir")?,
@@ -35,6 +36,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 windows::show_panel(app);
                 let _ = app.emit_to("panel", "panel://quick-capture", ());
             }
+            "web" => web::open_web(),
             "manager" => { windows::open_window(app.clone(), "tasks".into()); }
             "settings" => { windows::open_window(app.clone(), "settings".into()); }
             "quit" => app.exit(0),

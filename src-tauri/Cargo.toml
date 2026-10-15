@@ -28,6 +28,9 @@ tauri-plugin-fs = "2.6.0"
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-store = "2.5.0"
 tauri-plugin-autostart = "2.7.0"
+# ya viene con tauri-plugin-sql: misma version, sin compilar de mas
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+tiny_http = "0.12"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -32,6 +32,13 @@ let started = false;
 export function initTasksStore() {
   if (started) return;
   started = true;
-  useTasks.getState().load();
-  listen("db://changed", () => useTasks.getState().load());
+  const load = () => useTasks.getState().load();
+  load();
+  if (db.IS_WEB) {
+    // ponytail: la web sondea cada 3 s; SSE desde web.rs si algún día molesta la latencia.
+    setInterval(load, 3000);
+    window.addEventListener("focus", load);
+    window.addEventListener("db://changed", load);
+    document.title = "Tareas · Pet";
+  } else listen("db://changed", load);
 }

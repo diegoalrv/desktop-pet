@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import * as db from "../lib/db";
-import { compareTasks, PRIORITIES, projectsOf, type Task } from "../lib/tasks";
+import { compareTasks, PRIORITIES, projectsOf, startOfDay, type Task } from "../lib/tasks";
+import { fmtDur } from "../lib/time";
 import { useTasks } from "../store/useTasks";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 
@@ -14,6 +16,17 @@ const PRIO_COLOR = [T.dim, "#e8a33c", "#e8523c"];
 const toLocal = (ms: number | null) =>
   ms == null ? "" : new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 const fromLocal = (v: string) => (v ? new Date(v).getTime() : null);
+
+const DAY = 86_400_000;
+const PERIODS = {
+  today: { label: "Hoy", since: () => startOfDay(Date.now()) },
+  week: { label: "7 días", since: () => startOfDay(Date.now()) - 6 * DAY },
+  month: { label: "30 días", since: () => startOfDay(Date.now()) - 29 * DAY },
+  all: { label: "Todo", since: () => 0 },
+};
+type Period = keyof typeof PERIODS;
+const confirmDelete = async (title: string) =>
+  db.IS_WEB ? confirm(`¿Eliminar "${title}"?`) : ask(`¿Eliminar "${title}"?`, { kind: "warning" });
 
 export function TasksWindow() {
   const { tasks, cats } = useTasks();
@@ -30,6 +43,20 @@ export function TasksWindow() {
   const [q, setQ] = useState("");
   const [fProject, setFProject] = useState("");
   const [status, setStatus] = useState<"open" | "all" | "done">("open");
+  // Tracking: segundos de foco por tarea en el período (se recalcula cuando cambia la BD).
+  const [period, setPeriod] = useState<Period>("week");
+  const [secs, setSecs] = useState(new Map<number | null, number>());
+  useEffect(() => {
+    db.focusByTask(PERIODS[period].since()).then((rows) => setSecs(new Map(rows.map((r) => [r.task_id, r.secs]))));
+  }, [tasks, period]);
+  const projectOf = new Map(tasks.map((t) => [t.id, t.project || null]));
+  const byProject = new Map<string, number>();
+  let total = 0;
+  secs.forEach((v, id) => {
+    const p = id == null ? "Sin tarea" : (projectOf.get(id) ?? "Sin proyecto");
+    byProject.set(p, (byProject.get(p) ?? 0) + v);
+    total += v;
+  });
 
   const catId = cat ?? cats[0]?.id ?? null;
 
@@ -61,6 +88,24 @@ export function TasksWindow() {
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: T.text, padding: 20, display: "grid", gap: 14 }}>
       <style>{PANEL_CSS + `body{margin:0} input,select{min-width:0;font-size:13px} th{font-weight:600;text-align:left;color:${T.dim};font-size:12px;padding:4px 6px}`}</style>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <b style={{ fontSize: 15 }}>⏱ {fmtDur(total)}</b>
+        {(Object.keys(PERIODS) as Period[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setPeriod(k)}
+            style={{ ...btn, padding: "4px 10px", background: period === k ? T.accent : T.card, border: period === k ? "1px solid transparent" : btn.border }}
+          >
+            {PERIODS[k].label}
+          </button>
+        ))}
+        {[...byProject].sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+          <span key={p} style={{ padding: "4px 10px", borderRadius: 999, background: T.card, color: T.dim }}>
+            {p} · <b style={{ color: T.text }}>{fmtDur(v)}</b>
+          </span>
+        ))}
+      </div>
 
       <form onSubmit={add} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 140px 150px 84px 52px 180px auto", gap: 8 }}>
         <input
@@ -125,6 +170,11 @@ export function TasksWindow() {
           </button>
         ))}
         <span style={{ marginLeft: "auto", color: T.dim }}>{shown.length} tareas</span>
+        {!db.IS_WEB && (
+          <button style={btn} title="http://127.0.0.1:4747" onClick={() => invoke("open_web")}>
+            Abrir en navegador ↗
+          </button>
+        )}
       </div>
 
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
@@ -136,6 +186,7 @@ export function TasksWindow() {
           <col style={{ width: 84 }} />
           <col style={{ width: 76 }} />
           <col style={{ width: 180 }} />
+          <col style={{ width: 64 }} />
           <col style={{ width: 36 }} />
         </colgroup>
         <thead>
@@ -147,18 +198,22 @@ export function TasksWindow() {
             <th>Prioridad</th>
             <th title="Hechos / estimados">🍅</th>
             <th>Fecha</th>
+            <th title={`Tiempo de foco (${PERIODS[period].label})`}>⏱</th>
             <th />
           </tr>
         </thead>
         {groups.map(({ p, ts }) => (
           <tbody key={p ?? NONE}>
             <tr>
-              <td colSpan={8} style={{ padding: "14px 6px 4px", fontWeight: 700, color: T.accent }}>
-                {p ?? "Sin proyecto"} <span style={{ color: T.dim, fontWeight: 400 }}>· {ts.length}</span>
+              <td colSpan={9} style={{ padding: "14px 6px 4px", fontWeight: 700, color: T.accent }}>
+                {p ?? "Sin proyecto"}{" "}
+                <span style={{ color: T.dim, fontWeight: 400 }}>
+                  · {ts.length} · ⏱ {fmtDur(byProject.get(p ?? "Sin proyecto") ?? 0)}
+                </span>
               </td>
             </tr>
             {ts.map((t) => (
-              <Row key={t.id} t={t} />
+              <Row key={t.id} t={t} secs={secs.get(t.id) ?? 0} />
             ))}
           </tbody>
         ))}
@@ -168,7 +223,7 @@ export function TasksWindow() {
   );
 }
 
-function Row({ t }: { t: Task }) {
+function Row({ t, secs }: { t: Task; secs: number }) {
   const { cats } = useTasks();
   const up = <K extends keyof db.NewTask>(f: K, v: db.NewTask[K]) => db.updateTask(t.id, f, v);
   // key={valor}: si cambia en la BD (otra ventana), el input se remonta con el dato nuevo.
@@ -180,7 +235,7 @@ function Row({ t }: { t: Task }) {
           checked={!!t.done}
           onChange={async (e) => {
             await db.setDone(t.id, e.target.checked);
-            if (e.target.checked) emit("task://done");
+            if (e.target.checked && !db.IS_WEB) emit("task://done");
           }}
         />
       </td>
@@ -242,10 +297,11 @@ function Row({ t }: { t: Task }) {
           style={cell}
         />
       </td>
+      <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>{secs ? fmtDur(secs) : "—"}</td>
       <td style={{ padding: 4 }}>
         <button
           title="Eliminar"
-          onClick={async () => (await ask(`¿Eliminar "${t.title}"?`, { kind: "warning" })) && db.deleteTask(t.id)}
+          onClick={async () => (await confirmDelete(t.title)) && db.deleteTask(t.id)}
           style={{ ...btn, padding: 2, border: 0, background: "transparent" }}
         >
           🗑

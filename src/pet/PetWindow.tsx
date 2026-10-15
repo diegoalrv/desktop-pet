@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
-import { Sprite } from "./Sprite";
+import { headroom, Sprite } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
 import { chime } from "../lib/sound";
@@ -12,6 +12,8 @@ import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
 import { needsReminder } from "../lib/tasks";
 import { useTimer } from "../store/useTimer";
+import { useMusic } from "../store/useMusic";
+import { MOOD_S } from "../skins/schema";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
 import { initial, transition, type PetEvent, type PetState } from "./stateMachine";
 
@@ -65,11 +67,28 @@ export function PetWindow() {
   const active = useTimer((s) => s.snap.status !== "idle");
   const snap = useTimer((s) => s.snap);
 
+  // Ánimo: con música rockea; las variantes de cada estado se alternan cada MOOD_S.
+  const music = useMusic((s) => !!s.s?.playing);
+  const [slot, setSlot] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setSlot((n) => n + 1), MOOD_S * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // El timer va pegado a la cabeza: se come el espacio transparente de arriba del sprite.
+  const body = useRef<HTMLDivElement>(null);
+  const [overlap, setOverlap] = useState(0);
+  useEffect(() => {
+    headroom(skin)
+      .then((px) => setOverlap(Math.max(0, Math.round(px) - 4)))
+      .catch(() => setOverlap(0));
+  }, [skin]);
+
   // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer).
   useEffect(() => {
-    const r = hit.current!.getBoundingClientRect();
-    invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height - (active ? 0 : PILL_H)] });
-  }, [active, skin]);
+    const r = (active ? hit : body).current!.getBoundingClientRect();
+    invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
+  }, [active, skin, overlap]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -162,16 +181,15 @@ export function PetWindow() {
         send({ type: a.mode === "focus" ? "timerStart" : "breakStart" });
       else if (a.status === "idle" && b.status !== "idle") send({ type: "timerStop" });
     });
-    const unDone = listen<{ mode: string; elapsed: number; skipped: boolean; task_id: number | null }>(
+    // El timer pudo llegar antes de suscribirse (p. ej. retomado de disco al abrir la app).
+    const s0 = useTimer.getState().snap;
+    if (s0.status !== "idle") send({ type: s0.mode === "focus" ? "timerStart" : "breakStart" });
+    const unDone = listen<{ mode: string; skipped: boolean }>(
       "timer://done",
       (e) => {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
         if (!d.skipped && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work", sound.current.loud);
-        if (!d.skipped) {
-          const end = Date.now();
-          db.recordSession({ start: end - d.elapsed * 1000, end, mode: d.mode, task_id: d.task_id });
-        }
       },
     );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
@@ -247,8 +265,12 @@ export function PetWindow() {
       style={{ position: "fixed", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "center" }}
     >
       <div ref={hit} style={{ cursor: view.state === "dragged" ? "grabbing" : "grab" }}>
-        <Sprite skin={skin} state={view.state} dir={view.dir} />
-        <TimerPill snap={snap} />
+        <div style={{ marginBottom: -Math.min(overlap, PILL_H), position: "relative", zIndex: 1 }}>
+          <TimerPill snap={snap} />
+        </div>
+        <div ref={body}>
+          <Sprite skin={skin} state={view.state} dir={view.dir} mood={{ music, slot }} />
+        </div>
       </div>
     </div>
   );

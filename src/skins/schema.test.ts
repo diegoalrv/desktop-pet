@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeZipPaths, parseManifest, resolveAnim, singleImageManifest, slug } from "./schema";
+import { normalizeZipPaths, parseManifest, pickAnim, resolveAnim, singleImageManifest, slug, topInset } from "./schema";
 
 const a = (file: string, frames = 4) => ({ file, frames, fps: 8, loop: true });
 const base = {
@@ -61,4 +61,24 @@ describe("skins de ejemplo", () => {
       for (const a of Object.values(m.animations)) expect(existsSync(`${root}/${a.file}`)).toBe(true);
     });
   }
+});
+
+describe("ánimos", () => {
+  const one = { file: "x.png", frames: 1, fps: 8, loop: true };
+  const m = parseManifest({
+    id: "t", name: "t", frameWidth: 8, frameHeight: 8,
+    animations: { idle: one, focus: one, read: one, guitar: one, maracas: one },
+  });
+  it("alterna variantes que el skin trae y omite las que no", () => {
+    expect([0, 1, 2].map((i) => pickAnim(m, "focus", false, i).key)).toEqual(["focus", "read", "focus"]);
+  });
+  it("con música rockea; sin variantes cae a la animación base", () => {
+    expect([0, 1].map((i) => pickAnim(m, "idle", true, i).key)).toEqual(["guitar", "maracas"]);
+    expect(pickAnim(m, "walk", true, 0).key).toBe("idle"); // walk no existe -> idle
+  });
+  it("topInset: filas vacías arriba", () => {
+    const px = new Uint8ClampedArray(2 * 4 * 4);
+    px[(2 * 2 + 1) * 4 + 3] = 255; // fila 2
+    expect(topInset(px, 2, 4)).toBe(0.5);
+  });
 });

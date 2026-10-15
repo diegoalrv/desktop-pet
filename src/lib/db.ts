@@ -1,12 +1,31 @@
 import Database from "@tauri-apps/plugin-sql";
 import { emit } from "@tauri-apps/api/event";
+import { isTauri } from "@tauri-apps/api/core";
 import type { Category, Task } from "./tasks";
+
+/** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
+export const IS_WEB = !isTauri();
+
+const api = async <T>(op: "select" | "execute", sql: string, args: unknown[]) => {
+  const r = await fetch(`/api/${op}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sql, args }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()) as T;
+};
 
 // Las migraciones corren en Rust (src-tauri/migrations) al primer load.
 let db: Promise<Database> | undefined;
 const get = () => (db ??= Database.load("sqlite:pet.db"));
-const select = async <T>(sql: string, args: unknown[] = []) => (await get()).select<T[]>(sql, args);
+const select = async <T>(sql: string, args: unknown[] = []) =>
+  IS_WEB ? api<T[]>("select", sql, args) : (await get()).select<T[]>(sql, args);
 const exec = async (sql: string, args: unknown[] = []) => {
+  if (IS_WEB) {
+    await api("execute", sql, args); // la app avisa a sus ventanas
+    return void window.dispatchEvent(new Event("db://changed")); // y esta pestaña recarga ya
+  }
   await (await get()).execute(sql, args);
   emit("db://changed"); // otras ventanas recargan
 };
@@ -45,19 +64,17 @@ export const saveCategory = (c: Category) =>
     c.id,
   ]);
 
-export async function recordSession(s: { start: number; end: number; mode: string; task_id: number | null }) {
-  await exec("INSERT INTO sessions (start, end, mode, task_id) VALUES ($1,$2,$3,$4)", [
-    s.start,
-    s.end,
-    s.mode,
-    s.task_id,
-  ]);
-  if (s.mode === "focus" && s.task_id != null)
-    await exec("UPDATE tasks SET done_pomodoros = done_pomodoros + 1 WHERE id = $1", [s.task_id]);
-}
+// Las sesiones las registra el timer en Rust (src-tauri/src/db.rs).
 export const focusCountSince = async (since: number) =>
   (
     await select<{ c: number }>("SELECT COUNT(*) AS c FROM sessions WHERE mode = 'focus' AND start >= $1", [
       since,
     ])
   )[0].c;
+
+/** Segundos de foco por tarea desde `since` (ms epoch). task_id null = focos sin tarea. */
+export const focusByTask = (since: number) =>
+  select<{ task_id: number | null; secs: number }>(
+    "SELECT task_id, SUM(end - start) / 1000 AS secs FROM sessions WHERE mode = 'focus' AND start >= $1 GROUP BY task_id",
+    [since],
+  );

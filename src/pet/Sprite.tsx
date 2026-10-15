@@ -1,6 +1,6 @@
 import type { PetState } from "./stateMachine";
 import type { Skin } from "../skins/loader";
-import { resolveAnim } from "../skins/schema";
+import { pickAnim, topInset } from "../skins/schema";
 
 // Animación CSS por estado: zorro SVG integrado y skins de imagen única (1 frame).
 const ANIM: Record<PetState, string> = {
@@ -32,12 +32,29 @@ export function spriteSize(skin: Skin) {
   return { w: Math.round(fw * s), h: Math.round(fh * s) };
 }
 
-export function Sprite({ skin, state, dir = 1 }: { skin: Skin; state: PetState; dir?: number }) {
+/** Ánimo actual: hay música sonando y qué variante toca (cambia cada MOOD_S). */
+export interface Mood {
+  music: boolean;
+  slot: number;
+}
+
+/** Px lógicos vacíos sobre el sprite en reposo (para pegar el timer a la cabeza). */
+export async function headroom(skin: Skin) {
+  if (skin.kind === "builtin") return 0;
+  const img = new Image();
+  img.src = skin.urls[skin.manifest.animations.idle.file];
+  await img.decode();
+  const g = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+  g.drawImage(img, 0, 0);
+  return topInset(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height) * spriteSize(skin).h;
+}
+
+export function Sprite({ skin, state, dir = 1, mood }: { skin: Skin; state: PetState; dir?: number; mood: Mood }) {
   const { w, h } = spriteSize(skin);
   return (
     <div style={{ transform: `scaleX(${dir})`, width: w, height: h }}>
       <style>{CSS}</style>
-      {skin.kind === "builtin" ? <Builtin state={state} /> : <Pack skin={skin} state={state} w={w} h={h} />}
+      {skin.kind === "builtin" ? <Builtin state={state} /> : <Pack skin={skin} state={state} w={w} h={h} mood={mood} />}
     </div>
   );
 }
@@ -47,13 +64,15 @@ function Pack({
   state,
   w,
   h,
+  mood,
 }: {
   skin: Extract<Skin, { kind: "pack" }>;
   state: PetState;
   w: number;
   h: number;
+  mood: Mood;
 }) {
-  const { key, anim } = resolveAnim(skin.manifest, state);
+  const { key, anim } = pickAnim(skin.manifest, state, mood.music, mood.slot);
   const url = skin.urls[anim.file];
   if (anim.frames === 1)
     return (

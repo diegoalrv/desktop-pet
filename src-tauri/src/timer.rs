@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     sync::Mutex,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
@@ -15,7 +15,7 @@ pub enum Mode {
     Long,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Idle,
@@ -24,6 +24,7 @@ pub enum Status {
 }
 
 /// Pausas automáticas tras un foco (configurable desde Settings en F6).
+#[derive(Default)]
 pub struct Cfg {
     pub focus_s: u64,
     pub short_s: u64,
@@ -33,25 +34,33 @@ pub struct Cfg {
     pub auto_cycle: bool,
 }
 
+/// Tiempos en ms de reloj (epoch), no `Instant`: así el estado se puede guardar en disco
+/// y retomarse tras cerrar la app (y el día de mañana sincronizarse con otro dispositivo).
+#[derive(Serialize, Deserialize)]
 pub struct Timer {
     mode: Mode,
     status: Status,
-    total: Duration,
-    left: Duration, // válido en Paused
-    end: Option<Instant>,
+    total: u64,       // ms
+    left: u64,        // ms, válido en Paused
+    end: Option<u64>, // epoch ms, válido en Running
     count: u32,
     task_id: Option<i64>,
     last_task: Option<i64>, // tarea del último foco, para continuar el ciclo
+    #[serde(skip)]
     cfg: Cfg,
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Done {
-    mode: Mode,
+    pub mode: Mode,
     next: Option<Mode>,
-    task_id: Option<i64>,
-    elapsed: u64, // s realmente transcurridos
-    skipped: bool,
+    pub task_id: Option<i64>,
+    pub elapsed: u64, // s realmente transcurridos
+    pub skipped: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -69,8 +78,8 @@ impl Timer {
         Self {
             mode: Mode::Focus,
             status: Status::Idle,
-            total: Duration::ZERO,
-            left: Duration::ZERO,
+            total: 0,
+            left: 0,
             end: None,
             count: 0,
             task_id: None,
@@ -79,23 +88,23 @@ impl Timer {
         }
     }
 
-    fn remaining(&self, now: Instant) -> Duration {
+    fn remaining(&self, now: u64) -> u64 {
         match (self.status, self.end) {
-            (Status::Running, Some(e)) => e.saturating_duration_since(now),
+            (Status::Running, Some(e)) => e.saturating_sub(now),
             (Status::Paused, _) => self.left,
-            _ => Duration::ZERO,
+            _ => 0,
         }
     }
 
-    pub fn start(&mut self, mode: Mode, secs: u64, task_id: Option<i64>, now: Instant) {
+    pub fn start(&mut self, mode: Mode, secs: u64, task_id: Option<i64>, now: u64) {
         self.mode = mode;
         self.task_id = task_id;
-        self.total = Duration::from_secs(secs);
+        self.total = secs * 1000;
         self.status = Status::Running;
         self.end = Some(now + self.total);
     }
 
-    pub fn pause(&mut self, now: Instant) {
+    pub fn pause(&mut self, now: u64) {
         if self.status == Status::Running {
             self.left = self.remaining(now);
             self.status = Status::Paused;
@@ -103,27 +112,40 @@ impl Timer {
         }
     }
 
-    pub fn resume(&mut self, now: Instant) {
+    pub fn resume(&mut self, now: u64) {
         if self.status == Status::Paused {
             self.status = Status::Running;
             self.end = Some(now + self.left);
         }
     }
 
-    pub fn reset(&mut self) {
+    /// Corta el temporizador. Si era un foco, devuelve lo trabajado para registrarlo como tiempo (no como 🍅).
+    pub fn reset(&mut self, now: u64) -> Option<Done> {
+        let partial = (self.status != Status::Idle && self.mode == Mode::Focus).then(|| Done {
+            mode: Mode::Focus,
+            next: None,
+            task_id: self.task_id,
+            elapsed: self.elapsed(now),
+            skipped: true,
+        });
         self.status = Status::Idle;
         self.end = None;
-        self.left = Duration::ZERO;
+        self.left = 0;
+        partial
+    }
+
+    fn elapsed(&self, now: u64) -> u64 {
+        self.total.saturating_sub(self.remaining(now)) / 1000
     }
 
     /// Termina el temporizador actual (por vencimiento o skip). Tras un foco arranca la pausa.
-    pub fn complete(&mut self, now: Instant, skipped: bool) -> Option<Done> {
+    pub fn complete(&mut self, now: u64, skipped: bool) -> Option<Done> {
         if self.status == Status::Idle {
             return None;
         }
         let mode = self.mode;
         let task_id = self.task_id;
-        let elapsed = self.total.saturating_sub(self.remaining(now)).as_secs();
+        let elapsed = self.elapsed(now);
         if mode == Mode::Focus {
             self.count += 1;
             self.last_task = task_id;
@@ -138,25 +160,25 @@ impl Timer {
             self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now);
             Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped })
         } else {
-            self.reset();
+            self.reset(now);
             Some(Done { mode, next: None, task_id, elapsed, skipped })
         }
     }
 
-    pub fn due(&mut self, now: Instant) -> Option<Done> {
-        if self.status == Status::Running && self.remaining(now).is_zero() {
+    pub fn due(&mut self, now: u64) -> Option<Done> {
+        if self.status == Status::Running && self.remaining(now) == 0 {
             self.complete(now, false)
         } else {
             None
         }
     }
 
-    pub fn snap(&self, now: Instant) -> Snap {
+    pub fn snap(&self, now: u64) -> Snap {
         Snap {
             mode: self.mode,
             status: self.status,
-            remaining: self.remaining(now).as_secs_f64().ceil() as u64,
-            total: self.total.as_secs(),
+            remaining: self.remaining(now).div_ceil(1000),
+            total: self.total / 1000,
             count: self.count,
             task_id: self.task_id,
         }
@@ -166,11 +188,43 @@ impl Timer {
 pub type TimerState = Mutex<Timer>;
 
 fn emit_tick(app: &AppHandle, t: &Timer) {
-    let _ = app.emit("timer://tick", t.snap(Instant::now()));
+    let _ = app.emit("timer://tick", t.snap(now_ms()));
+}
+
+fn state_file(app: &AppHandle) -> Option<std::path::PathBuf> {
+    Some(app.path().app_data_dir().ok()?.join("timer.json"))
+}
+
+/// Cambio de estado: avisa a las ventanas y lo deja en disco para sobrevivir a un cierre.
+fn changed(app: &AppHandle, t: &Timer) {
+    emit_tick(app, t);
+    if let (Some(path), Ok(json)) = (state_file(app), serde_json::to_vec(t)) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// Retoma el timer guardado. Si venció con la app cerrada, se registra y queda en reposo (sin encadenar pausas).
+pub fn restore(app: &AppHandle) {
+    let Some(saved) = state_file(app)
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<Timer>(&b).ok())
+    else {
+        return;
+    };
+    let state = app.state::<TimerState>();
+    let mut t = state.lock().unwrap();
+    let cfg = std::mem::take(&mut t.cfg);
+    *t = Timer { cfg, ..saved };
+    let now = now_ms();
+    if let Some(done) = t.due(now) {
+        crate::db::record_session(app, &done, now);
+        t.reset(now);
+    }
+    changed(app, &t);
 }
 
 fn notify(app: &AppHandle, done: &Done, t: &Timer) {
-    let mins = t.snap(Instant::now()).total / 60;
+    let mins = t.snap(now_ms()).total / 60;
     let (title, body) = match (done.mode, done.next) {
         (Mode::Focus, _) => ("¡Foco terminado! Descansa".to_string(), format!("Suelta el trabajo: pausa de {mins} min.")),
         (_, Some(_)) => ("¡A trabajar!".to_string(), format!("La pausa terminó. Arranca un foco de {mins} min.")),
@@ -180,8 +234,10 @@ fn notify(app: &AppHandle, done: &Done, t: &Timer) {
 }
 
 fn finish(app: &AppHandle, t: &Timer, done: Done) {
+    crate::db::record_session(app, &done, now_ms());
     let _ = app.emit("timer://done", &done);
     notify(app, &done, t);
+    changed(app, t);
 }
 
 /// Hilo del timer: vive en Rust, no depende del webview (sobrevive a throttling y ventana oculta).
@@ -193,10 +249,10 @@ pub fn spawn(app: AppHandle) {
         if t.status == Status::Idle {
             continue;
         }
-        if let Some(done) = t.due(Instant::now()) {
-            finish(&app, &t, done);
+        match t.due(now_ms()) {
+            Some(done) => finish(&app, &t, done),
+            None => emit_tick(&app, &t),
         }
-        emit_tick(&app, &t);
     });
 }
 
@@ -211,50 +267,54 @@ pub fn start_focus(app: &AppHandle) {
     let state = app.state::<TimerState>();
     let mut t = state.lock().unwrap();
     let secs = t.cfg.focus_s;
-    t.start(Mode::Focus, secs, None, Instant::now());
-    emit_tick(app, &t);
+    let task = t.last_task;
+    t.start(Mode::Focus, secs, task, now_ms());
+    changed(app, &t);
 }
 
 #[tauri::command]
 pub fn timer_get(s: State<TimerState>) -> Snap {
-    s.lock().unwrap().snap(Instant::now())
+    s.lock().unwrap().snap(now_ms())
 }
 
 #[tauri::command]
 pub fn timer_start(mode: Mode, seconds: u64, task_id: Option<i64>, app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.start(mode, seconds, task_id, Instant::now());
-    emit_tick(&app, &t);
+    t.start(mode, seconds, task_id, now_ms());
+    changed(&app, &t);
 }
 
 #[tauri::command]
 pub fn timer_pause(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.pause(Instant::now());
-    emit_tick(&app, &t);
+    t.pause(now_ms());
+    changed(&app, &t);
 }
 
 #[tauri::command]
 pub fn timer_resume(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.resume(Instant::now());
-    emit_tick(&app, &t);
+    t.resume(now_ms());
+    changed(&app, &t);
 }
 
 #[tauri::command]
 pub fn timer_reset(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.reset();
-    emit_tick(&app, &t);
+    let now = now_ms();
+    if let Some(partial) = t.reset(now) {
+        crate::db::record_session(&app, &partial, now);
+    }
+    changed(&app, &t);
 }
 
 #[tauri::command]
 pub fn timer_skip(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    if let Some(done) = t.complete(Instant::now(), true) {
-        finish(&app, &t, done);
+    match t.complete(now_ms(), true) {
+        Some(done) => finish(&app, &t, done),
+        None => changed(&app, &t),
     }
-    emit_tick(&app, &t);
 }
 
 #[cfg(test)]
@@ -263,25 +323,25 @@ mod tests {
 
     #[test]
     fn pause_congela_y_resume_continua() {
-        let t0 = Instant::now();
+        let t0 = 1_000_000;
         let mut t = Timer::new();
         t.start(Mode::Focus, 60, None, t0);
-        t.pause(t0 + Duration::from_secs(20));
-        assert_eq!(t.remaining(t0 + Duration::from_secs(500)), Duration::from_secs(40));
-        t.resume(t0 + Duration::from_secs(500));
-        assert_eq!(t.remaining(t0 + Duration::from_secs(510)), Duration::from_secs(30));
+        t.pause(t0 + 20000);
+        assert_eq!(t.remaining(t0 + 500000), 40000);
+        t.resume(t0 + 500000);
+        assert_eq!(t.remaining(t0 + 510000), 30000);
     }
 
     #[test]
     fn ciclo_automatico_continua_con_otro_foco_y_conserva_tarea() {
-        let mut now = Instant::now();
+        let mut now = 1_000_000;
         let mut t = Timer::new();
         t.cfg.auto_cycle = true;
         t.cfg.focus_s = 60;
         t.start(Mode::Focus, 60, Some(7), now);
-        now += Duration::from_secs(61);
+        now += 61000;
         assert_eq!(t.due(now).unwrap().next, Some(Mode::Short));
-        now += Duration::from_secs(301);
+        now += 301000;
         let d = t.due(now).unwrap();
         assert_eq!((d.mode, d.next), (Mode::Short, Some(Mode::Focus)));
         let s = t.snap(now);
@@ -290,19 +350,39 @@ mod tests {
 
     #[test]
     fn vence_y_encadena_pausa_larga_cada_4() {
-        let mut now = Instant::now();
+        let mut now = 1_000_000;
         let mut t = Timer::new();
         for i in 1..=4 {
             t.start(Mode::Focus, 60, None, now);
-            assert!(t.due(now + Duration::from_secs(59)).is_none());
-            now += Duration::from_secs(61);
+            assert!(t.due(now + 59000).is_none());
+            now += 61000;
             let d = t.due(now).unwrap();
             assert_eq!(d.next, Some(if i == 4 { Mode::Long } else { Mode::Short }));
             assert_eq!(t.status, Status::Running);
         }
-        now += Duration::from_secs(901);
+        now += 901000;
         assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false }));
         assert_eq!(t.status, Status::Idle);
+    }
+
+    #[test]
+    fn reset_de_foco_devuelve_lo_trabajado() {
+        let mut t = Timer::new();
+        t.start(Mode::Focus, 1500, Some(3), 0);
+        let d = t.reset(600_000).unwrap();
+        assert_eq!((d.task_id, d.elapsed, d.skipped), (Some(3), 600, true));
+        assert_eq!(t.status, Status::Idle);
+        t.start(Mode::Short, 300, None, 0);
+        assert!(t.reset(1000).is_none()); // las pausas no son tiempo de trabajo
+    }
+
+    #[test]
+    fn sobrevive_a_guardar_y_cargar() {
+        let mut t = Timer::new();
+        t.start(Mode::Focus, 1500, Some(9), 0);
+        let back: Timer = serde_json::from_slice(&serde_json::to_vec(&t).unwrap()).unwrap();
+        let s = back.snap(300_000); // 5 min después, con la app recién abierta
+        assert_eq!((s.status, s.remaining, s.task_id), (Status::Running, 1200, Some(9)));
     }
 }
 
