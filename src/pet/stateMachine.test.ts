@@ -95,4 +95,9 @@ describe("stateMachine", () => {
     expect(run(base, { type: "land" }).state).toBe("attention");
     expect(run(base, { type: "panelClose" }, { type: "land" }).state).toBe("idle");
   });
+  it("arrastrada mientras celebra una tarea en foco: al aterrizar sigue en foco (no camina)", () => {
+    const c = run(initial(), { type: "timerStart" }, { type: "taskDone" }, { type: "drag" }, { type: "drop" }, { type: "land" });
+    expect(c.state).toBe("focus");
+    expect(run(c, tick(60)).state).toBe("focus");
+  });
 });

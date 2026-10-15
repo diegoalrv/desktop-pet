@@ -46,32 +46,7 @@ def limb(c, x0, y0, x1, y1, col=FUR):                                   # pata g
 
 def patch(x, y): return PATCH[(x // 2 + y // 2) % len(PATCH)]
 
-def dog(bob=0, legs=(0, 0, 0, 0), leglen=12, head=(0, 0), eyes="open", arms_up=False, tuck=0, dy=0, zz=0, sparkle=0,
-        hang=False, props=None, arm=None, wag=0, tongue=False):
-    c = C()
-    lying = tuck > 0
-    by = 38 + bob + dy + (9 if lying else 0)                           # centro del cuerpo
-    foot = by + 4 + leglen + (4 if hang else 0)
-    # cola (se mueve con wag)
-    tip = (6, by + 4) if lying else (8 + wag, by - 11 + abs(wag) // 2)
-    c.line(16, by - 3, tip[0], tip[1], LINE, 4); c.line(16, by - 3, tip[0], tip[1], FUR, 2)
-    # patas: 0 trasera cerca, 1 trasera lejos, 2 delantera lejos, 3 delantera cerca
-    xs = (19, 23, 38, 42)
-    if lying:
-        c.ell(21, by + 4, 6, 4, LINE); c.ell(21, by + 4, 5, 3, FUR_D)
-        for k, y in enumerate((by + 6, by + 4)): limb(c, 40, y, 51 - k * 2, y + 1, FUR_D if k else FUR)
-    else:
-        for i in (1, 2, 0, 3):                                          # las lejanas primero, más oscuras
-            if i >= 2 and (arms_up or (arm and i == 3)): continue
-            x = xs[i] + (2 * i - 3 if hang else 0)
-            limb(c, x, by + 2, x + legs[i] // 2, foot - legs[i], FUR_D if i in (1, 2) else FUR)
-    # cuerpo y cuello
-    c.ell(30, by, 16, 8, LINE); c.ell(30, by, 15, 7, FUR)
-    c.line(20, by - 6, 38, by - 6, FUR_L)
-    hx, hy = (47, by - 3) if lying else (46 + head[0], by - 12 + head[1])
-    if not lying:
-        c.ell(43, by - 4, 5, 6, LINE); c.ell(43, by - 4, 4, 5, FUR)
-        c.line(hx - 3, hy + 2, 43, by - 2, FUR, 6)
+def draw_head(c, hx, hy, eyes="open", tongue=False):                       # cabeza, oreja, pañoleta y ojos
     # oreja semicaída (detrás de la cabeza)
     c.poly([(hx - 7, hy - 3), (hx - 7, hy - 10), (hx - 3, hy - 14), (hx + 2, hy - 11), (hx + 3, hy - 7), (hx - 1, hy - 9), (hx - 1, hy - 3)], FUR_D)
     # cabeza + hocico
@@ -100,8 +75,34 @@ def dog(bob=0, legs=(0, 0, 0, 0), leglen=12, head=(0, 0), eyes="open", arms_up=F
     elif eyes == "shades":                                              # lentes oscuros con marco claro
         c.rect(ex - 3, ey - 2, ex + 3, ey + 1, GREY); c.rect(ex - 2, ey - 1, ex + 2, ey, LINE)
         c.line(ex - 8, ey - 2, ex - 3, ey - 2, GREY); c.put(ex + 1, ey - 1, WHITE)
-    if arms_up:                                                         # patas delanteras arriba
-        for ax in (37, 44): limb(c, 41, by, ax + 1, by - 14, FUR_D if ax == 37 else FUR)
+
+def dog(bob=0, legs=(0, 0, 0, 0), leglen=12, head=(0, 0), eyes="open", tuck=0, dy=0, zz=0, sparkle=0,
+        hang=False, props=None, arm=None, wag=0, tongue=False):
+    c = C()
+    lying = tuck > 0
+    by = 38 + bob + dy + (9 if lying else 0)                           # centro del cuerpo
+    foot = by + 4 + leglen + (4 if hang else 0)
+    # cola (se mueve con wag)
+    tip = (6, by + 4) if lying else (8 + wag, by - 11 + abs(wag) // 2)
+    c.line(16, by - 3, tip[0], tip[1], LINE, 4); c.line(16, by - 3, tip[0], tip[1], FUR, 2)
+    # patas: 0 trasera cerca, 1 trasera lejos, 2 delantera lejos, 3 delantera cerca
+    xs = (19, 23, 38, 42)
+    if lying:
+        c.ell(21, by + 4, 6, 4, LINE); c.ell(21, by + 4, 5, 3, FUR_D)
+        for k, y in enumerate((by + 6, by + 4)): limb(c, 40, y, 51 - k * 2, y + 1, FUR_D if k else FUR)
+    else:
+        for i in (1, 2, 0, 3):                                          # las lejanas primero, más oscuras
+            if arm and i == 3: continue
+            x = xs[i] + (2 * i - 3 if hang else 0)
+            limb(c, x, by + 2, x + legs[i] // 2, foot - legs[i], FUR_D if i in (1, 2) else FUR)
+    # cuerpo y cuello
+    c.ell(30, by, 16, 8, LINE); c.ell(30, by, 15, 7, FUR)
+    c.line(20, by - 6, 38, by - 6, FUR_L)
+    hx, hy = (47, by - 3) if lying else (46 + head[0], by - 12 + head[1])
+    if not lying:
+        c.ell(43, by - 4, 5, 6, LINE); c.ell(43, by - 4, 4, 5, FUR)
+        c.line(hx - 3, hy + 2, 43, by - 2, FUR, 6)
+    draw_head(c, hx, hy, eyes, tongue)
     if arm:                                                             # pata delantera hasta un punto (sostiene algo)
         limb(c, 41, by + 1, *(arm(hx, hy) if callable(arm) else arm))
     if props: props(c, by, hx, hy)
@@ -170,16 +171,39 @@ def guitar(i):                                                          # músic
         limb(c, 41, by + 1, 48 + (0, 2, 0, 2)[i], 46 - (0, 2, 0, 2)[i])
         notes(c, i)
     return dog(bob=0, eyes="shades", head=(1, (0, 3, 0, 3)[i]), wag=(2, -2)[i % 2], props=p)
-def maracas(i):                                                         # música: una maraca en la pata, otra en la cola
-    sh = 1 if i % 2 else -1
-    def p(c, by, hx, hy):
-        mx, my = hx + 11, hy + 6 + sh
-        c.line(mx, my, mx + 1 + sh, my - 5, WOOD_D); c.ell(mx + 1 + sh * 2, my - 8, 3, 4, GOLD); c.put(mx + sh * 2, my - 9, WHITE)
-        tx, ty = 8 + 3 * sh, by - 11
-        c.ell(tx - sh, ty - 4, 3, 4, PURPLE); c.put(tx - sh - 1, ty - 5, WHITE)
-        notes(c, i)
-    return dog(bob=(0, 2, 0, 2)[i], eyes="shades", head=(0, (0, 1, 0, 1)[i]), wag=3 * sh,
-               arm=lambda hx, hy: (hx + 11, hy + 7 + sh), props=p)
+def drums(i):                                                           # música: sentada en un piso tocando la batería
+    hit = ("snare", "crash", "snare", "tom")[i]
+    c = C()
+    bob = (1, 0, 1, 0)[i]
+    c.rect(11, 51, 25, 52, WOOD_D); c.rect(12, 50, 24, 50, RED)                       # piso (banqueta)
+    c.line(13, 53, 12, 59, WOOD_D, 2); c.line(23, 53, 24, 59, WOOD_D, 2)
+    c.line(14, 50, 4, 55 + (i % 2), LINE, 4); c.line(14, 50, 4, 55 + (i % 2), FUR, 2)  # cola en el piso
+    c.ell(19, 45, 7, 6, LINE); c.ell(19, 45, 6, 5, FUR_D)                              # muslo sentado
+    limb(c, 22, 47, 27, 57, FUR_D)                                                     # pata trasera al pedal
+    c.ell(21, 38 + bob, 7, 11, LINE); c.ell(21, 38 + bob, 6, 10, FUR)                  # torso erguido
+    c.line(18, 29 + bob, 18, 40 + bob, FUR_L)
+    hx, hy = 26, 22 + bob + (1 if hit == "crash" else 0)
+    draw_head(c, hx, hy, "shades", tongue=hit == "crash")
+    # batería: bombo, caja, tom y platillo
+    c.line(56, 58, 56, 26, GREY); c.line(52, 58, 60, 58, GREY)
+    cy = 24 + (1 if hit == "crash" else 0)
+    c.ell(56, cy, 7, 1.5, WOOD_D); c.ell(56, cy, 6, 1, GOLD)
+    c.ell(45, 50, 8, 8, LINE); c.ell(45, 50, 7, 7, RED); c.ell(45, 50, 5, 5, PAPER); c.ell(45, 50, 2, 2, RED_D)
+    c.rect(28, 41, 39, 46, LINE); c.rect(29, 42, 38, 45, GREY); c.line(29, 42, 38, 42, PAPER)
+    c.line(33, 47, 33, 58, GREY); c.line(30, 58, 36, 58, GREY)
+    c.rect(40, 34, 49, 40, LINE); c.rect(41, 35, 48, 39, BLUE); c.line(41, 35, 48, 35, PAPER)
+    # patas delanteras con baquetas: (pata, punta) según el golpe
+    up_l, up_r = ((31, 30), (25, 22)), ((36, 26), (36, 16))
+    snare_l, crash_r, tom_r = ((30, 38), (36, 41)), ((44, 28), (53, 23)), ((38, 32), (45, 34))
+    left = snare_l if hit == "snare" else up_l
+    right = {"crash": crash_r, "tom": tom_r}.get(hit, up_r)
+    for ((px, py), (tx, ty)), col in ((left, FUR_D), (right, FUR)):
+        limb(c, 24, 33 + bob, px, py, col)
+        c.line(px, py, tx, ty, WOOD, 1); c.put(tx, ty, PAPER)
+    spark = {"snare": (37, 39), "crash": (56, 20), "tom": (46, 32)}[hit]
+    for dx, dy in ((-3, -2), (0, -3), (3, -2)): c.line(spark[0] + dx // 3, spark[1] + dy // 3, spark[0] + dx, spark[1] + dy, GOLD)
+    notes(c, i)
+    return c.p
 def listen(i):                                                          # concentración + música: audífonos, sigue el ritmo
     return dog(bob=(0, 1, 0, 1)[i], eyes="focus", head=(1, (1, 2, 1, 2)[i]), wag=(1, -1)[i % 2],
                props=lambda c, by, hx, hy: headphones(c, hx, hy))
@@ -194,7 +218,7 @@ def sheet(fn, n):
     return [sum((frames[k][y] for k in range(n)), []) for y in range(F)]
 
 anims = {"idle": (idle, 4), "walk": (walk, 6), "focus": (focus, 4), "celebrate": (celeb, 6), "sleep": (sleep, 4), "dragged": (drag, 2),
-         "read": (read, 4), "write": (write, 4), "tea": (tea, 4), "guitar": (guitar, 4), "maracas": (maracas, 4), "listen": (listen, 4)}
+         "read": (read, 4), "write": (write, 4), "tea": (tea, 4), "guitar": (guitar, 4), "drums": (drums, 4), "listen": (listen, 4)}
 for name, (fn, n) in anims.items(): png(f"{OUT}/{name}.png", F * n, F, sheet(fn, n))
 
 # vista previa ampliada x3 con todas las filas (fondo claro)

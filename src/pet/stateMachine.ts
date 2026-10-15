@@ -45,7 +45,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     case "drag":
       return c.state === "dragged"
         ? c
-        : { ...to(c, "dragged", Infinity, c.state === "fall" ? c.after : c.state), quiet: 0 };
+        : { ...to(c, "dragged", Infinity, c.state === "fall" || c.state === "celebrate" ? c.after : c.state), quiet: 0 };
     case "drop":
       return c.state === "dragged" ? to(c, "fall") : c;
     case "land":
