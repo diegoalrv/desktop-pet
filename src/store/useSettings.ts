@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { emit, listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
-import { BUILTIN } from "../skins/loader";
+import { DEFAULT } from "../skins/loader";
 import { normalizePrefs, type Prefs } from "../lib/prefs";
 
 interface S {
@@ -17,7 +17,7 @@ interface S {
 const store = () => load("settings.json", { autoSave: true, defaults: {} });
 
 export const useSettings = create<S>((set, get) => ({
-  skin: BUILTIN,
+  skin: DEFAULT,
   skinRev: 0,
   prefs: normalizePrefs(undefined),
   setPrefs: async (patch) => {

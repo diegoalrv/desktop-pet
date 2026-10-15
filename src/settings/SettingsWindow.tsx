@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { accelFromEvent, DEFAULT_SHORTCUT } from "../lib/prefs";
 import { chime } from "../lib/sound";
-import { importFile, importFolder, listSkins, removeSkin, BUILTIN } from "../skins/loader";
+import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 
@@ -87,11 +87,11 @@ export function SettingsWindow() {
               <input type="radio" name="skin" checked={skin === s.id} onChange={() => setSkin(s.id)} />
               {s.name} <small style={{ color: T.dim }}>{s.id}</small>
             </label>
-            {s.id !== BUILTIN && (
+            {s.id !== BUILTIN && s.id !== DEFAULT && (
               <button
                 style={{ ...btn, padding: "2px 8px" }}
                 onClick={async () => {
-                  if (skin === s.id) await setSkin(BUILTIN);
+                  if (skin === s.id) await setSkin(DEFAULT);
                   await removeSkin(s.id);
                   refresh();
                 }}

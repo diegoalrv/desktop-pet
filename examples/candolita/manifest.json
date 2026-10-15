@@ -1,0 +1,83 @@
+{
+  "id": "candolita",
+  "name": "Candolita (perrita negra)",
+  "frameWidth": 64,
+  "frameHeight": 64,
+  "scale": 2,
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "frames": 4,
+      "fps": 4,
+      "loop": true
+    },
+    "walk": {
+      "file": "walk.png",
+      "frames": 6,
+      "fps": 8,
+      "loop": true
+    },
+    "focus": {
+      "file": "focus.png",
+      "frames": 4,
+      "fps": 3,
+      "loop": true
+    },
+    "celebrate": {
+      "file": "celebrate.png",
+      "frames": 6,
+      "fps": 10,
+      "loop": false
+    },
+    "sleep": {
+      "file": "sleep.png",
+      "frames": 4,
+      "fps": 2,
+      "loop": true
+    },
+    "dragged": {
+      "file": "dragged.png",
+      "frames": 2,
+      "fps": 5,
+      "loop": true
+    },
+    "read": {
+      "file": "read.png",
+      "frames": 4,
+      "fps": 2,
+      "loop": true
+    },
+    "write": {
+      "file": "write.png",
+      "frames": 4,
+      "fps": 3,
+      "loop": true
+    },
+    "tea": {
+      "file": "tea.png",
+      "frames": 4,
+      "fps": 2,
+      "loop": true
+    },
+    "guitar": {
+      "file": "guitar.png",
+      "frames": 4,
+      "fps": 6,
+      "loop": true
+    },
+    "maracas": {
+      "file": "maracas.png",
+      "frames": 4,
+      "fps": 6,
+      "loop": true
+    },
+    "listen": {
+      "file": "listen.png",
+      "frames": 4,
+      "fps": 4,
+      "loop": true
+    }
+  },
+  "walkSpeed": 30,
+  "groundOffset": 0
+}

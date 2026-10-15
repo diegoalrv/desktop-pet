@@ -11,20 +11,31 @@ import {
   writeFile,
 } from "@tauri-apps/plugin-fs";
 import { normalizeZipPaths, parseManifest, singleImageManifest, slug, type Manifest } from "./schema";
+import candolitaManifest from "../../examples/candolita/manifest.json";
 
 const base = { baseDir: BaseDirectory.AppData };
 const IMG = /\.(png|webp|gif|jpe?g)$/i;
 
 export const BUILTIN = "zorro-default";
+/** Skin por defecto, empaquetada con la app (examples/candolita). */
+export const DEFAULT = "candolita";
+const candolitaUrls = Object.fromEntries(
+  Object.entries(
+    import.meta.glob<string>("../../examples/candolita/*.png", { eager: true, query: "?url", import: "default" }),
+  ).map(([path, url]) => [path.split("/").pop()!, url]),
+);
 export type Skin = { kind: "builtin" } | { kind: "pack"; manifest: Manifest; urls: Record<string, string> };
 
 export async function listSkins(): Promise<{ id: string; name: string }[]> {
-  const out = [{ id: BUILTIN, name: "Zorro (original)" }];
+  const out = [
+    { id: DEFAULT, name: candolitaManifest.name },
+    { id: BUILTIN, name: "Zorro (original)" },
+  ];
   if (!(await exists("skins", base))) return out;
   for (const e of await readDir("skins", base)) {
     try {
       const m = await readManifest(e.name);
-      out.push({ id: m.id, name: m.name });
+      if (m.id !== DEFAULT) out.push({ id: m.id, name: m.name });
     } catch {
       /* skin inválido: se ignora */
     }
@@ -38,6 +49,7 @@ const readManifest = async (id: string) =>
 /** Carga un skin; las imágenes pasan a blob URLs (sin configurar asset protocol/CSP). */
 export async function loadSkin(id: string): Promise<Skin> {
   if (id === BUILTIN) return { kind: "builtin" };
+  if (id === DEFAULT) return { kind: "pack", manifest: parseManifest(candolitaManifest), urls: candolitaUrls };
   const manifest = await readManifest(id);
   const urls: Record<string, string> = {};
   for (const f of new Set(Object.values(manifest.animations).map((a) => a.file))) {
@@ -47,7 +59,7 @@ export async function loadSkin(id: string): Promise<Skin> {
 }
 
 export const revokeSkin = (s: Skin) =>
-  s.kind === "pack" && Object.values(s.urls).forEach(URL.revokeObjectURL);
+  s.kind === "pack" && s.urls !== candolitaUrls && Object.values(s.urls).forEach(URL.revokeObjectURL);
 
 export const removeSkin = (id: string) => remove(`skins/${id}`, { ...base, recursive: true });
 

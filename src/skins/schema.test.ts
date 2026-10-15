@@ -53,7 +53,7 @@ describe("manifest", () => {
 });
 
 describe("skins de ejemplo", () => {
-  for (const dir of ["slime-demo", "tortu"]) {
+  for (const dir of ["slime-demo", "tortu", "candolita"]) {
     it(`${dir}: manifest válido y archivos presentes`, async () => {
       const { readFileSync, existsSync } = await import("node:fs");
       const root = `examples/${dir}`;
