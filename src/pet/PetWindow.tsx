@@ -180,16 +180,21 @@ export function PetWindow() {
       if (a.status !== "idle" && (b.status === "idle" || a.mode !== b.mode))
         send({ type: a.mode === "focus" ? "timerStart" : "breakStart" });
       else if (a.status === "idle" && b.status !== "idle") send({ type: "timerStop" });
+      // Inicio manual (botones/tray): suena igual que un cambio de ciclo. Los encadenados suenan vía timer://done;
+      // un timer retomado de disco al abrir la app ya lleva tiempo corrido y no suena.
+      if (a.status !== "idle" && b.status === "idle" && a.remaining >= a.total - 1 && sound.current.sound)
+        chime(a.mode === "focus" ? "work" : "rest", sound.current.loud);
     });
     // El timer pudo llegar antes de suscribirse (p. ej. retomado de disco al abrir la app).
     const s0 = useTimer.getState().snap;
     if (s0.status !== "idle") send({ type: s0.mode === "focus" ? "timerStart" : "breakStart" });
-    const unDone = listen<{ mode: string; skipped: boolean }>(
+    const unDone = listen<{ mode: string; skipped: boolean; next: string | null }>(
       "timer://done",
       (e) => {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
-        if (!d.skipped && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work", sound.current.loud);
+        // Saltar también suena si arranca otro bloque; saltar a la nada (fin del ciclo) no.
+        if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work", sound.current.loud);
       },
     );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
