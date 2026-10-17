@@ -78,3 +78,8 @@ export const focusByTask = (since: number) =>
     "SELECT task_id, SUM(end - start) / 1000 AS secs FROM sessions WHERE mode = 'focus' AND start >= $1 GROUP BY task_id",
     [since],
   );
+
+export type ChatRow = { id: number; at: number; session: string | null; prompt: string; reply: string | null; tools: string | null; outcome: string; god: number };
+/** Últimas órdenes desde `since` (epoch ms: cuándo se empezó el chat actual). */
+export const chatHistory = (since = 0, limit = 30) =>
+  select<ChatRow>("SELECT * FROM (SELECT * FROM chat_log WHERE at > $1 ORDER BY id DESC LIMIT $2) ORDER BY id", [since, limit]);

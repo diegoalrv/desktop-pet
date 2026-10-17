@@ -21,9 +21,16 @@ describe("prefs", () => {
       sound: true,
       loud: true,
       shortcut: "CommandOrControl+Shift+Space",
+      icalUrl: "",
+      llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      llmModel: "gemini-3.8-flash",
+      llmKey: "",
+      claudeCwd: "",
+      petSize: 128,
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });
     expect([p.focusMin, p.shortMin, p.longMin, p.sound]).toEqual([50, 5, 15, true]);
+    expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([200, 128]);
   });
   it("accelFromEvent", () => {
     expect(accelFromEvent(ev("Space", { metaKey: true, shiftKey: true }))).toBe(

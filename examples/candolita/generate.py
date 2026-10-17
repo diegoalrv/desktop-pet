@@ -46,38 +46,66 @@ def limb(c, x0, y0, x1, y1, col=FUR):                                   # pata g
 
 def patch(x, y): return PATCH[(x // 2 + y // 2) % len(PATCH)]
 
-def draw_head(c, hx, hy, eyes="open", tongue=False):                       # cabeza, oreja, pañoleta y ojos
-    # oreja semicaída (detrás de la cabeza)
-    c.poly([(hx - 7, hy - 3), (hx - 7, hy - 10), (hx - 3, hy - 14), (hx + 2, hy - 11), (hx + 3, hy - 7), (hx - 1, hy - 9), (hx - 1, hy - 3)], FUR_D)
+# --- expresiones: ojos, cejas y bocas dibujados a mano (k contorno, e iris, w brillo, l párpado) ---
+IRIS, BROW, BLUSH = (156, 100, 52), (124, 126, 146), (226, 104, 134)
+EYES = {  # 4 de ancho, la fila 0 cae en ey-2
+    "open":    [".ee.", "ekwe", "ekke", ".ee."],
+    "closed":  ["....", "....", "llll", "...."],          # parpadeo / dormida
+    "happy":   ["....", ".ll.", "l..l", "...."],          # ^ ^
+    "content": ["....", "l..l", ".ll.", "...."],          # ojos cerrados sonriendo
+    "focus":   ["llll", "ekwe", ".ee.", "...."],          # párpado bajo, decidida
+    "down":    ["....", "llll", "ekke", ".ew."],          # mira hacia abajo (lee, escribe)
+    "wide":    [".www.", "wwkkw", "wwkkw", ".www."],      # sorpresa (5 de ancho)
+    "sad":     ["....", ".ee.", "ekwe", ".ke."],          # pupila baja
+}
+BROWS = {  # filas ey-4 y ey-3
+    "raise": [".bb.", "b..b"], "focus": ["bb..", "..bb"], "sad": ["..bb", "bb.."], "quirk": [".bbb", "b..."],
+}
+EAR = {"normal": (0, 0), "perk": (0, -1), "droop": (-2, 3), "flip": (5, -2)}
+
+def stamp(c, x0, y0, rows, cols):
+    for dy, row in enumerate(rows):
+        for dx, ch in enumerate(row):
+            if ch in cols: c.put(x0 + dx, y0 + dy, cols[ch])
+
+def mouth(c, hx, hy, kind):                                             # comisura a la izquierda, nariz a la derecha
+    y = hy + 3                                                          # una fila sobre el contorno del hocico
+    if kind == "frown": c.put(hx + 7, y + 1, LINE); c.line(hx + 8, y, hx + 11, y, LINE)
+    elif kind == "wobble":
+        for k, dy in enumerate((1, 0, 1, 0, 0)): c.put(hx + 7 + k, y + dy, LINE)
+    elif kind == "flat": c.line(hx + 7, y, hx + 11, y, LINE)
+    elif kind == "o": c.line(hx + 7, y, hx + 11, y, LINE); c.rect(hx + 9, y + 1, hx + 10, y + 2, LINE); c.put(hx + 9, y + 1, (150, 50, 70))
+    else:                                                               # smile / open
+        c.put(hx + 7, y - 1, LINE); c.line(hx + 8, y, hx + 11, y, LINE)
+        if kind == "open":
+            c.rect(hx + 8, y + 1, hx + 10, y + 1, LINE)
+            c.rect(hx + 8, y + 2, hx + 9, y + 3, TONGUE); c.put(hx + 9, y + 3, (200, 80, 100)); c.put(hx + 8, y + 2, (255, 170, 186))
+
+def draw_head(c, hx, hy, eyes="open", tongue=False, brow=None, smile="smile", blush=False, ear="normal"):
+    # oreja semicaída (detrás de la cabeza); se para o se cae según el ánimo
+    ox, oy = EAR[ear]
+    pts = [(-7, -3, 0), (-7, -10, .6), (-3, -14, 1), (2, -11, .8), (3, -7, .4), (-1, -9, .6), (-1, -3, 0)]
+    c.poly([(hx + x + ox * w, hy + y + oy * w) for x, y, w in pts], FUR_D)
     # cabeza + hocico
     c.ell(hx, hy, 8, 7, LINE); c.ell(hx + 8, hy + 2, 5.5, 3.6, LINE)
     c.ell(hx, hy, 7, 6, FUR); c.ell(hx + 8, hy + 2, 4.5, 2.6, FUR)
     c.line(hx - 3, hy - 4, hx + 1, hy - 5, FUR_L)                       # brillo
     c.ell(hx + 12, hy + 1, 1.6, 1.6, NOSE); c.put(hx + 12, hy, LID)
-    c.line(hx + 7, hy + 4, hx + 11, hy + 4, LINE)
-    if tongue: c.rect(hx + 8, hy + 5, hx + 9, hy + 7, TONGUE); c.put(hx + 9, hy + 7, (200, 80, 100))
+    mouth(c, hx, hy, "open" if tongue else smile)
     # pañoleta de cuadritos
     c.poly([(hx - 8, hy + 5), (hx + 3, hy + 6), (hx - 4, hy + 15)], None, patch)
-    # ojos (claros sobre pelo negro)
     ex, ey = hx + 3, hy - 1
-    if eyes == "open":
-        c.ell(ex, ey, 2, 2, EYE); c.rect(ex, ey, ex + 1, ey + 1, LINE); c.put(ex, ey - 1, WHITE)
-    elif eyes == "closed":
-        c.line(ex - 2, ey + 1, ex + 1, ey + 1, LID)
-    elif eyes == "happy":
-        c.line(ex - 2, ey + 1, ex - 1, ey - 1, LID); c.line(ex - 1, ey - 1, ex + 1, ey + 1, LID)
-    elif eyes == "focus":
-        c.ell(ex, ey, 1.6, 1.2, EYE); c.put(ex, ey, LINE); c.put(ex + 1, ey - 1, WHITE); c.line(ex - 2, ey - 3, ex + 2, ey - 2, LID)
-    elif eyes == "wide":
-        c.ell(ex, ey, 2.5, 2.5, WHITE); c.put(ex + 1, ey, LINE); c.put(ex, ey, LINE)
-    elif eyes == "down":
-        c.ell(ex, ey + 1, 1.6, 1.2, EYE); c.put(ex + 1, ey + 1, LINE); c.line(ex - 2, ey - 1, ex + 1, ey - 1, LID)
-    elif eyes == "shades":                                              # lentes oscuros con marco claro
+    if blush: c.put(ex, ey + 3, BLUSH); c.put(ex + 1, ey + 3, BLUSH)
+    if brow: stamp(c, ex - 1, ey - 4, BROWS[brow], {"b": BROW})
+    if eyes == "shades":                                                # lentes oscuros con marco claro
         c.rect(ex - 3, ey - 2, ex + 3, ey + 1, GREY); c.rect(ex - 2, ey - 1, ex + 2, ey, LINE)
         c.line(ex - 8, ey - 2, ex - 3, ey - 2, GREY); c.put(ex + 1, ey - 1, WHITE)
+    else:
+        rows = EYES[eyes]
+        stamp(c, ex - (2 if len(rows[0]) == 5 else 1), ey - 2, rows, {"k": LINE, "e": IRIS, "w": WHITE, "l": LID})
 
 def dog(bob=0, legs=(0, 0, 0, 0), leglen=12, head=(0, 0), eyes="open", tuck=0, dy=0, zz=0, sparkle=0,
-        hang=False, props=None, arm=None, wag=0, tongue=False):
+        hang=False, props=None, arm=None, wag=0, tongue=False, face=None):
     c = C()
     lying = tuck > 0
     by = 38 + bob + dy + (9 if lying else 0)                           # centro del cuerpo
@@ -102,7 +130,7 @@ def dog(bob=0, legs=(0, 0, 0, 0), leglen=12, head=(0, 0), eyes="open", tuck=0, d
     if not lying:
         c.ell(43, by - 4, 5, 6, LINE); c.ell(43, by - 4, 4, 5, FUR)
         c.line(hx - 3, hy + 2, 43, by - 2, FUR, 6)
-    draw_head(c, hx, hy, eyes, tongue)
+    draw_head(c, hx, hy, eyes, tongue, **(face or {}))
     if arm:                                                             # pata delantera hasta un punto (sostiene algo)
         limb(c, 41, by + 1, *(arm(hx, hy) if callable(arm) else arm))
     if props: props(c, by, hx, hy)
@@ -137,40 +165,82 @@ def walk(i):
     ph = i / 6 * 2 * math.pi
     lifts = [max(0, round(3 * math.sin(ph + o))) for o in (0, math.pi, 0, math.pi)]  # pares en diagonal
     return dog(bob=round(math.sin(ph * 2)), legs=lifts, head=(1, 0), wag=(2, 0, -2, 0, 2, 0)[i], tongue=True)
-def focus(i):  return dog(bob=(0, 0, 1, 1)[i], eyes="focus", head=(1, 1))
+def focus(i):  return dog(bob=(0, 0, 1, 1)[i], eyes="focus", head=(1, 1), face=dict(brow="focus", smile="flat"))
 def celeb(i):  return dog(dy=-round(10 * abs(math.sin(i / 6 * math.pi))), hang=i in (1, 2, 3, 4), eyes="happy", sparkle=1 + i % 4,
-                          wag=(3, -3)[i % 2], tongue=True)
-def sleep(i):  return dog(bob=(0, 1, 1, 0)[i], eyes="closed", tuck=6, zz=1 + i % 3)
-def drag(i):   return dog(eyes="wide", hang=True, head=(0, -1 + i), bob=i, wag=-2)
+                          wag=(3, -3)[i % 2], tongue=True, face=dict(blush=True, ear="perk"))
+def sleep(i):  return dog(bob=(0, 1, 1, 0)[i], eyes="content", tuck=6, zz=1 + i % 3, face=dict(smile="flat", ear="droop"))
+def drag(i):   return dog(eyes="wide", hang=True, head=(0, -1 + i), bob=i, wag=-2, face=dict(brow="raise", smile="o", ear="perk"))
 
 # --- ánimos (variantes que la app alterna según estado y música) ---
-def read(i):                                                            # concentración: lee, pasa página en el frame 2
-    return dog(bob=(0, 0, 1, 0)[i], eyes="down", head=(0, 1), arm=lambda hx, hy: (hx + 6, hy + 12),
-               props=lambda c, by, hx, hy: book(c, hx + 2, hy + 8, (0, 0, 2, 1)[i]))
-def write(i):                                                           # concentración: escribe en una hoja en el suelo
-    def p(c, by, hx, hy):
-        c.rect(48, 53, 63, 55, PAPER_D); c.rect(48, 52, 63, 54, PAPER)
-        for k in range(i + 1): c.line(50, 53 - (k % 2), 50 + 3 * k, 53 - (k % 2), INK)
-        px = 50 + 3 * i
-        c.line(px, 51, px + 4, 43, GOLD); c.put(px, 51, INK); c.put(px + 4, 43, (240, 140, 160))
-    return dog(bob=(0, 0, 0, 1)[i], eyes="down", head=(1, 4), arm=(54 + 3 * i // 2, 46), props=p)
+def read(i):                                                            # concentración: sentada en la silla con el libro en las patas
+    c = C()
+    bob = (0, 0, 1, 0)[i]
+    hx, hy = seated(c, i, bob, desk=False)
+    draw_head(c, hx, hy + 1, "down")
+    bx, by = hx + 4, hy + 8
+    limb(c, 22, 30 + bob, bx + 1, by + 8, FUR_D); limb(c, 23, 31 + bob, bx + 11, by + 8)   # brazos hasta las esquinas
+    book(c, bx, by, (0, 0, 2, 1)[i])
+    for x, col in ((bx, FUR_D), (bx + 12, FUR)): c.ell(x, by + 7, 2, 1.5, LINE); c.ell(x, by + 7, 1, 1, col)  # patitas
+    return c.p
+def write(i):                                                           # concentración: sentada al escritorio, escribe con lápiz
+    c = C()
+    bob = (0, 0, 0, 1)[i]
+    hx, hy = seated(c, i, bob)
+    c.rect(37, 38, 54, 39, PAPER); c.line(37, 39, 54, 39, PAPER_D)                      # hoja sobre el escritorio
+    for k in range(i + 1): c.line(40, 38, 41 + 3 * k, 38, INK)
+    draw_head(c, hx + 1, hy + 2, "down", brow="focus", smile="flat")
+    limb(c, 22, 30 + bob, 38, 38, FUR_D)                                               # pata que sujeta la hoja
+    px = 42 + 3 * i
+    limb(c, 23, 31 + bob, px - 1, 36)                                                  # pata con el lápiz
+    c.line(px, 37, px + 3, 30, GOLD); c.put(px, 38, INK); c.put(px + 3, 30, (240, 140, 160))
+    return c.p
 def tea(i):                                                             # pausa: té con vapor, sorbo en el frame 3
     sip = i == 3
     def p(c, by, hx, hy):
         cx, cy = (hx + 9, hy + 3) if sip else (hx + 8, hy + 8)
         c.rect(cx, cy, cx + 5, cy + 5, WHITE); c.rect(cx + 1, cy, cx + 4, cy, TEA); c.rect(cx + 6, cy + 1, cx + 7, cy + 3, WHITE)
         for k in range(3): c.put(cx + 1 + k * 2 + ((i + k) % 2), cy - 2 - k - (i % 2) * 2, STEAM)
-    return dog(bob=(0, 1, 1, 0)[i], eyes="happy" if sip else "closed", head=(0, -1 if sip else 0),
+    return dog(bob=(0, 1, 1, 0)[i], eyes="happy" if sip else "content", head=(0, -1 if sip else 0), face=dict(blush=sip),
                arm=(lambda hx, hy: (hx + 9, hy + 7)) if sip else (lambda hx, hy: (hx + 8, hy + 12)), props=p)
-def guitar(i):                                                          # música: guitarra, lentes oscuros, headbang
-    def p(c, by, hx, hy):
-        c.line(44, 46, 20, 30, WOOD_D, 2); c.line(43, 45, 21, 30, WOOD)
-        c.rect(17, 27, 21, 30, INK)
-        for k in range(3): c.put(18 + k, 26, GOLD)
-        c.ell(47, 48, 7, 6, RED_D); c.ell(47, 48, 6, 5, RED); c.ell(46, 48, 2, 2, INK)
-        limb(c, 41, by + 1, 48 + (0, 2, 0, 2)[i], 46 - (0, 2, 0, 2)[i])
-        notes(c, i)
-    return dog(bob=0, eyes="shades", head=(1, (0, 3, 0, 3)[i]), wag=(2, -2)[i % 2], props=p)
+def upright(c, bob=0, wag=0):                                            # de pie sobre las patas traseras; devuelve el hombro
+    c.line(15, 47, 5, 41 + wag, LINE, 4); c.line(15, 47, 5, 41 + wag, FUR, 2)          # cola
+    limb(c, 19, 46, 17, 60, FUR_D); limb(c, 23, 46, 26, 60, FUR)                       # patas traseras al suelo
+    c.ell(21, 36 + bob, 7, 11, LINE); c.ell(21, 36 + bob, 6, 10, FUR)                  # torso erguido
+    c.line(18, 28 + bob, 18, 40 + bob, FUR_L)
+    return 24, 31 + bob
+
+def guitar(i):                                                          # música: de pie tocando la guitarra
+    c = C()
+    bob = (0, 1, 0, 1)[i]
+    sx, sy = upright(c, bob, (2, -2)[i % 2])
+    draw_head(c, 26, 20 + bob + (0, 1, 0, 1)[i], "shades", tongue=i % 2 == 1, ear="perk")
+    gy = 44 + bob
+    c.line(31, gy - 3, 48, gy - 22, WOOD_D, 2); c.line(31, gy - 4, 47, gy - 22, WOOD)  # mástil hacia adelante y arriba
+    c.rect(46, gy - 27, 50, gy - 23, INK)
+    for k in range(3): c.put(51, gy - 27 + k, GOLD)
+    c.ell(27, gy, 7, 6, RED_D); c.ell(27, gy, 6, 5, RED); c.ell(28, gy - 1, 2, 2, INK)
+    c.line(23, gy + 1, 31, gy - 4, PAPER_D)                                            # cuerdas
+    limb(c, sx - 2, sy, 31, 38 + bob, FUR_D); limb(c, 31, 38 + bob, 40, gy - 14 + (0, 1, 0, 1)[i], FUR_D)  # codo y pata en el mástil
+    limb(c, sx, sy + 1, 28 + (0, 2, 0, 2)[i], gy + 3 - (0, 3, 0, 3)[i])               # rasguea
+    notes(c, i)
+    return c.p
+
+def headbang(i):                                                        # música: rockeando, cabezazo y pata con cuernos
+    c = C()
+    bob = (0, 1, 2, 1)[i]
+    sx, sy = upright(c, bob, (3, -3)[i % 2])
+    dx, dy = ((0, 0), (2, 3), (5, 7), (2, 3))[i]
+    limb(c, sx, sy + 1, 30, 44 + bob)                                                  # pata en la cadera
+    hx, hy = 26 + dx, 20 + bob + dy
+    c.line(22, 28 + bob, hx - 2, hy + 3, LINE, 8); c.line(22, 28 + bob, hx - 2, hy + 3, FUR, 6)   # cuello que sigue al cabezazo
+    draw_head(c, hx, hy, "shades", tongue=i == 2, ear=("perk", "normal", "flip", "normal")[i])
+    ux, uy = (14, 12) if i % 2 == 0 else (16, 15)                                      # pata arriba con cuernos
+    limb(c, sx - 3, sy - 1, ux, uy, FUR_D)
+    c.line(ux - 2, uy - 2, ux - 3, uy - 5, LINE); c.line(ux + 2, uy - 2, ux + 3, uy - 5, LINE)
+    if i == 2:                                                                          # líneas de movimiento
+        for k in range(3): c.line(hx - 10 + k * 3, hy - 14 + k, hx - 8 + k * 3, hy - 12 + k, INK)
+    notes(c, i)
+    return c.p
 def drums(i):                                                           # música: sentada en un piso tocando la batería
     hit = ("snare", "crash", "snare", "tom")[i]
     c = C()
@@ -183,7 +253,7 @@ def drums(i):                                                           # músic
     c.ell(21, 38 + bob, 7, 11, LINE); c.ell(21, 38 + bob, 6, 10, FUR)                  # torso erguido
     c.line(18, 29 + bob, 18, 40 + bob, FUR_L)
     hx, hy = 26, 22 + bob + (1 if hit == "crash" else 0)
-    draw_head(c, hx, hy, "shades", tongue=hit == "crash")
+    draw_head(c, hx, hy, "shades", tongue=hit == "crash", ear="perk")
     # batería: bombo, caja, tom y platillo
     c.line(56, 58, 56, 26, GREY); c.line(52, 58, 60, 58, GREY)
     cy = 24 + (1 if hit == "crash" else 0)
@@ -205,8 +275,84 @@ def drums(i):                                                           # músic
     notes(c, i)
     return c.p
 def listen(i):                                                          # concentración + música: audífonos, sigue el ritmo
-    return dog(bob=(0, 1, 0, 1)[i], eyes="focus", head=(1, (1, 2, 1, 2)[i]), wag=(1, -1)[i % 2],
+    return dog(bob=(0, 1, 0, 1)[i], eyes="content", head=(1, (1, 2, 1, 2)[i]), wag=(1, -1)[i % 2], face=dict(blush=True),
                props=lambda c, by, hx, hy: headphones(c, hx, hy))
+
+def seated(c, i, bob, desk=True):                                       # sentada en una silla (y escritorio); devuelve la cabeza
+    if desk:
+        c.rect(32, 40, 63, 41, WOOD); c.rect(32, 42, 63, 42, WOOD_D)
+        c.line(35, 43, 35, 63, WOOD_D, 2); c.line(61, 43, 61, 63, WOOD_D, 2)
+    c.rect(8, 47, 24, 48, WOOD_D); c.rect(9, 46, 23, 46, RED)                          # silla
+    c.line(10, 49, 10, 63, WOOD_D, 2); c.line(22, 49, 22, 63, WOOD_D, 2); c.line(9, 46, 7, 30, WOOD_D, 2)
+    c.line(12, 46, 3, 50 + (i % 2), LINE, 4); c.line(12, 46, 3, 50 + (i % 2), FUR, 2)  # cola
+    c.ell(18, 42, 7, 5, LINE); c.ell(18, 42, 6, 4, FUR_D)                              # muslo sentado
+    limb(c, 22, 44, 27, 60, FUR_D)                                                     # pata trasera al suelo
+    c.ell(20, 35 + bob, 7, 11, LINE); c.ell(20, 35 + bob, 6, 10, FUR)                  # torso erguido
+    c.line(17, 26 + bob, 17, 38 + bob, FUR_L)
+    return 25, 19 + bob
+
+def laptop(i):                                                          # Claude trabajando: sentada al escritorio, gafas, teclea
+    c = C()
+    bob = (0, 1, 0, 1)[i]
+    hx, hy = seated(c, i, bob)
+    c.line(hx - 3, hy - 2, hx - 5, hy - 3, GREY)                                       # patilla de las gafas
+    draw_head(c, hx, hy, "down", brow="focus", smile="flat")
+    ex, ey = hx + 3, hy - 1                                                            # gafas redondas con reflejo de pantalla
+    c.line(ex - 3, ey - 2, ex + 3, ey - 2, GREY); c.line(ex - 3, ey + 2, ex + 3, ey + 2, GREY)
+    c.line(ex - 3, ey - 2, ex - 3, ey + 2, GREY); c.line(ex + 3, ey - 2, ex + 3, ey + 2, GREY)
+    c.line(ex - 3, ey - 1, hx - 3, hy - 2, GREY)
+    c.put(ex + 2, ey - 1 + i % 3, (150, 210, 255))
+    # laptop: base con teclado y tapa abierta (se ve el dorso con una huellita), luz de pantalla hacia ella
+    c.rect(34, 38, 52, 39, LINE); c.rect(35, 38, 51, 38, GREY)
+    c.poly([(47, 38), (52, 38), (57, 22), (52, 22)], GREY)
+    c.ell(52, 30, 1.5, 1.5, PAPER_D); c.put(50, 28, PAPER_D); c.put(52, 27, PAPER_D); c.put(54, 28, PAPER_D)
+    for y in range(24, 38, 2): c.put(48 + (38 - y) // 4 - 1 - (y // 2 + i) % 2, y, (110, 170, 230))
+    # patas delanteras tecleando por turnos
+    keys = ((38, 37), (42, 36), (40, 36), (44, 37))
+    l, r = keys[i], keys[(i + 2) % 4]
+    for (kx, ky), col, up in (((l[0], l[1]), FUR_D, i % 2), ((r[0] + 2, r[1]), FUR, 1 - i % 2)):
+        limb(c, 23, 30 + bob, kx, ky - up * 2, col)
+    for k in range(i % 4): c.rect(30 + k * 3, 6, 31 + k * 3, 7, INK)                   # puntitos de "pensando"
+    return c.p
+
+GREEN, SWEAT = (80, 190, 100), (140, 200, 250)
+def mission(i):                                                         # misión cumplida: alza una bandera con ✓ y festeja
+    def p(c, by, hx, hy):
+        c.line(58, 58, 58, 1, WOOD_D, 2)                                                # asta
+        for x in range(44, 58):                                                         # bandera que flamea hacia atrás
+            dy = round(math.sin((x + i * 3) / 2.5))
+            c.line(x, 2 + dy, x, 11 + dy, GREEN)
+        ck = lambda x, y: round(math.sin((x + i * 3) / 2.5))
+        for (x0, y0), (x1, y1) in (((48, 6), (50, 8)), ((50, 8), (54, 4))):            # ✓ que flamea con la tela
+            for t in range(5):
+                x, y = x0 + (x1 - x0) * t / 4, y0 + (y1 - y0) * t / 4
+                c.put(x, y + ck(round(x), y), WHITE)
+        for k in range(1 + i % 3):                                                      # confeti
+            cx, cy = [(12, 10), (30, 8), (20, 18)][k]
+            c.rect(cx, cy + i, cx + 1, cy + i + 1, PATCH[(i + k) % len(PATCH)])
+    return dog(dy=(0, -3, -5, -3)[i], eyes="happy", tongue=True, wag=(3, -3)[i % 2], sparkle=2, face=dict(blush=True, ear="perk"),
+               arm=(57, 30), props=p)
+def oops(i):                                                            # falló: orejas gachas, gotita de sudor y nubecita
+    def p(c, by, hx, hy):
+        sy = hy - 7 + i                                                                 # gota de sudor que resbala
+        c.ell(hx + 6, sy + 1, 1.5, 2, LINE); c.ell(hx + 6, sy + 1, 1, 1.5, SWEAT); c.put(hx + 6, sy - 1, SWEAT)
+        cx, cy = hx - 2, 8                                                              # nube de tormenta
+        for dx, dy, r in ((0, 1, 4), (5, -1, 5), (10, 1, 4)): c.ell(cx + dx, cy + dy, r + 1, 3.5, LINE)
+        for dx, dy, r in ((0, 1, 4), (5, -1, 5), (10, 1, 4)): c.ell(cx + dx, cy + dy, r, 2.5, (96, 102, 116))
+        for k in range(3): c.put(cx + k * 5, cy + 6 + (i + k) % 3 * 2, SWEAT)          # lluvia
+        if i % 2: c.line(cx + 6, cy + 4, cx + 4, cy + 7, GOLD); c.line(cx + 4, cy + 7, cx + 6, cy + 7, GOLD); c.line(cx + 6, cy + 7, cx + 4, cy + 10, GOLD)
+    return dog(bob=(1, 1, 2, 1)[i], eyes="sad", head=(-1, 5), wag=0, props=p, face=dict(brow="sad", smile="wobble", ear="droop"))
+def ask(i):                                                             # espera tu ok: ladea la cabeza, pata arriba y "?"
+    def p(c, by, hx, hy):
+        bx, by2 = hx - 2, hy - 22
+        c.ell(bx + 3, by2 + 4, 6, 6, LINE); c.ell(bx + 3, by2 + 4, 5, 5, WHITE)          # globito
+        c.put(bx - 1, by2 + 10, WHITE); c.put(bx - 2, by2 + 11, LINE)
+        c.line(bx + 1, by2 + 2, bx + 3, by2 + 1, ACC); c.line(bx + 3, by2 + 1, bx + 5, by2 + 2, ACC)
+        c.line(bx + 5, by2 + 2, bx + 4, by2 + 4, ACC); c.line(bx + 4, by2 + 4, bx + 3, by2 + 5, ACC)
+        c.put(bx + 3, by2 + 7, ACC)
+    return dog(bob=(0, 0, 1, 0)[i], eyes="wide" if i == 2 else "open", head=(1, (0, -1, -1, 0)[i]), wag=(2, -2)[i % 2], face=dict(brow="quirk", ear="perk"),
+               arm=(52, (36, 34, 34, 36)[i]), props=p)
+ACC = (232, 82, 60)
 
 def png(path, w, h, rows):
     raw = b"".join(b"\x00" + bytes(v for px in row for v in px) for row in rows)
@@ -218,7 +364,8 @@ def sheet(fn, n):
     return [sum((frames[k][y] for k in range(n)), []) for y in range(F)]
 
 anims = {"idle": (idle, 4), "walk": (walk, 6), "focus": (focus, 4), "celebrate": (celeb, 6), "sleep": (sleep, 4), "dragged": (drag, 2),
-         "read": (read, 4), "write": (write, 4), "tea": (tea, 4), "guitar": (guitar, 4), "drums": (drums, 4), "listen": (listen, 4)}
+         "read": (read, 4), "write": (write, 4), "tea": (tea, 4), "guitar": (guitar, 4), "headbang": (headbang, 4), "drums": (drums, 4), "listen": (listen, 4), "work": (laptop, 4),
+         "mission": (mission, 4), "oops": (oops, 4), "ask": (ask, 4)}
 for name, (fn, n) in anims.items(): png(f"{OUT}/{name}.png", F * n, F, sheet(fn, n))
 
 # vista previa ampliada x3 con todas las filas (fondo claro)

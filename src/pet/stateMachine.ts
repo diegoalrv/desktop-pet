@@ -1,4 +1,9 @@
-export type PetState = "idle" | "walk" | "focus" | "celebrate" | "break" | "sleep" | "dragged" | "fall" | "attention";
+export type PetState =
+  | "idle" | "walk" | "focus" | "celebrate" | "break" | "sleep" | "dragged" | "fall" | "attention"
+  | "work" | "mission" | "oops" | "ask"; // Claude Code: trabajando, misión cumplida, falló, espera tu ok
+
+/** Cómo terminó una orden a Claude Code. */
+export type ClaudeOutcome = "mission" | "oops" | "ask";
 
 export type PetEvent =
   | { type: "tick"; dt: number }
@@ -13,7 +18,9 @@ export type PetEvent =
   | { type: "timerEnd" } // fin de foco -> celebrate -> break; fin de break -> idle
   | { type: "taskDone" }
   | { type: "panelOpen" } // se abrió el panel: quieta y atenta
-  | { type: "panelClose" }; // se cerró: sigue con lo suyo
+  | { type: "panelClose" } // se cerró: sigue con lo suyo
+  | { type: "claudeStart" }
+  | { type: "claudeEnd"; outcome: ClaudeOutcome };
 
 export interface Ctx {
   state: PetState;
@@ -31,6 +38,11 @@ export const IDLE_MIN = 5;
 export const IDLE_SPAN = 10; // 5-15 s
 export const CELEBRATE_S = 2;
 export const SLEEP_AFTER_S = 600;
+export const OUTCOME_S = 4; // misión cumplida / falló
+export const ASK_S = 60; // esperando tu ok
+
+/** Estados libres: Claude puede ponerla a trabajar (en foco/pausa no la interrumpe). */
+const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask"];
 
 const idleFor = (r: number) => IDLE_MIN + r * IDLE_SPAN;
 const to = (c: Ctx, state: PetState, left = Infinity, after = c.after): Ctx => ({ ...c, state, left, after });
@@ -50,7 +62,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       return c.state === "dragged" ? to(c, "fall") : c;
     case "land":
       if (c.state !== "fall") return c;
-      return c.after === "focus" || c.after === "break" ? to(c, c.after) : goIdle(c, r);
+      return c.after === "focus" || c.after === "break" || c.after === "work" ? to(c, c.after) : goIdle(c, r);
     case "timerStart":
       return c.state === "dragged" || c.state === "fall"
         ? { ...c, after: "focus" }
@@ -82,6 +94,12 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       const w = { ...c, watching: false };
       return w.state === "attention" ? goIdle(w, r) : w;
     }
+    case "claudeStart":
+      if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate") return { ...c, after: "work" };
+      return FREE.includes(c.state) ? { ...to(c, "work"), quiet: 0 } : c;
+    case "claudeEnd":
+      if (c.state === "work") return to(c, ev.outcome, ev.outcome === "ask" ? ASK_S : OUTCOME_S, "attention");
+      return c.after === "work" ? { ...c, after: "attention" } : c; // terminó mientras la arrastraban
     case "input":
       return c.state === "sleep" ? goIdle({ ...c, quiet: 0 }, r) : { ...c, quiet: 0 };
     case "arrive":
@@ -93,6 +111,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       const left = c.left - ev.dt;
       if (left > 0) return { ...c, left, quiet };
       if (c.state === "idle") return { ...to(c, "walk"), quiet };
+      if (c.state === "mission" || c.state === "oops" || c.state === "ask") return goIdle({ ...c, quiet }, r);
       if (c.state === "celebrate")
         return c.after === "walk" || c.after === "attention"
           ? goIdle({ ...c, quiet }, r)

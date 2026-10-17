@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { fmt } from "../lib/time";
 import { music, openMusic, useMusic } from "../store/useMusic";
-import { btn, T } from "./ui";
-
-const round = { ...btn, width: 44, height: 44, padding: 0, borderRadius: 22, fontSize: 18 } as const;
+import { Icon } from "./icons";
 
 export function MusicPlayer() {
   const s = useMusic((m) => m.s);
@@ -14,13 +12,15 @@ export function MusicPlayer() {
 
   if (!s)
     return (
-      <div style={{ display: "grid", gap: 10, justifyItems: "center", paddingTop: 30, color: T.dim }}>
-        <div style={{ fontSize: 40 }}>♫</div>
-        <div>YouTube Music no está abierto.</div>
-        <button style={btn} onClick={() => openMusic()}>
-          Abrir YouTube Music
+      <div className="card stack center" style={{ gap: ".8em", padding: "2em 1em", marginTop: "1em" }}>
+        <div style={{ display: "grid", placeItems: "center", width: "3.4em", height: "3.4em", borderRadius: "50%", background: "var(--accent-soft)", color: "var(--accent)" }}>
+          <Icon name="music" size="1.6em" />
+        </div>
+        <b>YouTube Music no está abierto</b>
+        <span className="small muted">La primera vez inicia sesión en la ventana que se abre.</span>
+        <button className="b b-primary" onClick={() => openMusic()}>
+          <Icon name="external" size="1em" /> Abrir YouTube Music
         </button>
-        <small>La primera vez inicia sesión en la ventana que se abre.</small>
       </div>
     );
 
@@ -32,100 +32,103 @@ export function MusicPlayer() {
   };
 
   return (
-    // minWidth 0: sin esto un título largo ensancha la columna del grid del panel.
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12, minWidth: 0 }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        {s.art ? (
-          <img src={s.art} width={72} height={72} style={{ borderRadius: 8, objectFit: "cover" }} />
-        ) : (
-          <div style={{ width: 72, height: 72, borderRadius: 8, background: T.card, display: "grid", placeItems: "center", fontSize: 28 }}>♫</div>
-        )}
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {s.title || "Nada sonando"}
+    <div className="stack" style={{ gap: "1em" }}>
+      <div className="card stack" style={{ gap: ".9em" }}>
+        <div className="row" style={{ gap: ".8em" }}>
+          {s.art ? (
+            <img src={s.art} style={{ width: "4.6em", height: "4.6em", borderRadius: "var(--r-sm)", objectFit: "cover", flex: "none", boxShadow: "0 6px 18px -6px #000" }} />
+          ) : (
+            <div style={{ width: "4.6em", height: "4.6em", borderRadius: "var(--r-sm)", background: "var(--surface-2)", display: "grid", placeItems: "center", flex: "none", color: "var(--muted)" }}>
+              <Icon name="music" size="1.8em" />
+            </div>
+          )}
+          <div className="grow" style={{ display: "grid", gap: ".15em" }}>
+            <b className="ellipsis">{s.title || "Nada sonando"}</b>
+            <span className="small muted ellipsis">{s.artist}</span>
           </div>
-          <div style={{ color: T.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.artist}</div>
         </div>
+
+        <div className="stack" style={{ gap: ".25em" }}>
+          <input
+            type="range"
+            aria-label="Posición"
+            min={0}
+            max={s.d || 1}
+            value={seek ?? s.t}
+            disabled={!s.d}
+            onChange={(e) => setSeek(+e.target.value)}
+            onPointerUp={() => seek !== null && (music("seek", seek), setSeek(null))}
+            onKeyUp={() => seek !== null && (music("seek", seek), setSeek(null))}
+          />
+          <div className="row small muted" style={{ justifyContent: "space-between", fontVariantNumeric: "tabular-nums" }}>
+            <span>{fmt(seek ?? s.t)}</span>
+            <span>{fmt(s.d)}</span>
+          </div>
+        </div>
+
+        <div className="row" style={{ justifyContent: "center", gap: "1em" }}>
+          <button className="b b-ghost b-round" aria-label="Anterior" onClick={() => music("prev")}>
+            <Icon name="prev" />
+          </button>
+          <button className="b b-primary b-round" style={{ fontSize: "1.3em" }} aria-label={s.playing ? "Pausar" : "Reproducir"} onClick={() => music("toggle")}>
+            <Icon name={s.playing ? "pause" : "play"} />
+          </button>
+          <button className="b b-ghost b-round" aria-label="Siguiente" onClick={() => music("next")}>
+            <Icon name="next" />
+          </button>
+        </div>
+
+        <label className="row muted">
+          <Icon name="volume" size="1em" />
+          <input
+            type="range"
+            aria-label="Volumen"
+            min={0}
+            max={100}
+            value={vol ?? s.vol}
+            onChange={(e) => {
+              setVol(+e.target.value);
+              music("vol", +e.target.value);
+            }}
+            onPointerUp={() => setVol(null)}
+          />
+        </label>
       </div>
 
-      <div>
-        <input
-          type="range"
-          aria-label="Posición"
-          min={0}
-          max={s.d || 1}
-          value={seek ?? s.t}
-          disabled={!s.d}
-          onChange={(e) => setSeek(+e.target.value)}
-          onPointerUp={() => seek !== null && (music("seek", seek), setSeek(null))}
-          onKeyUp={() => seek !== null && (music("seek", seek), setSeek(null))}
-          style={{ width: "100%" }}
-        />
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.dim }}>
-          <span>{fmt(seek ?? s.t)}</span>
-          <span>{fmt(s.d)}</span>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          search();
+        }}
+      >
+        <div className="field-wrap grow">
+          <Icon name="search" size="1em" />
+          <input className="field" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar canción, artista…" />
         </div>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "center", gap: 14 }}>
-        <button style={round} aria-label="Anterior" onClick={() => music("prev")}>⏮</button>
-        <button style={{ ...round, background: T.accent, color: "#fff", border: 0 }} aria-label={s.playing ? "Pausar" : "Reproducir"} onClick={() => music("toggle")}>
-          {s.playing ? "⏸" : "▶"}
+        <button className="b b-ghost b-sq" title="Mostrar YouTube Music" aria-label="Mostrar YouTube Music" type="button" onClick={() => openMusic()}>
+          <Icon name="external" />
         </button>
-        <button style={round} aria-label="Siguiente" onClick={() => music("next")}>⏭</button>
-      </div>
-
-      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <span aria-hidden>🔈</span>
-        <input
-          type="range"
-          aria-label="Volumen"
-          min={0}
-          max={100}
-          value={vol ?? s.vol}
-          onChange={(e) => {
-            setVol(+e.target.value);
-            music("vol", +e.target.value);
-          }}
-          onPointerUp={() => setVol(null)}
-          style={{ flex: 1 }}
-        />
-        <span aria-hidden>🔊</span>
-      </label>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="Buscar canción, artista…"
-          style={{ ...btn, flex: 1, cursor: "text" }}
-        />
-        <button style={btn} onClick={search}>Buscar</button>
-      </div>
-      <button style={{ ...btn, color: T.dim }} onClick={() => openMusic()}>
-        Mostrar YouTube Music
-      </button>
+      </form>
 
       {!!s.q?.length && (
-        <div>
-          <div style={{ fontSize: 12, color: T.dim, marginBottom: 4 }}>A continuación</div>
-          <div style={{ maxHeight: 232, overflowY: "auto", display: "grid" }}>
+        <section className="stack" style={{ gap: ".4em" }}>
+          <span className="label">A continuación</span>
+          <div className="card" style={{ padding: ".25em", maxHeight: "15em", overflowY: "auto", display: "grid" }}>
             {s.q.map((it) => (
               <button
                 key={it.i}
+                className="b b-ghost"
                 title={`${it.t} · ${it.a}`}
                 onClick={() => music("jump", it.i)}
-                style={{ ...btn, border: 0, borderRadius: 6, padding: "4px 6px", textAlign: "left", minWidth: 0 }}
+                style={{ display: "grid", justifyContent: "stretch", justifyItems: "start", gap: ".1em", padding: ".45em .6em", textAlign: "left", minWidth: 0, color: "var(--text)" }}
               >
-                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.t}</div>
-                <div style={{ fontSize: 12, color: T.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {it.a}
-                </div>
+                <span className="ellipsis" style={{ maxWidth: "100%" }}>{it.t}</span>
+                <span className="small muted ellipsis" style={{ maxWidth: "100%" }}>{it.a}</span>
               </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

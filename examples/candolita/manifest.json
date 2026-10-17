@@ -65,6 +65,12 @@
       "fps": 6,
       "loop": true
     },
+    "headbang": {
+      "file": "headbang.png",
+      "frames": 4,
+      "fps": 8,
+      "loop": true
+    },
     "drums": {
       "file": "drums.png",
       "frames": 4,
@@ -73,6 +79,30 @@
     },
     "listen": {
       "file": "listen.png",
+      "frames": 4,
+      "fps": 4,
+      "loop": true
+    },
+    "work": {
+      "file": "work.png",
+      "frames": 4,
+      "fps": 6,
+      "loop": true
+    },
+    "mission": {
+      "file": "mission.png",
+      "frames": 4,
+      "fps": 6,
+      "loop": true
+    },
+    "oops": {
+      "file": "oops.png",
+      "frames": 4,
+      "fps": 3,
+      "loop": true
+    },
+    "ask": {
+      "file": "ask.png",
       "frames": 4,
       "fps": 4,
       "loop": true

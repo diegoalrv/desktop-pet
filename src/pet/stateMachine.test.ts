@@ -100,4 +100,19 @@ describe("stateMachine", () => {
     expect(c.state).toBe("focus");
     expect(run(c, tick(60)).state).toBe("focus");
   });
+  it("Claude: trabaja, termina (misión/falló/espera ok) y vuelve; en foco no la interrumpe", () => {
+    const start: PetEvent = { type: "claudeStart" };
+    const end = (outcome: "mission" | "oops" | "ask"): PetEvent => ({ type: "claudeEnd", outcome });
+    let c = run(initial(), { type: "panelOpen" }, start);
+    expect(c.state).toBe("work");
+    expect(run(c, tick(700)).state).toBe("work"); // no se duerme trabajando
+    c = run(c, end("mission"));
+    expect(c.state).toBe("mission");
+    expect(run(c, tick(4.1)).state).toBe("attention");
+    expect(run(initial(), start, end("ask"), tick(59)).state).toBe("ask");
+    expect(run(initial(), start, end("oops"), tick(4.1)).state).toBe("idle");
+    expect(run(initial(), { type: "timerStart" }, start).state).toBe("focus");
+    // termina mientras la arrastran: al aterrizar no queda pegada trabajando
+    expect(run(initial(), start, { type: "drag" }, end("mission"), { type: "drop" }, { type: "land" }).state).toBe("idle");
+  });
 });

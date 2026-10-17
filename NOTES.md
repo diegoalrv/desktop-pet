@@ -15,3 +15,6 @@
   son planos (`^[\w.-]+\.(png|webp|gif|jpe?g)$`) para evitar path traversal desde un zip. Rutas elegidas por diálogo se agregan solas al scope de fs.
 - **Sonido**: WebAudio desde el webview; si WKWebView lo bloquea por autoplay, el botón "Probar" de Ajustes (gesto del usuario) lo confirma.
 - **Tray**: usa el ícono de la app (no template); en barra clara/oscura de macOS puede verse menos nítido que un ícono monocromo.
+- **Swift runtime**: el puente Swift de `screencapturekit` necesita `-rpath /usr/lib/swift` (en `build.rs`); sin eso el binario aborta al cargar `libswift_Concurrency.dylib`.
+- **Permisos de reuniones**: la primera vez macOS pide Grabación de pantalla y audio del sistema (ScreenCaptureKit, aunque solo se use el audio) y Micrófono (`src-tauri/Info.plist` lleva `NSMicrophoneUsageDescription`). En `tauri dev` el permiso puede quedar a nombre de la terminal.
+- **Ollama y RAM**: con 24 GB, los modelos de 27B+ no caben junto a la videollamada (swap); usar 8–12B.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { accelFromEvent, DEFAULT_SHORTCUT } from "../lib/prefs";
+import { accelFromEvent, DEFAULT_SHORTCUT, PET_SIZE } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -130,6 +130,24 @@ export function SettingsWindow() {
         </button>
       </div>
       {msg && <div style={{ fontSize: 12, color: T.dim }}>{msg}</div>}
+      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        Tamaño en pantalla
+        <input
+          type="range"
+          min={PET_SIZE.min}
+          max={PET_SIZE.max}
+          step={8}
+          value={prefs.petSize}
+          onChange={(e) => setPrefs({ petSize: Number(e.target.value) })}
+          style={{ flex: 1 }}
+        />
+        <span style={{ width: 52, textAlign: "right", color: T.dim }}>{prefs.petSize} px</span>
+        {prefs.petSize !== PET_SIZE.def && (
+          <button style={{ ...btn, padding: "2px 8px" }} onClick={() => setPrefs({ petSize: PET_SIZE.def })}>
+            Restablecer
+          </button>
+        )}
+      </label>
 
       <h2 style={h}>Timer</h2>
       {num("focusMin", "Foco (min)")}
@@ -169,7 +187,7 @@ export function SettingsWindow() {
         Volumen del sistema al máximo mientras suena (se restaura después)
       </label>
 
-      <h2 style={h}>Captura rápida</h2>
+      <h2 style={h}>Atajo del panel</h2>
       <div style={{ display: "flex", gap: 8 }}>
         <input
           readOnly
@@ -190,6 +208,55 @@ export function SettingsWindow() {
         </button>
       </div>
       {shortcutErr && <small style={{ color: "#ff6b6b" }}>{shortcutErr}</small>}
+
+      <h2 style={h}>Calendario</h2>
+      <input
+        type="password"
+        placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+        defaultValue={prefs.icalUrl}
+        onBlur={(e) => setPrefs({ icalUrl: e.target.value })}
+        style={{ ...btn, padding: 4 }}
+      />
+      <small style={{ opacity: 0.7 }}>
+        Google Calendar → Configuración → tu calendario → “Dirección secreta en formato iCal”. Avisa 2 min antes de
+        cada reunión.
+      </small>
+
+      <h2 style={h}>Reuniones (sugerir tareas)</h2>
+      {(
+        [
+          ["llmUrl", "URL", "text"],
+          ["llmModel", "Modelo", "text"],
+          ["llmKey", "API key", "password"],
+        ] as const
+      ).map(([key, label, type]) => (
+        <label key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          {label}
+          <input
+            type={type}
+            defaultValue={prefs[key]}
+            placeholder={key === "llmKey" ? "aistudio.google.com/apikey (vacía para Ollama)" : undefined}
+            onBlur={(e) => setPrefs({ [key]: e.target.value })}
+            style={{ ...btn, padding: 4, flex: 1, maxWidth: 260 }}
+          />
+        </label>
+      ))}
+      <small style={{ opacity: 0.7 }}>
+        Al terminar la reunión se manda el texto (nunca el audio) a cualquier API compatible con OpenAI. Gemini:
+        https://generativelanguage.googleapis.com/v1beta/openai (gratis, pero en ese nivel Google puede usar el texto
+        para mejorar sus productos) · Claude: https://api.anthropic.com/v1 · Ollama local: http://127.0.0.1:11434/v1.
+      </small>
+
+      <h2 style={h}>Chat con Claude Code</h2>
+      <input
+        placeholder="~ (home)"
+        defaultValue={prefs.claudeCwd}
+        onBlur={(e) => setPrefs({ claudeCwd: e.target.value })}
+        style={{ ...btn, padding: 4 }}
+      />
+      <small style={{ opacity: 0.7 }}>
+        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (docs del VPS, Coolify, etc.). Vacía = tu home.
+      </small>
 
       <h2 style={h}>Sistema</h2>
       <label>

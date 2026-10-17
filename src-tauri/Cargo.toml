@@ -31,6 +31,8 @@ tauri-plugin-autostart = "2.7.0"
 # ya viene con tauri-plugin-sql: misma version, sin compilar de mas
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 tiny_http = "0.12"
+# LLM compatible con OpenAI (Ollama / Gemini / Claude) para sugerir tareas de reuniones
+ureq = "3.4.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -45,3 +47,6 @@ strip = true
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSWindow", "NSResponder"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+# Reuniones: audio del sistema + micrófono (macOS 15+) y whisper.cpp local con Metal
+screencapturekit = { version = "11.0.0", features = ["macos_15_0"] }
+whisper-rs = { version = "0.16.0", features = ["metal"] }

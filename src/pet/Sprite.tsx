@@ -13,6 +13,10 @@ const ANIM: Record<PetState, string> = {
   dragged: "dangle .4s ease-in-out infinite alternate",
   fall: "dangle .4s ease-in-out infinite alternate",
   attention: "perk 1.6s ease-in-out infinite",
+  work: "bob .6s ease-in-out infinite",
+  mission: "jump .5s ease-out infinite",
+  oops: "bob 3.5s ease-in-out infinite",
+  ask: "perk 1.2s ease-in-out infinite",
 };
 
 const CSS = `
@@ -22,14 +26,11 @@ const CSS = `
 @keyframes jump{0%,100%{transform:translateY(0)}50%{transform:translateY(-22px)}}
 @keyframes dangle{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}`;
 
-/** Tamaño máximo del sprite dentro de la ventana de la mascota (px lógicos). */
-export const MAX_SPRITE = 150;
-
-export function spriteSize(skin: Skin) {
-  if (skin.kind === "builtin") return { w: 128, h: 128 };
-  const { frameWidth: fw, frameHeight: fh, scale } = skin.manifest;
-  const s = Math.min(scale, MAX_SPRITE / fw, MAX_SPRITE / fh);
-  return { w: Math.round(fw * s), h: Math.round(fh * s) };
+/** Tamaño en pantalla (px lógicos): el alto lo fija el ajuste `petSize`, el ancho sigue la proporción del frame. */
+export function spriteSize(skin: Skin, size: number) {
+  if (skin.kind === "builtin") return { w: size, h: size };
+  const { frameWidth: fw, frameHeight: fh } = skin.manifest;
+  return { w: Math.round((fw * size) / fh), h: size };
 }
 
 /** Ánimo actual: hay música sonando y qué variante toca (cambia cada MOOD_S). */
@@ -39,22 +40,22 @@ export interface Mood {
 }
 
 /** Px lógicos vacíos sobre el sprite en reposo (para pegar el timer a la cabeza). */
-export async function headroom(skin: Skin) {
+export async function headroom(skin: Skin, size: number) {
   if (skin.kind === "builtin") return 0;
   const img = new Image();
   img.src = skin.urls[skin.manifest.animations.idle.file];
   await img.decode();
   const g = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
   g.drawImage(img, 0, 0);
-  return topInset(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height) * spriteSize(skin).h;
+  return topInset(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height) * size;
 }
 
-export function Sprite({ skin, state, dir = 1, mood }: { skin: Skin; state: PetState; dir?: number; mood: Mood }) {
-  const { w, h } = spriteSize(skin);
+export function Sprite({ skin, state, dir = 1, mood, size }: { skin: Skin; state: PetState; dir?: number; mood: Mood; size: number }) {
+  const { w, h } = spriteSize(skin, size);
   return (
     <div style={{ transform: `scaleX(${dir})`, width: w, height: h }}>
       <style>{CSS}</style>
-      {skin.kind === "builtin" ? <Builtin state={state} /> : <Pack skin={skin} state={state} w={w} h={h} mood={mood} />}
+      {skin.kind === "builtin" ? <Builtin state={state} size={size} /> : <Pack skin={skin} state={state} w={w} h={h} mood={mood} />}
     </div>
   );
 }
@@ -107,12 +108,12 @@ function Pack({
   );
 }
 
-function Builtin({ state }: { state: PetState }) {
+function Builtin({ state, size }: { state: PetState; size: number }) {
   const asleep = state === "sleep";
   return (
     <svg
-      width={128}
-      height={128}
+      width={size}
+      height={size}
       viewBox="0 0 128 128"
       style={{
         animation: ANIM[state],

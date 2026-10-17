@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
-import { headroom, Sprite } from "./Sprite";
+import { headroom, Sprite, spriteSize } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
 import { chime } from "../lib/sound";
@@ -11,11 +11,12 @@ import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
 import { needsReminder } from "../lib/tasks";
+import { dueMeetings, meetingsBetween, type Meeting } from "../lib/calendar";
 import { useTimer } from "../store/useTimer";
 import { useMusic } from "../store/useMusic";
 import { MOOD_S } from "../skins/schema";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
-import { initial, transition, type PetEvent, type PetState } from "./stateMachine";
+import { initial, transition, type ClaudeOutcome, type PetEvent, type PetState } from "./stateMachine";
 
 const GRAVITY = 2400; // px lógicos/s²
 const DRAG_END_MS = 150; // sin onMoved por este tiempo = soltó
@@ -51,6 +52,8 @@ export function PetWindow() {
   const prefs = useSettings((s) => s.prefs);
   const sound = useRef(prefs);
   sound.current = prefs;
+  const size = prefs.petSize;
+  const relayout = useRef(async () => {}); // lo define el loop: re-mide la ventana y la pega al suelo
 
   // Duraciones y atajo viven en Rust: se les empuja la config al arrancar y al cambiar.
   useEffect(() => {
@@ -63,6 +66,19 @@ export function PetWindow() {
     });
     invoke("set_quick_shortcut", { accel: prefs.shortcut }).catch(() => {});
   }, [prefs]);
+
+  // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
+  const meetings = useRef<Meeting[]>([]);
+  useEffect(() => {
+    if (!prefs.icalUrl) return void (meetings.current = []);
+    const load = () =>
+      invoke<string>("fetch_ical", { url: prefs.icalUrl })
+        .then((ics) => (meetings.current = meetingsBetween(ics, Date.now() - 60_000, Date.now() + 86_400_000)))
+        .catch((e) => console.warn("calendario:", e));
+    load();
+    const id = setInterval(load, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [prefs.icalUrl]);
 
   const active = useTimer((s) => s.snap.status !== "idle");
   const snap = useTimer((s) => s.snap);
@@ -79,16 +95,24 @@ export function PetWindow() {
   const body = useRef<HTMLDivElement>(null);
   const [overlap, setOverlap] = useState(0);
   useEffect(() => {
-    headroom(skin)
+    headroom(skin, size)
       .then((px) => setOverlap(Math.max(0, Math.round(px) - 4)))
       .catch(() => setOverlap(0));
-  }, [skin]);
+  }, [skin, size]);
+
+  // La ventana crece con el sprite: margen para la píldora del timer arriba y holgura a los lados.
+  useEffect(() => {
+    const { w, h } = spriteSize(skin, size);
+    getCurrentWindow()
+      .setSize(new LogicalSize(Math.max(160, w + 32), h + PILL_H + 28))
+      .then(() => relayout.current());
+  }, [skin, size]);
 
   // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer).
   useEffect(() => {
     const r = (active ? hit : body).current!.getBoundingClientRect();
     invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
-  }, [active, skin, overlap]);
+  }, [active, skin, overlap, size]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -120,6 +144,13 @@ export function PetWindow() {
       target = area.x + Math.random() * (area.w - size.w);
     };
     const move = () => win.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
+    relayout.current = async () => {
+      const p = await refreshArea();
+      if (!p) return;
+      x = clamp(p.x, area.x, maxX());
+      if (ctx.state !== "fall" && !dragging) y = groundY(area, size.h, cfg.current.groundOffset * scale);
+      move();
+    };
 
     // Work area del monitor donde está la ventana (respeta dock / barra de tareas).
     const refreshArea = async () => {
@@ -198,12 +229,21 @@ export function PetWindow() {
       },
     );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
+    const unClaude = listen("claude://start", () => send({ type: "claudeStart" }));
+    const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) => send({ type: "claudeEnd", outcome: e.payload.outcome }));
     // Panel abierto: la mascota se queda quieta y atenta; al cerrarlo sigue.
     const unPanel = listen<boolean>("panel://visible", (e) => send({ type: e.payload ? "panelOpen" : "panelClose" }));
 
     // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
+    const warned = new Set<string>();
     const remind = async () => {
       const now = Date.now();
+      for (const m of dueMeetings(meetings.current, now, warned)) {
+        warned.add(m.key);
+        const min = Math.round((m.start - now) / 60_000);
+        notify(min > 0 ? `Reunión en ${min} min` : "Reunión ahora", `${m.title} · Panel → Reunión para escucharla`);
+        if (sound.current.sound) chime("work", sound.current.loud);
+      }
       for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {
         await db.markNotified(t.id);
         notify("Recordatorio", t.title);
@@ -259,6 +299,8 @@ export function PetWindow() {
       unsub();
       unDone.then((f) => f());
       unTask.then((f) => f());
+      unClaude.then((f) => f());
+      unClaudeEnd.then((f) => f());
       unPanel.then((f) => f());
       clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
@@ -274,7 +316,7 @@ export function PetWindow() {
           <TimerPill snap={snap} />
         </div>
         <div ref={body}>
-          <Sprite skin={skin} state={view.state} dir={view.dir} mood={{ music, slot }} />
+          <Sprite skin={skin} state={view.state} dir={view.dir} mood={{ music, slot }} size={size} />
         </div>
       </div>
     </div>

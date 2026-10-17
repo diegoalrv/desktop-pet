@@ -1,4 +1,6 @@
+mod claude;
 mod db;
+mod meeting;
 mod music;
 mod timer;
 mod tray;
@@ -45,6 +47,27 @@ fn boost_volume(secs: u64) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = secs;
+}
+
+/// Descarga el .ics del calendario (URL secreta iCal de Google). Desde el webview lo frena CORS;
+/// ponytail: curl del sistema (macOS y Windows 10+ lo traen) en vez de sumar un cliente HTTP.
+#[tauri::command]
+async fn fetch_ical(url: String) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("la URL debe empezar con https://".into());
+    }
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        std::process::Command::new("curl")
+            .args(["-fsSL", "--max-time", "20", "--max-filesize", "20000000", &url])
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("no se pudo descargar ({})", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    String::from_utf8(out.stdout).map_err(|_| "respuesta no es texto".into())
 }
 
 #[tauri::command]
@@ -114,6 +137,12 @@ pub fn run() {
                             sql: include_str!("../migrations/002_project.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 3,
+                            description: "chat",
+                            sql: include_str!("../migrations/003_chat.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -121,26 +150,33 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _, ev| {
+                    // Atajo global: abre/cierra el panel tal como quedó (sin forzar una pestaña).
                     if ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        windows::show_panel(app);
-                        let _ = app.emit_to("panel", "panel://quick-capture", ());
+                        let _ = windows::toggle_panel(app.clone(), app.state());
                     }
                 })
                 .build(),
         )
         .manage(HitRect::default())
+        .manage(meeting::MeetingState::default())
         .manage(windows::LastBlur::default())
         .manage(windows::QuickShortcut(Mutex::new(String::new())))
         .manage(timer::TimerState::new(timer::Timer::new()))
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             boost_volume,
+            fetch_ical,
+            claude::claude_ask,
             music::music_open,
             music::music_cmd,
             windows::toggle_panel,
             windows::hide_panel,
             windows::open_window,
             web::open_web,
+            meeting::meeting_start,
+            meeting::meeting_stop,
+            meeting::meeting_state,
+            meeting::meeting_dismiss,
             windows::set_quick_shortcut,
             timer::timer_config,
             timer::timer_get,

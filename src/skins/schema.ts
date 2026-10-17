@@ -35,6 +35,10 @@ const ANIM_OF: Record<PetState, string> = {
   fall: "dragged",
   break: "idle",
   attention: "idle",
+  work: "focus", // skins sin las animaciones de Claude caen a estas
+  mission: "celebrate",
+  oops: "idle",
+  ask: "idle",
 };
 
 /** Animación para un estado; si el skin no la trae, usa `idle`. */
@@ -48,11 +52,15 @@ export function resolveAnim(m: Manifest, state: PetState): { key: string; anim: 
 /** Ánimos: variantes por estado que se alternan cada MOOD_S. Con música van las musicales.
  *  Solo se usan las que el skin trae; si no trae ninguna, cae a `resolveAnim`. */
 export const MOOD_S = 12;
-const ROCK = ["guitar", "drums", "maracas"]; // los skins traen batería o maracas
+const ROCK = ["guitar", "headbang", "drums", "maracas"]; // los skins traen batería o maracas; headbang es opcional
 const MOODS: Partial<Record<PetState, { calm: string[]; music: string[] }>> = {
   idle: { calm: ["idle"], music: ROCK },
   break: { calm: ["tea", "idle"], music: ["tea", ...ROCK] },
   focus: { calm: ["focus", "read", "write"], music: ["listen", "read", "listen", "write"] },
+  work: { calm: ["work"], music: ["work"] },
+  mission: { calm: ["mission"], music: ["mission"] },
+  oops: { calm: ["oops"], music: ["oops"] },
+  ask: { calm: ["ask"], music: ["ask"] },
 };
 
 export function pickAnim(m: Manifest, state: PetState, music: boolean, slot: number) {

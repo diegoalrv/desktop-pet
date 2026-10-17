@@ -12,6 +12,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-position",
+    "core:window:allow-set-size",
     "sql:default",
     "sql:allow-execute",
     "dialog:allow-open",

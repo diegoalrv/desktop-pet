@@ -18,7 +18,7 @@
 - SQLite (`tauri-plugin-sql`, migración `src-tauri/migrations/001_init.sql`, preload en `tauri.conf.json`): categorías, tareas, sesiones.
 - Panel con pestañas Timer / Tareas: CRUD (doble clic para renombrar), categorías editables (⚙), prioridad, estimación, fecha/hora, filtro Hoy y contador de focos del día.
 - 🎯 enfoca una tarea: el timer la lleva en Rust (`task_id`) y al terminar cada foco suma pomodoros reales y guarda la sesión.
-- Atajo global `Cmd/Ctrl+Shift+Space` (Rust): abre el panel en Tareas con el input enfocado.
+- Atajo global `Cmd/Ctrl+Shift+Space` (Rust): abre/cierra el panel en la pestaña donde quedó.
 - Recordatorios: la ventana mascota revisa cada 20 s tareas con fecha vencida y notifica una vez (`send_notification`).
 - Completar una tarea hace celebrar a la mascota.
 
@@ -53,3 +53,30 @@
 - Cola "A continuación": `music_bridge.js` lee `ytmusic-player-queue-item` (los 12 siguientes al seleccionado) y los publica en el estado (`q`); el panel los lista y al hacer clic salta a esa canción (`jump`).
 - Panel más alto (640 px; `PANEL_H` y `tauri.conf.json`) para ver más de la cola.
 - Modo atención: Rust emite `panel://visible` al abrir/cerrar el panel (`show_panel`, blur, `toggle_panel`, comando `hide_panel` del ✕). La mascota pasa a `attention` (quieta, anim idle + "perk"), no camina ni se duerme; al cerrar vuelve a idle. Si estaba en foco/pausa se queda como está, y si algo la deja libre con el panel abierto (celebrate, arrastre, fin de pausa) cae en `attention` en vez de idle. Cubierto por tests en `stateMachine.test.ts`.
+
+## Extra: calendario (Google, solo lectura)
+- Ajustes → Calendario: "Dirección secreta en formato iCal" de Google Calendar (pref `icalUrl`).
+- Rust `fetch_ical` baja el `.ics` con el `curl` del sistema (desde el webview lo frena CORS); la mascota lo refresca cada 5 min.
+- `lib/calendar.ts` (ical.js): ocurrencias de las próximas 24 h con RRULE, EXDATE, excepciones y VTIMEZONE; sin día completo ni canceladas. Tests en `calendar.test.ts`.
+- Aviso 2 min antes de cada reunión: notificación + campanilla.
+- Pendiente: sugerir tareas desde Gmail.
+
+## Extra: escuchar reuniones (solo macOS 15+)
+- Panel → pestaña Reunión → "Escuchar reunión". Todo vive en Rust (`meeting.rs`); el panel solo muestra `meeting://state`.
+- Durante la reunión solo se transcribe (sin LLM): ScreenCaptureKit captura a la vez el micrófono ("Yo") y el audio del sistema ("Otros") a 16 kHz mono; fragmentos de 8–20 s cortados en un silencio (`take_chunk`), sin transcribir los mudos y filtrando alucinaciones típicas de whisper (`clean`).
+- whisper.cpp local (`whisper-rs` con Metal, `ggml-large-v3-turbo-q5_0`, ~550 MB, se descarga la primera vez a `$APPDATA/models`): ~2 s por 8 s de audio en un M5.
+- Al terminar: guarda la transcripción en `$APPDATA/meetings/<epoch>.md`, la limpia (`condense`: muletillas, repeticiones, eco de la llamada en el micrófono, une líneas del mismo hablante) y hace UNA llamada a un LLM compatible con OpenAI (Ajustes → Reuniones; por defecto Gemini `gemini-3.8-flash`, también Claude u Ollama). Las tareas llegan al panel con ✓ (crea la tarea) / ✕ y una notificación.
+- Sin diarización: Yo/Otros sale del canal de audio.
+- Pruebas manuales: `probar_whisper` y `probar_llm` (tests `#[ignore]` en `meeting.rs`, ver su doc). Con una reunión de ejemplo, `qwen3.5:9b` local sacó 5/5 tareas sin falsos positivos en 85 s.
+
+## Extra: chat con Claude Code
+- Panel → Chat: input estilo CLI que corre `claude -p --output-format stream-json` (`claude.rs`) en la carpeta base (Ajustes → Chat con Claude Code; vacía = home, ahí lee su CLAUDE.md). Prompt por stdin; zsh de login para heredar el PATH.
+- Permisos: por defecto solo lectura (`READ_ONLY`: docker ps/stats/inspect/logs, ps, vm_stat…). Lo que Claude intente fuera de eso vuelve en `permission_denials` → el panel muestra "Quiere ejecutar…" con "Sí, hazlo", que reanuda la sesión (`--resume`) permitiendo exactamente esos comandos. Switch "Modo dios" (`--dangerously-skip-permissions`), no se guarda.
+- Historial: tabla `chat_log` (migración 3): prompt, respuesta, herramientas usadas, resultado y si fue en modo dios. El chat muestra las últimas 30 y retoma la última sesión.
+- Mascota: `claude://start` → `work` (Candolita sentada al escritorio con gafas tecleando); al terminar `mission` (bandera ✓), `oops` (nube de tormenta) o `ask` (globito "?" hasta 60 s). Skins sin esas animaciones caen a focus/celebrate/idle.
+
+## Extra: Candolita más expresiva y tamaño configurable
+- Caras dibujadas a mano en `generate.py` (`EYES`, `BROWS`, `mouth`, rubor, orejas que se paran/caen): cada animación tiene su expresión (decidida en foco, sorpresa al arrastrarla, triste en oops, ceja levantada en ask…).
+- Guitarra de pie sobre las patas traseras (`upright`) y animación nueva `headbang` (cabezazo con pata y cuernos), que entra en la rotación con música (`ROCK` en `schema.ts`).
+- Leer y escribir sentada en la silla (`seated`, compartido con `work`): libro entre las patas / lápiz sobre el escritorio.
+- Ajustes → Skin → "Tamaño en pantalla" (pref `petSize`, 64–320 px, por defecto 128): fija el alto del sprite y la ventana de la mascota se redimensiona sola (`core:window:allow-set-size`).
