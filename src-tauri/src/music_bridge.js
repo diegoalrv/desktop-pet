@@ -61,10 +61,21 @@
     else if (cmd === "seek" && v) v.currentTime = arg;
     else if (cmd === "search") location.href = "/search?q=" + encodeURIComponent(arg);
     else if (cmd === "duck" && v && !v.paused && !v.muted) {
-      // Silencia la música mientras suena la campanilla del cambio de ciclo.
-      v.muted = true;
-      clearTimeout(duck);
-      duck = setTimeout(() => (v.muted = false), arg * 1000);
+      // Baja la música de a poco mientras suena la campanilla del cambio de ciclo y la vuelve a subir suave.
+      clearInterval(duck?.i);
+      clearTimeout(duck?.t);
+      const d = (duck = { base: duck?.base ?? v.volume });
+      const fade = (to, ms, done) => {
+        const from = v.volume, t0 = Date.now();
+        clearInterval(d.i);
+        d.i = setInterval(() => {
+          const k = Math.min(1, (Date.now() - t0) / ms);
+          v.volume = from + (to - from) * k;
+          if (k === 1) clearInterval(d.i), done?.();
+        }, 30);
+      };
+      fade(0, 400);
+      d.t = setTimeout(() => fade(d.base, 1500, () => duck === d && (duck = null)), arg * 1000);
     }
     setTimeout(push, 200);
   };

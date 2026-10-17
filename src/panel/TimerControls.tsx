@@ -115,8 +115,11 @@ export function TimerControls() {
           <button style={btn} onClick={timer.skip}>
             Saltar
           </button>
-          <button style={btn} onClick={timer.reset}>
+          <button style={btn} onClick={timer.restart}>
             Reiniciar
+          </button>
+          <button style={btn} onClick={timer.reset}>
+            Terminar sesión
           </button>
         </div>
       )}

@@ -1,29 +1,60 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Campanilla corta con WebAudio (sin assets). "rest" sube (descansa), "work" baja (a trabajar).
-// Fuerte a propósito: marca el cambio de ciclo. Si `loud`, además sube el volumen del sistema (macOS)
-// mientras suena. Si el webview la bloquea por política de autoplay, falla en silencio.
+// Campanillas suaves con WebAudio (sin assets), inspiradas en las de Toggl Track:
+// "work" (a trabajar) = arpegio tipo marimba que sube; "rest" (descansa) = baja y resuelve en un acorde grave.
+// [segundo de inicio, Hz, duración, volumen relativo]
+type Note = [number, number, number, number];
+const SONGS: Record<"rest" | "work", Note[]> = {
+  work: [
+    [0.0, 1760, 0.6, 0.5],
+    [0.22, 440, 0.8, 0.9],
+    [0.44, 1175, 0.6, 0.55],
+    [0.66, 587, 0.8, 0.8],
+    [0.88, 988, 1.1, 0.7],
+  ],
+  rest: [
+    [0.0, 2217, 0.5, 0.4],
+    [0.2, 1760, 0.5, 0.45],
+    [0.4, 1480, 0.6, 0.5],
+    [0.6, 220, 1.9, 0.6],
+    [0.6, 277, 1.9, 0.6],
+    [0.6, 440, 1.7, 0.45],
+  ],
+};
+const GAIN = 0.22; // ponytail: volumen a oído; súbelo si no se escucha sobre la música
+
+// Si `loud`, además sube el volumen del sistema (macOS) mientras suena.
+// Si el webview la bloquea por política de autoplay, falla en silencio.
 export async function chime(kind: "rest" | "work" = "rest", loud = true) {
-  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // silencia YouTube Music mientras suena
-  if (loud) await invoke("boost_volume", { secs: 3 }).catch(() => {});
+  // Baja YouTube Music en fundido; sube de vuelta recién cuando el volumen del sistema ya se restauró.
+  void invoke("music_cmd", { cmd: "duck", arg: 3.6 });
+  if (loud) {
+    await new Promise((r) => setTimeout(r, 400)); // que la música ya esté abajo antes de subir el volumen
+    await invoke("boost_volume", { secs: 3 }).catch(() => {});
+  }
   try {
     const ctx = new AudioContext();
     void ctx.resume();
-    const notes = kind === "rest" ? [660, 880, 1320] : [1320, 880, 660];
-    [...notes, ...notes].forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      const t = ctx.currentTime + i * 0.18;
-      o.type = "triangle"; // más armónicos = más presencia que la senoidal
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(1, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-      o.connect(g).connect(ctx.destination);
-      o.start(t);
-      o.stop(t + 0.55);
-    });
-    setTimeout(() => ctx.close(), 2500);
+    const out = ctx.createGain();
+    out.gain.value = GAIN;
+    out.connect(ctx.destination);
+    const t0 = ctx.currentTime + 0.05;
+    for (const [at, f, dur, vol] of SONGS[kind]) {
+      // Fundamental senoidal + 4º parcial que se apaga rápido: "plink" de marimba, sin aspereza.
+      for (const [mult, v, d] of [[1, vol, dur], [4, vol * 0.15, dur * 0.25]]) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        const t = t0 + at;
+        o.frequency.value = f * mult;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(v, t + 0.015); // ataque suave, sin clic
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g).connect(out);
+        o.start(t);
+        o.stop(t + d + 0.05);
+      }
+    }
+    setTimeout(() => ctx.close(), 3500);
   } catch {
     /* sin audio */
   }

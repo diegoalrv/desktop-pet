@@ -305,6 +305,22 @@ pub fn timer_reset(app: AppHandle, s: State<TimerState>) {
     if let Some(partial) = t.reset(now) {
         crate::db::record_session(&app, &partial, now);
     }
+    t.count = 0; // terminar sesión: el ciclo de pausas largas vuelve a empezar
+    changed(&app, &t);
+}
+
+/// Reinicia el bloque actual desde cero (registra lo trabajado si era foco).
+#[tauri::command]
+pub fn timer_restart(app: AppHandle, s: State<TimerState>) {
+    let mut t = s.lock().unwrap();
+    if t.status == Status::Idle {
+        return;
+    }
+    let (mode, secs, task, now) = (t.mode, t.total / 1000, t.task_id, now_ms());
+    if let Some(partial) = t.reset(now) {
+        crate::db::record_session(&app, &partial, now);
+    }
+    t.start(mode, secs, task, now);
     changed(&app, &t);
 }
 

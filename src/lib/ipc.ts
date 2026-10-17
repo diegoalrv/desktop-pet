@@ -17,6 +17,7 @@ export const timer = {
   pause: () => invoke("timer_pause"),
   resume: () => invoke("timer_resume"),
   reset: () => invoke("timer_reset"),
+  restart: () => invoke("timer_restart"),
   skip: () => invoke("timer_skip"),
 };
 export const togglePanel = () => invoke("toggle_panel");

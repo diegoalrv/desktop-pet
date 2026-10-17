@@ -148,6 +148,7 @@ pub fn run() {
             timer::timer_pause,
             timer::timer_resume,
             timer::timer_reset,
+            timer::timer_restart,
             timer::timer_skip,
             timer::send_notification
         ])
