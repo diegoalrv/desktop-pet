@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 // Campanillas suaves con WebAudio (sin assets), inspiradas en las de Toggl Track:
 // "work" (a trabajar) = arpegio tipo marimba que sube; "rest" (descansa) = baja y resuelve en un acorde grave.
 // [segundo de inicio, Hz, duración, volumen relativo]
@@ -21,9 +23,11 @@ const SONGS: Record<"rest" | "work", Note[]> = {
 };
 const GAIN = 0.22; // ponytail: volumen a oído; súbelo si no se escucha sobre la música
 
-// Suena a volumen fijo, sin tocar el del sistema ni la música.
+// Suena a volumen fijo sin tocar el del sistema; la música de YouTube Music baja mientras suena.
 // Si el webview la bloquea por política de autoplay, falla en silencio.
-export function chime(kind: "rest" | "work" = "rest") {
+export async function chime(kind: "rest" | "work" = "rest") {
+  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // baja en 0,4 s, sube a los 3 s (la campanilla dura ~2,6 s)
+  await new Promise((r) => setTimeout(r, 400)); // que la música ya esté abajo antes de sonar
   try {
     const ctx = new AudioContext();
     void ctx.resume();
