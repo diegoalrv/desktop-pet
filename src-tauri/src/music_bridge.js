@@ -70,11 +70,12 @@
         clearInterval(d.i);
         d.i = setInterval(() => {
           const k = Math.min(1, (Date.now() - t0) / ms);
-          v.volume = from + (to - from) * k;
+          // curva exponencial: el oído percibe el volumen en escala log, así no se nota el salto
+          v.volume = Math.min(1, Math.max(0.001, from) * (Math.max(0.001, to) / Math.max(0.001, from)) ** k);
           if (k === 1) clearInterval(d.i), done?.();
         }, 30);
       };
-      fade(d.base * 0.15, 400); // muy baja, no muda
+      fade(d.base * 0.15, 500); // muy baja, no muda
       d.t = setTimeout(() => fade(d.base, 1500, () => duck === d && (duck = null)), arg * 1000);
     }
     setTimeout(push, 200);

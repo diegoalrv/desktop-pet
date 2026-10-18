@@ -26,8 +26,8 @@ const GAIN = 0.22; // ponytail: volumen a oído; súbelo si no se escucha sobre 
 // Suena a volumen fijo sin tocar el del sistema; la música de YouTube Music baja mientras suena.
 // Si el webview la bloquea por política de autoplay, falla en silencio.
 export async function chime(kind: "rest" | "work" = "rest") {
-  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // baja en 0,4 s, sube a los 3 s (la campanilla dura ~2,6 s)
-  await new Promise((r) => setTimeout(r, 400)); // que la música ya esté abajo antes de sonar
+  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // baja en 0,5 s, sube a los 3 s (la campanilla dura ~2,6 s)
+  await new Promise((r) => setTimeout(r, 500)); // que la música ya esté abajo antes de sonar
   try {
     const ctx = new AudioContext();
     void ctx.resume();
