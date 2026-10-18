@@ -214,7 +214,7 @@ export function PetWindow() {
       // Inicio manual (botones/tray): suena igual que un cambio de ciclo. Los encadenados suenan vía timer://done;
       // un timer retomado de disco al abrir la app ya lleva tiempo corrido y no suena.
       if (a.status !== "idle" && b.status === "idle" && a.remaining >= a.total - 1 && sound.current.sound)
-        chime(a.mode === "focus" ? "work" : "rest", sound.current.loud);
+        chime(a.mode === "focus" ? "work" : "rest");
     });
     // El timer pudo llegar antes de suscribirse (p. ej. retomado de disco al abrir la app).
     const s0 = useTimer.getState().snap;
@@ -225,7 +225,7 @@ export function PetWindow() {
         const d = e.payload;
         if (d.mode === "focus") send({ type: "timerEnd" });
         // Saltar también suena si arranca otro bloque; saltar a la nada (fin del ciclo) no.
-        if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work", sound.current.loud);
+        if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
       },
     );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
@@ -242,7 +242,7 @@ export function PetWindow() {
         warned.add(m.key);
         const min = Math.round((m.start - now) / 60_000);
         notify(min > 0 ? `Reunión en ${min} min` : "Reunión ahora", `${m.title} · Panel → Reunión para escucharla`);
-        if (sound.current.sound) chime("work", sound.current.loud);
+        if (sound.current.sound) chime("work");
       }
       for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {
         await db.markNotified(t.id);

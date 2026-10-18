@@ -45,7 +45,7 @@ pub fn music_open(app: AppHandle, show: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Comando al reproductor (toggle, next, prev, vol, seek, search, duck). No-op si la ventana no existe.
+/// Comando al reproductor (toggle, next, prev, vol, seek, search). No-op si la ventana no existe.
 #[tauri::command]
 pub fn music_cmd(app: AppHandle, cmd: String, arg: Option<serde_json::Value>) {
     let Some(w) = app.get_webview_window("music") else { return };

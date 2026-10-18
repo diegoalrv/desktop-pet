@@ -12,7 +12,6 @@ export const prefsSchema = z.object({
   longEvery: mins(4, 12),
   autoCycle: z.boolean().catch(true),
   sound: z.boolean().catch(true),
-  loud: z.boolean().catch(true), // volumen del sistema al máximo mientras suena
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar
   // LLM que saca las tareas de la reunión al terminar: cualquier API compatible con OpenAI (Gemini, Claude, Ollama)

@@ -19,7 +19,6 @@ describe("prefs", () => {
       longEvery: 4,
       autoCycle: true,
       sound: true,
-      loud: true,
       shortcut: "CommandOrControl+Shift+Space",
       icalUrl: "",
       llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
