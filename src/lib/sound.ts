@@ -4,7 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 // "work" (a trabajar) = arpegio tipo marimba que sube; "rest" (descansa) = baja y resuelve en un acorde grave.
 // [segundo de inicio, Hz, duración, volumen relativo]
 type Note = [number, number, number, number];
-const SONGS: Record<"rest" | "work", Note[]> = {
+type Kind = "rest" | "work" | "tick";
+const SONGS: Record<Kind, Note[]> = {
+  tick: [[0.0, 1568, 0.15, 0.7]], // pre-aviso del cambio de ciclo
   work: [
     [0.0, 1760, 0.6, 0.5],
     [0.22, 440, 0.8, 0.9],
@@ -25,8 +27,9 @@ const GAIN = 0.22; // ponytail: volumen a oído; súbelo si no se escucha sobre 
 
 // Suena a volumen fijo sin tocar el del sistema; la música de YouTube Music baja mientras suena.
 // Si el webview la bloquea por política de autoplay, falla en silencio.
-export async function chime(kind: "rest" | "work" = "rest") {
-  void invoke("music_cmd", { cmd: "duck", arg: 3 }); // baja en 0,5 s, sube a los 3 s (la campanilla dura ~2,6 s)
+export async function chime(kind: Kind = "rest") {
+  // baja en 0,5 s y sube a los 3 s (la campanilla dura ~2,6 s); el tick a los 1,5 s, así la cuenta 5..1 la mantiene abajo
+  void invoke("music_cmd", { cmd: "duck", arg: kind === "tick" ? 1.5 : 3 });
   await new Promise((r) => setTimeout(r, 500)); // que la música ya esté abajo antes de sonar
   try {
     const ctx = new AudioContext();

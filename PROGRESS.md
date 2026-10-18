@@ -42,7 +42,7 @@
 ## Extra: ciclo automático
 - Pref `autoCycle` (Ajustes, por defecto activo): al terminar una pausa arranca el siguiente foco solo, conservando la tarea del foco anterior; la pausa larga sigue cada N focos.
 - Notificación en cada cambio ("Suelta el trabajo: pausa de N min" / "A trabajar: foco de N min") y sonido distinto: sube al descansar, baja al volver a trabajar.
-- Sonido: campanilla WebAudio a volumen fijo, sin tocar el volumen del sistema (el peak molestaba). Mientras suena, YouTube Music baja al 15 % en fundido (`duck`) y vuelve a subir a los 3 s.
+- Sonido: campanilla WebAudio a volumen fijo, sin tocar el volumen del sistema (el peak molestaba). Mientras suena, YouTube Music baja al 7 % en fundido (`duck`) y vuelve a subir a los 3 s. Pre-aviso del cambio de ciclo: un tick a los 10 s y uno por segundo en los últimos 5.
 
 ## Extra: YouTube Music integrado (solo macOS)
 - Ventana "music" (WKWebView con UA de Safari) con music.youtube.com; se crea oculta al arrancar la app (sin reproducir) y cerrarla la oculta, la música sigue.

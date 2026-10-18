@@ -215,6 +215,9 @@ export function PetWindow() {
       // un timer retomado de disco al abrir la app ya lleva tiempo corrido y no suena.
       if (a.status !== "idle" && b.status === "idle" && a.remaining >= a.total - 1 && sound.current.sound)
         chime(a.mode === "focus" ? "work" : "rest");
+      // Pre-aviso: un tick a los 10 s y uno por segundo en los últimos 5.
+      if (a.status === "running" && a.remaining !== b.remaining && [10, 5, 4, 3, 2, 1].includes(a.remaining) && sound.current.sound)
+        chime("tick");
     });
     // El timer pudo llegar antes de suscribirse (p. ej. retomado de disco al abrir la app).
     const s0 = useTimer.getState().snap;

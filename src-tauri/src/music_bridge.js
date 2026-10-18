@@ -75,7 +75,7 @@
           if (k === 1) clearInterval(d.i), done?.();
         }, 30);
       };
-      fade(d.base * 0.15, 500); // muy baja, no muda
+      fade(d.base * 0.07, 500); // muy baja, no muda
       d.t = setTimeout(() => fade(d.base, 1500, () => duck === d && (duck = null)), arg * 1000);
     }
     setTimeout(push, 200);
