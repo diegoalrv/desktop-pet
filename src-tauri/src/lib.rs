@@ -141,6 +141,7 @@ pub fn run() {
             meeting::meeting_stop,
             meeting::meeting_state,
             meeting::meeting_dismiss,
+            meeting::meeting_retry,
             windows::set_quick_shortcut,
             timer::timer_config,
             timer::timer_get,

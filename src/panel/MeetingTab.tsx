@@ -27,10 +27,11 @@ export function MeetingTab() {
   }, []);
   useEffect(() => void log.current?.scrollTo(0, log.current.scrollHeight), [s?.lines.length]);
 
-  const start = () =>
-    invoke("meeting_start", { llm: { url: prefs.llmUrl, model: prefs.llmModel, key: prefs.llmKey } })
+  const call = (cmd: string) =>
+    invoke(cmd, { llm: { url: prefs.llmUrl, model: prefs.llmModel, key: prefs.llmKey } })
       .then(() => setErr(""))
       .catch((e) => setErr(String(e)));
+  const busy = s?.status.startsWith("Buscando tareas");
 
   const accept = async (id: number, title: string) => {
     await db.addTask({ title, category_id: null, project: null, priority: 1, due_at: null, est_pomodoros: 1 });
@@ -64,9 +65,14 @@ export function MeetingTab() {
               "Transcribe en tu Mac tu micrófono (“Yo”) y la llamada (“Otros”). Al terminar te propone tareas. Avisa que estás transcribiendo."}
           </span>
         </div>
-        <button className={s.active ? "b" : "b b-primary"} onClick={s.active ? () => invoke("meeting_stop") : start}>
+        <button className={s.active ? "b" : "b b-primary"} onClick={s.active ? () => invoke("meeting_stop") : () => call("meeting_start")}>
           <Icon name={s.active ? "stop" : "mic"} size="1em" /> {s.active ? "Terminar" : "Empezar"}
         </button>
+        {!s.active && (
+          <button className="b b-ghost b-sm" disabled={busy} onClick={() => call("meeting_retry")} title="Vuelve a mandar al LLM la última transcripción guardada">
+            {busy ? "Buscando tareas…" : "Reintentar tareas de la última reunión"}
+          </button>
+        )}
       </div>
 
       {s.suggestions.length > 0 && (

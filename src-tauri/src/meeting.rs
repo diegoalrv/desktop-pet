@@ -119,6 +119,55 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Re
     Ok(())
 }
 
+/// Vuelve a mandar al LLM la última transcripción guardada (si falló la llamada o se cerró la app).
+#[tauri::command]
+pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Result<(), String> {
+    if state.0.lock().unwrap().stop.is_some() {
+        return Err("Hay una reunión en curso".into());
+    }
+    let dir = meetings_dir(&app).ok_or("No encontré la carpeta de reuniones")?;
+    // Los archivos se llaman <epoch>.md: el mayor nombre es el más reciente.
+    let last = std::fs::read_dir(&dir)
+        .map_err(|_| "No hay reuniones guardadas".to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "md"))
+        .max()
+        .ok_or("No hay reuniones guardadas")?;
+    let lines = parse_lines(&std::fs::read_to_string(&last).map_err(|e| e.to_string())?);
+    if lines.is_empty() {
+        return Err("La última transcripción está vacía".into());
+    }
+    update(&app, |g| {
+        g.snap.lines = lines.clone();
+        g.snap.status = "Buscando tareas en la reunión…".into();
+    });
+    std::thread::spawn(move || {
+        let res = finalize(&app, &llm, &lines);
+        update(&app, |g| {
+            g.snap.status = match res {
+                Ok(()) => "Reunión revisada".into(),
+                Err(e) => format!("Error: {e}"),
+            };
+        });
+    });
+    Ok(())
+}
+
+fn meetings_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("meetings"))
+}
+
+/// Inverso de `fmt_lines`: "Yo: …" / "Otros: …" por línea.
+pub fn parse_lines(s: &str) -> Vec<Line> {
+    s.lines()
+        .filter_map(|l| {
+            let (who, text) = l.split_once(": ")?;
+            let who = ["Yo", "Otros"].into_iter().find(|w| *w == who)?;
+            Some(Line { who, text: text.to_string() })
+        })
+        .collect()
+}
+
 pub fn rms(x: &[f32]) -> f32 {
     if x.is_empty() {
         return 0.0;
@@ -225,6 +274,10 @@ pub fn parse_tasks(content: &str) -> Vec<(String, String)> {
 }
 
 fn ask(llm: &Llm, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+    // ponytail: "remoto" = no es localhost; Ollama local no pide key.
+    if llm.key.is_empty() && !llm.url.contains("127.0.0.1") && !llm.url.contains("localhost") {
+        return Err("LLM: falta la API key (Ajustes → LLM). La transcripción quedó guardada.".into());
+    }
     let body = json!({
         "model": llm.model,
         "temperature": 0.2,
@@ -237,17 +290,21 @@ fn ask(llm: &Llm, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
     let mut req = ureq::post(format!("{}/chat/completions", llm.url.trim_end_matches('/')))
         .config()
         .timeout_global(Some(Duration::from_secs(900)))
+        .http_status_as_error(false) // para leer el mensaje del proveedor en vez de solo "http status: 400"
         .build()
         .header("Content-Type", "application/json");
     if !llm.key.is_empty() {
         req = req.header("Authorization", format!("Bearer {}", llm.key));
     }
-    let text = req
-        .send(body.to_string())
-        .map_err(|e| format!("LLM: {e}"))?
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
+    let mut res = req.send(body.to_string()).map_err(|e| format!("LLM: {e}"))?;
+    let status = res.status();
+    let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let v: Value = serde_json::from_str(&text).unwrap_or_default();
+        // Gemini a veces envuelve el error en un array: [{"error": …}]
+        let msg = v["error"]["message"].as_str().or(v[0]["error"]["message"].as_str()).unwrap_or(&text);
+        return Err(format!("LLM {}: {}", status.as_u16(), msg.chars().take(200).collect::<String>()));
+    }
     let v: Value = serde_json::from_str(&text).map_err(|_| "LLM: respuesta no es JSON".to_string())?;
     Ok(parse_tasks(v["choices"][0]["message"]["content"].as_str().unwrap_or("")))
 }
@@ -456,7 +513,7 @@ mod mac {
 
     /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md.
     fn save(app: &AppHandle, lines: &[Line]) {
-        let Ok(dir) = app.path().app_data_dir().map(|d| d.join("meetings")) else { return };
+        let Some(dir) = meetings_dir(app) else { return };
         let _ = std::fs::create_dir_all(&dir);
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let _ = std::fs::write(dir.join(format!("{secs}.md")), fmt_lines(lines));
@@ -529,6 +586,13 @@ mod tests {
         assert_eq!(parse_tasks(out), vec![("Enviar informe".into(), "Ana, lunes".into())]);
         assert!(parse_tasks("sin json").is_empty());
         assert!(parse_tasks("} {").is_empty());
+    }
+
+    #[test]
+    fn relee_la_transcripcion_guardada() {
+        let lines = vec![Line { who: "Yo", text: "Hora: 10:30".into() }, Line { who: "Otros", text: "ok".into() }];
+        let back = parse_lines(&format!("{}\nbasura sin hablante", fmt_lines(&lines)));
+        assert_eq!(fmt_lines(&back), fmt_lines(&lines));
     }
 }
 
