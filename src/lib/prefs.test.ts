@@ -32,6 +32,8 @@ describe("prefs", () => {
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };
     expect(normalizePrefs(viejo).llms).toEqual([{ provider: "https://x.dev/v1", apikey: "k", models: ["m1"] }]);
+    const gemini = { ...viejo, llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai/" };
+    expect(normalizePrefs(gemini).llms[0].provider).toBe("gemini");
     expect(normalizePrefs({ llms: [{ provider: "gemini", models: [] }] }).llms[0].models).toEqual(["gemini-3.8-flash"]);
   });
   it("accelFromEvent", () => {

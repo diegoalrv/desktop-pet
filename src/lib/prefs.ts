@@ -5,8 +5,20 @@ export const PET_SIZE = { min: 64, max: 320, def: 128 };
 
 /** Un proveedor con sus modelos en orden: si uno falla (sobrecarga, cuota…) se prueba el siguiente.
  * `provider`: "gemini" | "claude" | "openai" | "ollama" o la base URL de cualquier API compatible con OpenAI. */
+// Mismas URLs que base_url en meeting.rs: una URL conocida se guarda con su nombre (prefs migradas de llmUrl).
+const PROVIDER_URLS: Record<string, string> = {
+  "https://generativelanguage.googleapis.com/v1beta/openai": "gemini",
+  "https://api.anthropic.com/v1": "claude",
+  "https://api.openai.com/v1": "openai",
+  "http://127.0.0.1:11434/v1": "ollama",
+  "http://localhost:11434/v1": "ollama",
+};
 export const llmSchema = z.object({
-  provider: z.string().trim().min(1),
+  provider: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((p) => PROVIDER_URLS[p.replace(/\/+$/, "")] ?? p),
   apikey: z.string().trim().catch(""),
   models: z.array(z.string().trim().min(1)).min(1),
 });

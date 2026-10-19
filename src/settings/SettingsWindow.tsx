@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { z } from "zod";
-import { accelFromEvent, DEFAULT_SHORTCUT, llmSchema, PET_SIZE } from "../lib/prefs";
+import { accelFromEvent, DEFAULT_SHORTCUT, PET_SIZE } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
+import { LlmEditor } from "./LlmEditor";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 
 const h = { margin: "8px 0 0", fontSize: 13, letterSpacing: ".06em", textTransform: "uppercase", color: T.accent } as const;
@@ -17,7 +17,6 @@ export function SettingsWindow() {
   const [msg, setMsg] = useState("");
   const [auto, setAuto] = useState(false);
   const [shortcutErr, setShortcutErr] = useState("");
-  const [llmErr, setLlmErr] = useState("");
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => {
     refresh();
@@ -221,26 +220,10 @@ export function SettingsWindow() {
       </small>
 
       <h2 style={h}>Reuniones (sugerir tareas)</h2>
-      <textarea
-        rows={10}
-        spellCheck={false}
-        defaultValue={JSON.stringify(prefs.llms, null, 2)}
-        onBlur={(e) => {
-          try {
-            setPrefs({ llms: z.array(llmSchema).min(1).parse(JSON.parse(e.target.value)) });
-            setLlmErr("");
-          } catch (err) {
-            setLlmErr(`No se guardó: ${err instanceof SyntaxError ? err.message : "cada proveedor necesita provider y al menos un modelo"}`);
-          }
-        }}
-        style={{ ...btn, padding: 4, fontFamily: "ui-monospace, monospace", fontSize: 12, resize: "vertical" }}
-      />
-      {llmErr && <small style={{ color: "#ff6b6b" }}>{llmErr}</small>}
+      <LlmEditor value={prefs.llms} onSave={(llms) => setPrefs({ llms })} />
       <small style={{ opacity: 0.7 }}>
-        Al terminar la reunión se manda el texto (nunca el audio) al primer modelo de la lista; si falla (sobrecarga,
-        cuota…) pasa al siguiente modelo y luego al siguiente proveedor. provider: gemini (key en aistudio.google.com/apikey;
-        en el nivel gratis Google puede usar el texto), claude, openai, ollama (sin key) o la URL de cualquier API compatible
-        con OpenAI.
+        Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al siguiente. En el nivel
+        gratis de Gemini, Google puede usar el texto para mejorar sus productos.
       </small>
 
       <h2 style={h}>Chat con Claude Code</h2>
