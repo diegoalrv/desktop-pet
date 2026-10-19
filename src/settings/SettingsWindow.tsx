@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { accelFromEvent, DEFAULT_SHORTCUT, PET_SIZE } from "../lib/prefs";
+import { z } from "zod";
+import { accelFromEvent, DEFAULT_SHORTCUT, llmSchema, PET_SIZE } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -16,6 +17,7 @@ export function SettingsWindow() {
   const [msg, setMsg] = useState("");
   const [auto, setAuto] = useState(false);
   const [shortcutErr, setShortcutErr] = useState("");
+  const [llmErr, setLlmErr] = useState("");
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => {
     refresh();
@@ -219,28 +221,26 @@ export function SettingsWindow() {
       </small>
 
       <h2 style={h}>Reuniones (sugerir tareas)</h2>
-      {(
-        [
-          ["llmUrl", "URL", "text"],
-          ["llmModel", "Modelo", "text"],
-          ["llmKey", "API key", "password"],
-        ] as const
-      ).map(([key, label, type]) => (
-        <label key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          {label}
-          <input
-            type={type}
-            defaultValue={prefs[key]}
-            placeholder={key === "llmKey" ? "aistudio.google.com/apikey (vacía para Ollama)" : undefined}
-            onBlur={(e) => setPrefs({ [key]: e.target.value })}
-            style={{ ...btn, padding: 4, flex: 1, maxWidth: 260 }}
-          />
-        </label>
-      ))}
+      <textarea
+        rows={10}
+        spellCheck={false}
+        defaultValue={JSON.stringify(prefs.llms, null, 2)}
+        onBlur={(e) => {
+          try {
+            setPrefs({ llms: z.array(llmSchema).min(1).parse(JSON.parse(e.target.value)) });
+            setLlmErr("");
+          } catch (err) {
+            setLlmErr(`No se guardó: ${err instanceof SyntaxError ? err.message : "cada proveedor necesita provider y al menos un modelo"}`);
+          }
+        }}
+        style={{ ...btn, padding: 4, fontFamily: "ui-monospace, monospace", fontSize: 12, resize: "vertical" }}
+      />
+      {llmErr && <small style={{ color: "#ff6b6b" }}>{llmErr}</small>}
       <small style={{ opacity: 0.7 }}>
-        Al terminar la reunión se manda el texto (nunca el audio) a cualquier API compatible con OpenAI. Gemini:
-        https://generativelanguage.googleapis.com/v1beta/openai (gratis, pero en ese nivel Google puede usar el texto
-        para mejorar sus productos) · Claude: https://api.anthropic.com/v1 · Ollama local: http://127.0.0.1:11434/v1.
+        Al terminar la reunión se manda el texto (nunca el audio) al primer modelo de la lista; si falla (sobrecarga,
+        cuota…) pasa al siguiente modelo y luego al siguiente proveedor. provider: gemini (key en aistudio.google.com/apikey;
+        en el nivel gratis Google puede usar el texto), claude, openai, ollama (sin key) o la URL de cualquier API compatible
+        con OpenAI.
       </small>
 
       <h2 style={h}>Chat con Claude Code</h2>

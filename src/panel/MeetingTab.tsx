@@ -28,7 +28,7 @@ export function MeetingTab() {
   useEffect(() => void log.current?.scrollTo(0, log.current.scrollHeight), [s?.lines.length]);
 
   const call = (cmd: string) =>
-    invoke(cmd, { llm: { url: prefs.llmUrl, model: prefs.llmModel, key: prefs.llmKey } })
+    invoke(cmd, { llms: prefs.llms })
       .then(() => setErr(""))
       .catch((e) => setErr(String(e)));
   const busy = s?.status.startsWith("Buscando tareas");

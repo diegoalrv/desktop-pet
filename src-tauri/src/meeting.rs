@@ -34,12 +34,24 @@ pub struct Suggestion {
     pub detail: String,
 }
 
-/// Proveedor del LLM: base URL compatible con OpenAI (termina en /v1), modelo y API key (vacía para Ollama).
+/// Proveedor del LLM con sus modelos en orden de preferencia. `provider` es un nombre conocido (`base_url`) o la
+/// base URL de cualquier API compatible con OpenAI (termina en /v1). `apikey` vacía para Ollama.
 #[derive(Clone, Deserialize)]
 pub struct Llm {
-    pub url: String,
-    pub model: String,
-    pub key: String,
+    pub provider: String,
+    #[serde(default)]
+    pub apikey: String,
+    pub models: Vec<String>,
+}
+
+fn base_url(provider: &str) -> &str {
+    match provider.trim().to_lowercase().as_str() {
+        "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai",
+        "claude" | "anthropic" => "https://api.anthropic.com/v1",
+        "openai" => "https://api.openai.com/v1",
+        "ollama" => "http://127.0.0.1:11434/v1",
+        _ => provider.trim(),
+    }
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -87,7 +99,7 @@ pub fn meeting_stop(state: State<MeetingState>) {
 }
 
 #[tauri::command]
-pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Result<(), String> {
+pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("Escuchar reuniones solo funciona en macOS".into());
     }
@@ -104,7 +116,7 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Re
     });
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
-        let res = mac::run(&app, &stop, &llm);
+        let res = mac::run(&app, &stop, &llms);
         #[cfg(not(target_os = "macos"))]
         let res: Result<(), String> = Ok(());
         update(&app, |g| {
@@ -121,7 +133,7 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Re
 
 /// Vuelve a mandar al LLM la última transcripción guardada (si falló la llamada o se cerró la app).
 #[tauri::command]
-pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Result<(), String> {
+pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>) -> Result<(), String> {
     if state.0.lock().unwrap().stop.is_some() {
         return Err("Hay una reunión en curso".into());
     }
@@ -142,7 +154,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llm: Llm) -> Re
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llm, &lines);
+        let res = finalize(&app, &llms, &lines);
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(()) => "Reunión revisada".into(),
@@ -273,13 +285,30 @@ pub fn parse_tasks(content: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn ask(llm: &Llm, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+/// Prueba cada proveedor y, dentro de él, cada modelo en orden hasta que uno responda (sobrecarga, cuota, key
+/// inválida… cualquier error pasa al siguiente). `on_try` avisa cuál se está probando.
+fn ask_any(llms: &[Llm], lines: &[Line], mut on_try: impl FnMut(&str)) -> Result<Vec<(String, String)>, String> {
+    let mut errs = vec![];
+    for llm in llms {
+        for model in &llm.models {
+            on_try(model);
+            match ask(llm, model, lines) {
+                Ok(t) => return Ok(t),
+                Err(e) => errs.push(format!("{model}: {e}")),
+            }
+        }
+    }
+    Err(if errs.is_empty() { "no hay modelos configurados (Ajustes → Reuniones)".into() } else { errs.join(" · ") })
+}
+
+fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+    let url = base_url(&llm.provider);
     // ponytail: "remoto" = no es localhost; Ollama local no pide key.
-    if llm.key.is_empty() && !llm.url.contains("127.0.0.1") && !llm.url.contains("localhost") {
-        return Err("LLM: falta la API key (Ajustes → LLM). La transcripción quedó guardada.".into());
+    if llm.apikey.is_empty() && !url.contains("127.0.0.1") && !url.contains("localhost") {
+        return Err("falta la API key".into());
     }
     let body = json!({
-        "model": llm.model,
+        "model": model,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
@@ -287,14 +316,14 @@ fn ask(llm: &Llm, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
             {"role": "user", "content": format!("Transcripción:\n{}", fmt_lines(lines))},
         ],
     });
-    let mut req = ureq::post(format!("{}/chat/completions", llm.url.trim_end_matches('/')))
+    let mut req = ureq::post(format!("{}/chat/completions", url.trim_end_matches('/')))
         .config()
         .timeout_global(Some(Duration::from_secs(900)))
         .http_status_as_error(false) // para leer el mensaje del proveedor en vez de solo "http status: 400"
         .build()
         .header("Content-Type", "application/json");
-    if !llm.key.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", llm.key));
+    if !llm.apikey.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", llm.apikey));
     }
     let mut res = req.send(body.to_string()).map_err(|e| format!("LLM: {e}"))?;
     let status = res.status();
@@ -310,8 +339,10 @@ fn ask(llm: &Llm, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
 }
 
 /// Postproceso: transcripción limpia → LLM → tareas sugeridas en el panel, con notificación.
-fn finalize(app: &AppHandle, llm: &Llm, lines: &[Line]) -> Result<(), String> {
-    let tasks = ask(llm, &condense(lines))?;
+fn finalize(app: &AppHandle, llms: &[Llm], lines: &[Line]) -> Result<(), String> {
+    let tasks = ask_any(llms, &condense(lines), |m| {
+        update(app, |g| g.snap.status = format!("Buscando tareas en la reunión ({m})…"));
+    })?;
     let n = tasks.len();
     update(app, |g| {
         for (title, detail) in tasks {
@@ -466,7 +497,7 @@ mod mac {
         println!("{:.2}s para {:.1}s de audio", t.elapsed().as_secs_f32(), audio.len() as f32 / RATE as f32);
     }
 
-    pub fn run(app: &AppHandle, stop: &AtomicBool, llm: &Llm) -> Result<(), String> {
+    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm]) -> Result<(), String> {
         let path = model_path(app)?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
         whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
@@ -506,7 +537,7 @@ mod mac {
         if !lines.is_empty() {
             save(app, &lines);
             update(app, |g| g.snap.status = "Buscando tareas en la reunión…".into());
-            finalize(app, llm, &lines)?;
+            finalize(app, llms, &lines)?;
         }
         Ok(())
     }
@@ -589,6 +620,18 @@ mod tests {
     }
 
     #[test]
+    fn prueba_todos_los_modelos_en_orden() {
+        // Sin key ninguno llega a la red: cada uno falla y pasa al siguiente.
+        let llm = |p: &str, m: &[&str]| Llm { provider: p.into(), apikey: "".into(), models: m.iter().map(|s| s.to_string()).collect() };
+        let mut tried = vec![];
+        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], &[], |m| tried.push(m.to_string()));
+        assert_eq!(tried, ["a", "b", "c"]);
+        assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
+        assert!(ask_any(&[], &[], |_| {}).is_err());
+        assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
+    }
+
+    #[test]
     fn relee_la_transcripcion_guardada() {
         let lines = vec![Line { who: "Yo", text: "Hora: 10:30".into() }, Line { who: "Otros", text: "ok".into() }];
         let back = parse_lines(&format!("{}\nbasura sin hablante", fmt_lines(&lines)));
@@ -598,13 +641,13 @@ mod tests {
 
 /// Prueba el postproceso con una transcripción de ejemplo:
 /// `MEETING_TXT=reunion.txt LLM_MODEL=qwen3.5:9b cargo test --lib probar_llm -- --ignored --nocapture`
-/// (líneas "Yo: …" / "Otros: …"; LLM_URL y LLM_KEY opcionales, por defecto Ollama local).
+/// (líneas "Yo: …" / "Otros: …"; LLM_PROVIDER y LLM_KEY opcionales, por defecto Ollama local).
 #[cfg(test)]
 #[test]
 #[ignore]
 fn probar_llm() {
     let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.into());
-    let llm = Llm { url: env("LLM_URL", "http://127.0.0.1:11434/v1"), model: env("LLM_MODEL", "qwen3.5:9b"), key: env("LLM_KEY", "") };
+    let llm = Llm { provider: env("LLM_PROVIDER", "ollama"), apikey: env("LLM_KEY", ""), models: vec![env("LLM_MODEL", "qwen3.5:9b")] };
     let text = std::fs::read_to_string(env("MEETING_TXT", "reunion.txt")).unwrap();
     let lines: Vec<Line> = text
         .lines()
@@ -614,7 +657,7 @@ fn probar_llm() {
     let clean = condense(&lines);
     println!("{} líneas → {} tras limpiar", lines.len(), clean.len());
     let t = std::time::Instant::now();
-    let tasks = ask(&llm, &clean).unwrap();
+    let tasks = ask_any(&[llm], &clean, |m| println!("probando {m}")).unwrap();
     println!("{:.1}s", t.elapsed().as_secs_f32());
     for (title, detail) in tasks {
         println!("  + {title} — {detail}");

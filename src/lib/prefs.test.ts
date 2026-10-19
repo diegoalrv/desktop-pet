@@ -21,15 +21,18 @@ describe("prefs", () => {
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
       icalUrl: "",
-      llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-      llmModel: "gemini-3.8-flash",
-      llmKey: "",
+      llms: [{ provider: "gemini", apikey: "", models: ["gemini-3.8-flash"] }],
       claudeCwd: "",
       petSize: 128,
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });
     expect([p.focusMin, p.shortMin, p.longMin, p.sound]).toEqual([50, 5, 15, true]);
     expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([200, 128]);
+  });
+  it("llms: migra las prefs viejas y descarta listas inválidas", () => {
+    const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };
+    expect(normalizePrefs(viejo).llms).toEqual([{ provider: "https://x.dev/v1", apikey: "k", models: ["m1"] }]);
+    expect(normalizePrefs({ llms: [{ provider: "gemini", models: [] }] }).llms[0].models).toEqual(["gemini-3.8-flash"]);
   });
   it("accelFromEvent", () => {
     expect(accelFromEvent(ev("Space", { metaKey: true, shiftKey: true }))).toBe(
