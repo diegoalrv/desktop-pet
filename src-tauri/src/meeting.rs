@@ -132,6 +132,7 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>)
             g.stop = None;
             g.snap.active = false;
             g.snap.status = match res {
+                Ok(()) if g.snap.status.starts_with("Reunión revisada") => g.snap.status.clone(),
                 Ok(()) => "Reunión terminada".into(),
                 Err(e) => format!("Error: {e}"),
             };
@@ -164,7 +165,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         let res = finalize(&app, &llms, id, &lines);
         update(&app, |g| {
             g.snap.status = match res {
-                Ok(()) => "Reunión revisada".into(),
+                Ok(m) => m,
                 Err(e) => format!("Error: {e}"),
             };
         });
@@ -234,6 +235,18 @@ No inventes ni incluyas ideas o temas solo conversados. Une las tareas repetidas
 Responde únicamente JSON: {\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
 \"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Si no hay tareas: {\"tareas\":[]}.";
 
+/// Sin micrófono (ninguna línea "Yo") el prompt normal casi nunca encuentra tareas: no hay compromisos del usuario.
+fn prompt(lines: &[Line]) -> String {
+    if lines.iter().any(|l| l.who == "Yo") {
+        return PROMPT.into();
+    }
+    format!(
+        "{PROMPT}\nOJO: en esta reunión no se grabó el micrófono del usuario; todas las líneas son \"Otros\". Incluye \
+         también lo que le piden o asignan a quien escucha y los acuerdos o pendientes de la reunión que no tengan \
+         un responsable claro; el usuario revisará cada una."
+    )
+}
+
 fn fmt_lines(lines: &[Line]) -> String {
     lines.iter().map(|l| format!("{}: {}", l.who, l.text)).collect::<Vec<_>>().join("\n")
 }
@@ -243,7 +256,8 @@ fn words(t: &str) -> Vec<String> {
 }
 
 /// Limpia la transcripción antes de mandarla: quita muletillas sueltas, repeticiones de whisper y el eco de la
-/// llamada que el micrófono capta sin audífonos ("Yo" que repite a "Otros"), y une líneas seguidas del mismo hablante.
+/// llamada que el micrófono capta sin audífonos ("Yo" que repite a "Otros"), y une líneas seguidas de "Yo".
+/// "Otros" son varias personas: unirlas borra los turnos (una reunión sin micrófono quedaba en una sola línea).
 pub fn condense(lines: &[Line]) -> Vec<Line> {
     const FILLER: [&str; 16] =
         ["sí", "si", "ok", "okay", "ya", "dale", "perfecto", "gracias", "listo", "bueno", "claro", "exacto", "ah", "eh", "mm", "chao"];
@@ -265,7 +279,7 @@ pub fn condense(lines: &[Line]) -> Vec<Line> {
         }
         match out.last_mut() {
             Some(prev) if prev.who == l.who && words(&prev.text).ends_with(&w) => {} // whisper repitió la frase
-            Some(prev) if prev.who == l.who => prev.text = format!("{} {}", prev.text, l.text),
+            Some(prev) if prev.who == "Yo" && l.who == "Yo" => prev.text = format!("{} {}", prev.text, l.text),
             _ => out.push(l.clone()),
         }
     }
@@ -273,23 +287,21 @@ pub fn condense(lines: &[Line]) -> Vec<Line> {
 }
 
 /// (título, detalle) del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
-pub fn parse_tasks(content: &str) -> Vec<(String, String)> {
+/// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas".
+pub fn parse_tasks(content: &str) -> Result<Vec<(String, String)>, String> {
     let c = content.rsplit("</think>").next().unwrap_or(content);
-    let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return vec![] };
-    if a > b {
-        return vec![];
-    }
-    let Ok(v) = serde_json::from_str::<Value>(&c[a..=b]) else { return vec![] };
-    v["tareas"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let bad = || format!("respuesta sin JSON de tareas: {}", c.trim().chars().take(120).collect::<String>());
+    let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
+    let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
+    let tareas = v["tareas"].as_array().ok_or_else(bad)?;
+    Ok(tareas
+        .iter()
         .filter_map(|t| {
             let title = t["titulo"].as_str()?.trim();
             let detail = t["detalle"].as_str().unwrap_or("").trim();
             (!title.is_empty()).then(|| (title.chars().take(120).collect(), detail.to_string()))
         })
-        .collect()
+        .collect())
 }
 
 /// Prueba cada proveedor y, dentro de él, cada modelo en orden hasta que uno responda (sobrecarga, cuota, key
@@ -319,7 +331,7 @@ fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, 
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": PROMPT},
+            {"role": "system", "content": prompt(lines)},
             {"role": "user", "content": format!("Transcripción:\n{}", fmt_lines(lines))},
         ],
     });
@@ -342,13 +354,15 @@ fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, 
         return Err(format!("LLM {}: {}", status.as_u16(), msg.chars().take(200).collect::<String>()));
     }
     let v: Value = serde_json::from_str(&text).map_err(|_| "LLM: respuesta no es JSON".to_string())?;
-    Ok(parse_tasks(v["choices"][0]["message"]["content"].as_str().unwrap_or("")))
+    parse_tasks(v["choices"][0]["message"]["content"].as_str().unwrap_or("")).map_err(|e| format!("LLM: {e}"))
 }
 
 /// Postproceso: transcripción limpia → LLM → tareas sugeridas (tabla meeting_tasks), con notificación.
 /// Reintentar reemplaza las pendientes de esa reunión; las aceptadas o descartadas se quedan.
-fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line]) -> Result<(), String> {
+fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line]) -> Result<String, String> {
+    let mut model = String::new();
     let tasks = ask_any(llms, &condense(lines), |m| {
+        model = m.to_string();
         update(app, |g| g.snap.status = format!("Buscando tareas en la reunión ({m})…"));
     })?;
     let n = tasks.len();
@@ -366,7 +380,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line]) -> Result<()
         n => format!("{n} tareas sugeridas"),
     };
     crate::timer::send_notification(app.clone(), "Reunión revisada".into(), format!("{msg}. Revísalas en el panel."));
-    Ok(())
+    Ok(format!("Reunión revisada con {model}: {}", msg.to_lowercase()))
 }
 
 #[cfg(target_os = "macos")]
@@ -547,7 +561,8 @@ mod mac {
         if !lines.is_empty() {
             let id = save(app, &lines);
             update(app, |g| g.snap.status = "Buscando tareas en la reunión…".into());
-            finalize(app, llms, id, &lines)?;
+            let msg = finalize(app, llms, id, &lines)?;
+            update(app, |g| g.snap.status = msg);
         }
         Ok(())
     }
@@ -611,6 +626,7 @@ mod tests {
             l("Yo", "Te la mando el miércoles."), // whisper repitió
             l("Yo", "En la tarde."),
             l("Otros", "Genial, gracias."),
+            l("Otros", "¿Y tú, Ana, revisas el contrato?"), // otra persona: no se une
         ]);
         let got: Vec<_> = out.iter().map(|l| format!("{}: {}", l.who, l.text)).collect();
         assert_eq!(
@@ -619,6 +635,7 @@ mod tests {
                 "Otros: Necesito que me mandes la propuesta antes del jueves.",
                 "Yo: Te la mando el miércoles. En la tarde.",
                 "Otros: Genial, gracias.",
+                "Otros: ¿Y tú, Ana, revisas el contrato?",
             ]
         );
     }
@@ -626,9 +643,11 @@ mod tests {
     #[test]
     fn lee_el_json_del_modelo() {
         let out = "<think>{no}</think>Claro: {\"tareas\":[{\"titulo\":\"Enviar informe\",\"detalle\":\"Ana, lunes\"},{\"titulo\":\" \"}]}";
-        assert_eq!(parse_tasks(out), vec![("Enviar informe".into(), "Ana, lunes".into())]);
-        assert!(parse_tasks("sin json").is_empty());
-        assert!(parse_tasks("} {").is_empty());
+        assert_eq!(parse_tasks(out), Ok(vec![("Enviar informe".into(), "Ana, lunes".into())]));
+        assert_eq!(parse_tasks("{\"tareas\":[]}"), Ok(vec![]));
+        assert!(parse_tasks("sin json").is_err());
+        assert!(parse_tasks("} {").is_err());
+        assert!(parse_tasks("{\"tasks\":[]}").is_err()); // clave equivocada ≠ cero tareas
     }
 
     #[test]
