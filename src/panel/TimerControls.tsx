@@ -81,7 +81,23 @@ export function TimerControls() {
         caption={caption}
       />
 
-      {task && (
+      {!active && mode === "focus" ? (
+        <div className="row">
+          <span style={{ color }}>
+            <Icon name="target" />
+          </span>
+          <select className="field field-sm grow" aria-label="Tarea" value={selected ?? ""} onChange={(e) => select(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">Sin tarea</option>
+            {tasks
+              .filter((t) => !t.done)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title} ({t.done_pomodoros}/{t.est_pomodoros})
+                </option>
+              ))}
+          </select>
+        </div>
+      ) : task && (
         <div className="card row" style={{ padding: ".55em .7em" }}>
           <span style={{ color }}>
             <Icon name="target" />
@@ -90,11 +106,6 @@ export function TimerControls() {
           <span className="chip">
             {task.done_pomodoros}/{task.est_pomodoros} <Icon name="tomato" size="1em" />
           </span>
-          {!active && (
-            <button className="b b-ghost b-sq b-sm" aria-label="Quitar tarea" onClick={() => select(null)}>
-              <Icon name="x" size="1em" />
-            </button>
-          )}
         </div>
       )}
 
