@@ -146,6 +146,7 @@ pub fn run() {
             web::open_web,
             meeting::meeting_start,
             meeting::meeting_stop,
+            meeting::meeting_reset,
             meeting::meeting_state,
             meeting::meetings_list,
             meeting::meeting_retry,

@@ -89,6 +89,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "meetings_list" => Ok(json!(meeting::meetings_list(app.clone()))),
         "meeting_start" => meeting::meeting_start(app.clone(), app.state(), llms(app)).map(|_| Value::Null),
         "meeting_stop" => ok(meeting::meeting_stop(app.state())),
+        "meeting_reset" => ok(meeting::meeting_reset(app.clone(), app.state())),
         "meeting_retry" => meeting::meeting_retry(app.clone(), app.state(), llms(app), a["id"].as_u64()).map(|_| Value::Null),
         "music_state" => Ok(music::music_state()),
         "music_cmd" => ok(music::music_cmd(app.clone(), a["cmd"].as_str().unwrap_or_default().into(), a.get("arg").cloned())),

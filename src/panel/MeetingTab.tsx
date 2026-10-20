@@ -64,9 +64,20 @@ export function MeetingTab() {
           <Icon name={s.active ? "stop" : "mic"} size="1em" /> {s.active ? "Terminar" : "Empezar"}
         </button>
         {!s.active && (
-          <button className="b b-ghost b-sm" disabled={busy} onClick={() => call("meeting_retry")} title="Vuelve a mandar al LLM la última transcripción guardada">
-            {busy ? "Buscando tareas…" : "Reintentar tareas de la última reunión"}
-          </button>
+          <div className="row" style={{ gap: ".4em", justifyContent: "center", flexWrap: "wrap" }}>
+            <button className="b b-ghost b-sm" disabled={busy} onClick={() => call("meeting_retry")} title="Vuelve a mandar al LLM la última transcripción guardada">
+              {busy ? "Buscando tareas…" : "Reintentar tareas de la última reunión"}
+            </button>
+            {(s.status || s.lines.length > 0) && !busy && (
+              <button
+                className="b b-ghost b-sm"
+                onClick={() => invoke("meeting_reset").then(() => setErr(""))}
+                title="Limpia el panel. La transcripción guardada y las tareas sugeridas se mantienen."
+              >
+                <Icon name="x" size="1em" /> Limpiar
+              </button>
+            )}
+          </div>
         )}
       </div>
 

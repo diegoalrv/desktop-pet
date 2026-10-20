@@ -108,6 +108,16 @@ pub fn meeting_stop(state: State<MeetingState>) {
     }
 }
 
+/// Deja el panel en blanco tras una reunión (estado y transcripción en vivo). La transcripción guardada y las
+/// tareas sugeridas no se tocan. Con una reunión en curso no hace nada.
+#[tauri::command]
+pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
+    let idle = state.0.lock().unwrap().stop.is_none();
+    if idle {
+        update(&app, |g| g.snap = Snapshot::default());
+    }
+}
+
 #[tauri::command]
 pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
