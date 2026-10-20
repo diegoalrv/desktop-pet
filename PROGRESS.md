@@ -64,7 +64,7 @@
 - Panel → pestaña Reunión → "Escuchar reunión". Todo vive en Rust (`meeting.rs`); el panel solo muestra `meeting://state`.
 - Durante la reunión solo se transcribe (sin LLM): ScreenCaptureKit captura a la vez el micrófono ("Yo") y el audio del sistema ("Otros") a 16 kHz mono; fragmentos de 8–20 s cortados en un silencio (`take_chunk`), sin transcribir los mudos y filtrando alucinaciones típicas de whisper (`clean`).
 - whisper.cpp local (`whisper-rs` con Metal, `ggml-large-v3-turbo-q5_0`, ~550 MB, se descarga la primera vez a `$APPDATA/models`): ~2 s por 8 s de audio en un M5.
-- Al terminar: guarda la transcripción en `$APPDATA/meetings/<epoch>.md`, la limpia (`condense`: muletillas, repeticiones, eco de la llamada en el micrófono, une líneas del mismo hablante) y hace UNA llamada a un LLM compatible con OpenAI (Ajustes → Reuniones; por defecto Gemini `gemini-3.8-flash`, también Claude u Ollama). Las tareas llegan al panel con ✓ (crea la tarea) / ✕ y una notificación.
+- Al terminar: guarda la transcripción en `$APPDATA/meetings/<epoch>.md`, la limpia (`condense`: muletillas, repeticiones, eco de la llamada en el micrófono, une líneas del mismo hablante) y hace UNA llamada a un LLM (Ajustes → Reuniones; por defecto `claude -p` de Claude Code, modelo `sonnet`, sin API key; también Gemini, Claude API, OpenAI, Ollama o cualquier API compatible con OpenAI). Las tareas llegan al panel con ✓ (crea la tarea) / ✕ y una notificación.
 - Sin diarización: Yo/Otros sale del canal de audio.
 - Pruebas manuales: `probar_whisper` y `probar_llm` (tests `#[ignore]` en `meeting.rs`, ver su doc). Con una reunión de ejemplo, `qwen3.5:9b` local sacó 5/5 tareas sin falsos positivos en 85 s.
 

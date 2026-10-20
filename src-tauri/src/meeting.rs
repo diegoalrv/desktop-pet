@@ -27,8 +27,9 @@ pub struct Line {
     pub text: String,
 }
 
-/// Proveedor del LLM con sus modelos en orden de preferencia. `provider` es un nombre conocido (`base_url`) o la
-/// base URL de cualquier API compatible con OpenAI (termina en /v1). `apikey` vacía para Ollama.
+/// Proveedor del LLM con sus modelos en orden de preferencia. `provider` es un nombre conocido (`base_url`), la
+/// base URL de cualquier API compatible con OpenAI (termina en /v1) o "claude-code" (`claude -p` local, sin API).
+/// `apikey` vacía para Ollama y claude-code.
 #[derive(Clone, Deserialize)]
 pub struct Llm {
     pub provider: String,
@@ -320,7 +321,38 @@ fn ask_any(llms: &[Llm], lines: &[Line], mut on_try: impl FnMut(&str)) -> Result
     Err(if errs.is_empty() { "no hay modelos configurados (Ajustes → Reuniones)".into() } else { errs.join(" · ") })
 }
 
+/// `claude -p` (Claude Code instalado y con sesión): sin API key ni llamada propia a la API. Una app con
+/// bundle no hereda el PATH del shell, por eso se prueban las rutas típicas del binario.
+fn ask_claude_code(model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let home = std::env::var("HOME").unwrap_or_default();
+    let bins = ["claude".into(), "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into(), format!("{home}/.claude/local/claude")];
+    let mut child = bins
+        .iter()
+        .find_map(|b| {
+            Command::new(b)
+                .args(["-p", "--model", model, "--tools", "", "--no-session-persistence", "--system-prompt", &prompt(lines)])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .ok()
+        })
+        .ok_or("no encuentro el comando `claude` (instala Claude Code)")?;
+    child.stdin.take().unwrap().write_all(format!("Transcripción:\n{}", fmt_lines(lines)).as_bytes()).map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("claude -p: {}", err.trim().chars().take(200).collect::<String>()));
+    }
+    parse_tasks(&String::from_utf8_lossy(&out.stdout)).map_err(|e| format!("claude -p: {e}"))
+}
+
 fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+    if llm.provider.trim().eq_ignore_ascii_case("claude-code") {
+        return ask_claude_code(model, lines);
+    }
     let url = base_url(&llm.provider);
     // ponytail: "remoto" = no es localhost; Ollama local no pide key.
     if llm.apikey.is_empty() && !url.contains("127.0.0.1") && !url.contains("localhost") {

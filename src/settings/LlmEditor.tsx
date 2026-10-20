@@ -12,7 +12,9 @@ const KNOWN: Record<string, { name: string; keyHint?: string }> = {
   claude: { name: "Claude", keyHint: "console.anthropic.com" },
   openai: { name: "OpenAI", keyHint: "platform.openai.com/api-keys" },
   ollama: { name: "Ollama (local, sin key)" },
+  "claude-code": { name: "Claude Code (claude -p, sin key)" },
 };
+const NO_KEY = ["ollama", "claude-code"];
 const CUSTOM = "url";
 
 const CSS = `
@@ -182,7 +184,7 @@ function Provider(props: {
           onChange={(e) => onChange({ provider: e.target.value })}
         />
       )}
-      {p.provider !== "ollama" && (
+      {!NO_KEY.includes(p.provider) && (
         <input
           className="llm-in"
           type="password"
@@ -222,7 +224,7 @@ function Provider(props: {
           <span className="llm-n" />
           <input
             className="llm-in"
-            placeholder={p.provider === "ollama" ? "Agregar modelo (ej. qwen3.5:9b)" : "Agregar modelo"}
+            placeholder={p.provider === "ollama" ? "Agregar modelo (ej. qwen3.5:9b)" : p.provider === "claude-code" ? "Agregar modelo (ej. sonnet)" : "Agregar modelo"}
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}
