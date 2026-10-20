@@ -1,13 +1,16 @@
 # Desktop Pet
 
-Mascota animada sobre el escritorio que funciona como timer de foco (Pomodoro) y organizador de tareas.
-Tauri v2 (Rust) + React + Vite + TypeScript. macOS (prioridad) y Windows; Linux best effort.
+Mascota animada sobre el escritorio que funciona como timer de foco (Pomodoro) y organizador de tareas. También
+escucha tus reuniones, las transcribe en local y te propone tareas, reproduce YouTube Music y tiene un chat con
+Claude Code. Tauri v2 (Rust) + React + Vite + TypeScript. macOS (prioridad) y Windows; Linux best effort.
 
 ## Requisitos
 
 - Node 20+ y [pnpm](https://pnpm.io)
 - Rust (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`) y luego `source ~/.cargo/env`
 - macOS: Xcode Command Line Tools. Windows: WebView2 y Build Tools de Visual Studio.
+- Reuniones: macOS 15 o superior. Para las tareas sugeridas sin API key, [Claude Code](https://claude.com/claude-code)
+  instalado y con sesión iniciada (`claude` en el PATH, Homebrew o `~/.claude/local`).
 
 ## Desarrollo
 
@@ -16,7 +19,7 @@ pnpm install
 pnpm tauri dev      # app en desarrollo (en dev hay un botón de 1 min en el panel)
 pnpm test           # Vitest: máquina de estados, física, manifest, tareas, prefs
 pnpm lint
-cd src-tauri && cargo test   # lógica del timer
+cd src-tauri && cargo test   # timer, cortes de audio, decodificación PCM, limpieza de transcripciones
 ```
 
 ## Build
@@ -35,10 +38,36 @@ En macOS el build se firma con **"Pet Local Signing"** (`bundle.macOS.signingIde
 
 ## Uso
 
-- **Clic** en la mascota: abre el panel (Timer / Tareas). **Arrástrala** para moverla; al soltarla cae al borde inferior del monitor donde quedó.
+- **Clic** en la mascota: abre el panel (Timer / Tareas / Reunión / Música / Chat). **Arrástrala** para moverla; al soltarla cae al borde inferior del monitor donde quedó.
 - **Tray** (barra de menú): mostrar/ocultar mascota, iniciar foco, abrir tareas, ajustes, salir.
 - **Captura rápida**: `Cmd/Ctrl+Shift+Space` (configurable en Ajustes) abre Tareas con el input enfocado.
-- **Ajustes** (⚙ en el panel o tray): skin, duraciones, sonido, atajo e inicio automático.
+- **Ajustes** (⚙ en el panel o tray): skin y tamaño, duraciones, sonido, atajo, inicio automático, calendario (iCal de
+  Google), proveedores de LLM para reuniones y carpeta del chat con Claude Code.
+- **Panel web**: http://127.0.0.1:4747 (botón ↗ del panel). Resumen del día, reuniones con búsqueda, tareas
+  sugeridas, estadísticas de foco e historial del chat.
+
+## Reuniones (macOS 15+)
+
+Panel → **Reunión** → **Empezar**. Transcribe tu micrófono como "Yo" y el audio de la llamada como "Otros", en tu Mac
+con whisper.cpp (el modelo de ~550 MB se descarga la primera vez). Al **Terminar** guarda la transcripción y propone
+las tareas que te tocan; las apruebas con ✓ o las descartas con ✕.
+
+- **Permisos**: la primera vez macOS pide *Micrófono* y *Grabación de pantalla y audio del sistema*. Si falta el de
+  Micrófono la reunión no arranca y lo indica; actívalo en Ajustes del Sistema → Privacidad y seguridad → Micrófono.
+- **Estado en vivo**: bajo el título se ve qué llega de cada fuente, por ejemplo
+  `Escuchando · Yo 0:42 con voz · Otros 0:10 en silencio`. "sin audio" = de esa fuente no llega nada; "en silencio" =
+  llega audio pero sin voz. Mientras Whisper procesa un fragmento dice `Transcribiendo 8 s de Yo…`. El texto aparece
+  con unos segundos de retraso: se transcribe en fragmentos de 8 a 20 s cortados en una pausa.
+- **Con audífonos funciona igual**: "Otros" se copia digitalmente del audio del sistema, salga por parlantes o
+  audífonos. Con audífonos el micrófono solo te oye a ti, lo que evita el eco. Con audífonos Bluetooth como micrófono
+  macOS baja la calidad; si "Yo" sale mal, elige el micrófono del Mac en Ajustes del Sistema → Sonido → Entrada.
+- **Tareas sugeridas**: por defecto con `claude -p` de Claude Code (modelo `sonnet`), sin API key ni llamada propia a
+  una API. En Ajustes → Reuniones se agregan más proveedores en orden de respaldo (Gemini, Claude API, OpenAI, Ollama o
+  cualquier API compatible con OpenAI): si uno falla se prueba el siguiente. Las prefs guardadas antes de este cambio
+  reciben `claude -p` en primer lugar sin perder sus proveedores.
+- **Limpiar**: deja el panel en blanco para la próxima reunión. La transcripción guardada y las tareas sugeridas
+  pendientes se mantienen. **Reintentar tareas de la última reunión** vuelve a mandarla al LLM.
+- Las transcripciones quedan en `~/Library/Application Support/xyz.spadelab.pet/meetings/<epoch>.md`.
 
 ## Skins
 
@@ -68,10 +97,12 @@ La app no incluye personajes de terceros.
 ## Estructura
 
 ```
-src-tauri/src/   lib.rs (ventanas, click-through) timer.rs tray.rs windows.rs
+src-tauri/src/   lib.rs (ventanas, click-through) timer.rs tray.rs windows.rs db.rs
+                 meeting.rs (captura, whisper, tareas sugeridas) claude.rs (chat) music.rs web.rs (panel web)
 src/pet/         mascota: stateMachine.ts physics.ts Sprite.tsx PetWindow.tsx
-src/panel/       panel de timer y tareas
-src/settings/    ventana de ajustes
+src/panel/       panel: timer, tareas, reunión, música, chat
+src/web/         panel web (también la ventana Tareas de la app)
+src/settings/    ventana de ajustes (incluye el editor de LLMs)
 src/skins/       schema (zod) y loader
 src/store/       zustand: timer, tareas, ajustes
 ```
