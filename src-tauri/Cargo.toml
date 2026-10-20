@@ -47,6 +47,7 @@ strip = true
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSWindow", "NSResponder"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+block2 = "0.6" # bloque de AVCaptureDevice.requestAccess (permiso de Micrófono); ya venía con objc2
 # Reuniones: audio del sistema + micrófono (macOS 15+) y whisper.cpp local con Metal
 screencapturekit = { version = "11.0.0", features = ["macos_15_0"] }
 whisper-rs = { version = "0.16.0", features = ["metal"] }

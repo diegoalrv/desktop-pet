@@ -17,4 +17,5 @@
 - **Tray**: usa el ícono de la app (no template); en barra clara/oscura de macOS puede verse menos nítido que un ícono monocromo.
 - **Swift runtime**: el puente Swift de `screencapturekit` necesita `-rpath /usr/lib/swift` (en `build.rs`); sin eso el binario aborta al cargar `libswift_Concurrency.dylib`.
 - **Permisos de reuniones**: la primera vez macOS pide Grabación de pantalla y audio del sistema (ScreenCaptureKit, aunque solo se use el audio) y Micrófono (`src-tauri/Info.plist` lleva `NSMicrophoneUsageDescription`). En `tauri dev` el permiso puede quedar a nombre de la terminal.
+  ScreenCaptureKit **no pide** el permiso de Micrófono por sí solo ni captura sin `microphoneCaptureDeviceID`: `mic_permission()` lo pide con `AVCaptureDevice.requestAccess` y `start_capture` fija el micrófono por defecto; si falta el permiso, la reunión falla con un error claro en vez de dejar el micrófono mudo.
 - **Ollama y RAM**: con 24 GB, los modelos de 27B+ no caben junto a la videollamada (swap); usar 8–12B.

@@ -463,7 +463,39 @@ mod mac {
         Ok(path)
     }
 
+    /// Permiso de Micrófono. ScreenCaptureKit no lo pide solo: sin él entrega el micrófono vacío y toda la
+    /// reunión queda como "Otros". Pide el permiso la primera vez (bloquea hasta que el usuario responda).
+    fn mic_permission() -> Result<(), String> {
+        use objc2::{class, msg_send, runtime::Bool};
+        use objc2_foundation::NSString;
+        #[link(name = "AVFoundation", kind = "framework")]
+        extern "C" {}
+        let audio = NSString::from_str("soun"); // AVMediaTypeAudio
+        // AVAuthorizationStatus: 0 notDetermined, 1 restricted, 2 denied, 3 authorized
+        let status: isize = unsafe { msg_send![class!(AVCaptureDevice), authorizationStatusForMediaType: &*audio] };
+        let granted = match status {
+            3 => true,
+            0 => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let block = block2::RcBlock::new(move |ok: Bool| {
+                    let _ = tx.send(ok.as_bool());
+                });
+                let _: () = unsafe {
+                    msg_send![class!(AVCaptureDevice), requestAccessForMediaType: &*audio, completionHandler: &*block]
+                };
+                rx.recv().unwrap_or(false)
+            }
+            _ => false,
+        };
+        granted
+            .then_some(())
+            .ok_or_else(|| "falta el permiso de Micrófono (Ajustes del Sistema → Privacidad → Micrófono)".to_string())
+    }
+
     fn start_capture(bufs: Bufs) -> Result<SCStream, String> {
+        mic_permission()?;
+        // Apple fija el micrófono explícitamente (uniqueID del dispositivo por defecto); sin id no llega audio.
+        let mic = screencapturekit::audio_devices::AudioInputDevice::default_device().ok_or("no hay micrófono")?;
         let content = SCShareableContent::get().map_err(|_| {
             "falta el permiso de Grabación de pantalla y audio del sistema (Ajustes del Sistema → Privacidad)".to_string()
         })?;
@@ -479,6 +511,8 @@ mod mac {
             .with_sample_rate(RATE as i32)
             .with_channel_count(1)
             .with_captures_microphone(true)
+            .map_err(|e| e.to_string())?
+            .with_microphone_capture_device_id(&mic.id)
             .map_err(|e| e.to_string())?;
         let mut stream = SCStream::new(&filter, &config).map_err(|e| e.to_string())?;
         stream.add_output_handler(Capture(bufs.clone()), SCStreamOutputType::Audio).map_err(|e| e.to_string())?;
