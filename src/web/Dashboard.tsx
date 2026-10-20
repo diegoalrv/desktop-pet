@@ -2,16 +2,17 @@ import { useEffect, useState } from "react";
 import { call, type Mode, type TimerSnap } from "../lib/ipc";
 import * as db from "../lib/db";
 import { isToday, startOfDay } from "../lib/tasks";
-import { byHour, dayStart, perDay, streak } from "../lib/stats";
+import { byHour, byWeekday, dayStart, perDay, streak } from "../lib/stats";
 import { fmt, fmtDur } from "../lib/time";
 import { useLive, useTasks } from "../store/useTasks";
 import { useSettings } from "../store/useSettings";
 import { MODE_COLOR } from "../pet/TimerPill";
+import idleSprite from "../../examples/candolita/idle.png";
 import { Icon, type IconName } from "../panel/icons";
 import { PANEL_CSS } from "../panel/ui";
 import { TasksWindow } from "../tasks/TasksWindow";
 import type { MusicState } from "../store/useMusic";
-import { Bars, DASH_CSS, download, fmtDate, fmtDay, HBars, Hl, usePoll } from "./kit";
+import { Bars, DASH_CSS, download, fmtDate, fmtDay, HBars, Head, Heatmap, Hl, usePoll } from "./kit";
 import { Meetings, Suggestions } from "./Meetings";
 
 const VIEWS: { id: string; label: string; icon: IconName }[] = [
@@ -32,8 +33,8 @@ function useHash() {
     window.addEventListener("hashchange", f);
     return () => window.removeEventListener("hashchange", f);
   }, []);
-  const [view = "home", param] = h.split("/");
-  return { view: VIEWS.some((v) => v.id === view) ? view : "home", param };
+  const [view = "home", param, sub] = h.split("/");
+  return { view: VIEWS.some((v) => v.id === view) ? view : "home", param, sub };
 }
 
 /** Respaldo de todo lo que guarda la app (tablas + transcripciones) en un JSON. */
@@ -52,8 +53,9 @@ async function backup() {
 
 /** Panel web completo: el mismo en el navegador (127.0.0.1:4747) y en la ventana de Tareas de la app. */
 export function Dashboard() {
-  const { view, param } = useHash();
+  const { view, param, sub } = useHash();
   const pending = useLive(() => db.listSuggestions("pending"))?.length ?? 0;
+  useEffect(() => void scrollTo(0, 0), [view, param, sub]);
   useEffect(() => {
     document.title = `${VIEWS.find((v) => v.id === view)?.label} · Pet`;
   }, [view]);
@@ -63,7 +65,11 @@ export function Dashboard() {
       <style>{PANEL_CSS + DASH_CSS + "body{margin:0}"}</style>
       <nav className="d-side">
         <div className="d-brand">
-          <Icon name="tomato" /> Candolita
+          <i style={{ backgroundImage: `url(${idleSprite})` }} />
+          <span>
+            <b>Candolita</b>
+            <small>Panel</small>
+          </span>
         </div>
         {VIEWS.map((v) => (
           <a key={v.id} href={`#${v.id}`} className="d-nav" aria-current={view === v.id ? "page" : undefined}>
@@ -73,31 +79,29 @@ export function Dashboard() {
         ))}
         <span style={{ flex: 1 }} />
         {db.IS_WEB ? (
-          <button
-            className="d-nav"
-            style={{ border: 0, background: "none", font: "inherit", cursor: "pointer" }}
-            onClick={backup}
-          >
+          <button className="d-nav" onClick={backup}>
             <Icon name="download" /> Respaldo
           </button>
         ) : (
-          <button
-            className="d-nav"
-            style={{ border: 0, background: "none", font: "inherit", cursor: "pointer" }}
-            title="http://127.0.0.1:4747"
-            onClick={() => call("open_web")}
-          >
+          <button className="d-nav" title="http://127.0.0.1:4747" onClick={() => call("open_web")}>
             <Icon name="external" /> Navegador
           </button>
         )}
       </nav>
       <main className="d-main">
         {view === "home" && <Home />}
-        {view === "tasks" && <TasksWindow />}
-        {view === "meetings" && <Meetings id={param ? Number(param) : undefined} />}
+        {view === "tasks" && (
+          <>
+            <Head title="Tareas" />
+            <div className="d-card" style={{ overflowX: "auto" }}>
+              <TasksWindow />
+            </div>
+          </>
+        )}
+        {view === "meetings" && <Meetings id={param ? Number(param) : undefined} tab={sub} />}
         {view === "suggestions" && <Suggestions />}
         {view === "focus" && <Focus />}
-        {view === "chat" && <ChatLog />}
+        {view === "chat" && <ChatLog id={param ? Number(param) : undefined} />}
       </main>
     </div>
   );
@@ -120,22 +124,31 @@ function TimerCard() {
       taskId: mode === "focus" ? taskId : null,
       ...(db.IS_WEB ? {} : { seconds: mins[mode] * 60 }),
     });
+  const color = active ? MODE_COLOR[snap.mode] : undefined;
   return (
-    <div className="d-card">
-      <span className="d-label">Timer</span>
-      <div className="d-row" style={{ alignItems: "baseline" }}>
+    <div className="d-card" style={{ gap: 18, padding: 22 }}>
+      <div className="d-row">
+        <span className="d-label">Timer</span>
+        <span className="d-pill" style={{ marginLeft: "auto", color }}>
+          {active ? `${MODE_LABEL[snap.mode]}${snap.status === "paused" ? " · en pausa" : ""}` : "En reposo"}
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
         <span
-          style={{
-            font: "700 40px ui-monospace,Menlo,monospace",
-            color: active ? MODE_COLOR[snap.mode] : undefined,
-          }}
+          className="d-timer"
+          style={{ color: color ?? "var(--line-2)", letterSpacing: active ? undefined : 0 }}
         >
           {active ? fmt(snap.remaining) : "--:--"}
         </span>
-        <span className="d-dim">
-          {active ? `${MODE_LABEL[snap.mode]}${snap.status === "paused" ? " · en pausa" : ""}` : "En reposo"}
-          {task && ` · ${task.title}`}
-        </span>
+        <span className="d-dim">{task ? task.title : active ? "Sin tarea" : "Listo para empezar"}</span>
+      </div>
+      <div className="d-track">
+        <i
+          style={{
+            width: active && snap.total ? `${(1 - snap.remaining / snap.total) * 100}%` : 0,
+            background: color,
+          }}
+        />
       </div>
       {active ? (
         <div className="d-row">
@@ -152,7 +165,7 @@ function TimerCard() {
           <button className="d-b" onClick={() => go("timer_skip")}>
             <Icon name="next" size="1em" /> Saltar
           </button>
-          <button className="d-b" onClick={() => go("timer_reset")}>
+          <button className="d-b ghost" onClick={() => go("timer_reset")}>
             <Icon name="stop" size="1em" /> Terminar
           </button>
         </div>
@@ -162,7 +175,7 @@ function TimerCard() {
             className="d-in"
             value={taskId ?? ""}
             onChange={(e) => setTaskId(e.target.value ? Number(e.target.value) : null)}
-            style={{ flex: "1 1 100%" }}
+            style={{ flex: "1 1 200px" }}
           >
             <option value="">Foco sin tarea</option>
             {tasks
@@ -173,11 +186,15 @@ function TimerCard() {
                 </option>
               ))}
           </select>
-          {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
-            <button key={m} className={m === "focus" ? "d-b pri" : "d-b"} onClick={() => start(m)}>
-              {MODE_LABEL[m]}
-            </button>
-          ))}
+          <button className="d-b pri" onClick={() => start("focus")}>
+            <Icon name="play" size="1em" /> Foco
+          </button>
+          <button className="d-b" onClick={() => start("short")}>
+            {MODE_LABEL.short}
+          </button>
+          <button className="d-b" onClick={() => start("long")}>
+            {MODE_LABEL.long}
+          </button>
         </div>
       )}
     </div>
@@ -191,36 +208,55 @@ function MusicCard() {
   return (
     <div className="d-card">
       <span className="d-label">Música</span>
-      <div className="d-row" style={{ flexWrap: "nowrap" }}>
-        {s.art && (
-          <img src={s.art} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
+      <div className="d-row" style={{ flexWrap: "nowrap", gap: 12 }}>
+        {s.art ? (
+          <img src={s.art} alt="" style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover" }} />
+        ) : (
+          <span
+            style={{ display: "grid", placeItems: "center", width: 52, height: 52, borderRadius: 10 }}
+            className="d-pill"
+          >
+            <Icon name="music" />
+          </span>
         )}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={s.title}
           >
             {s.title || "Nada sonando"}
           </div>
-          <div className="d-dim" style={{ fontSize: 13 }}>
+          <div
+            className="d-dim"
+            style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
             {s.artist}
           </div>
         </div>
-        <button className="d-b sm" aria-label="Anterior" onClick={() => cmd("prev")}>
+      </div>
+      <div className="d-row" style={{ justifyContent: "center", gap: 6 }}>
+        <button className="d-b ghost" aria-label="Anterior" onClick={() => cmd("prev")}>
           <Icon name="prev" size="1em" />
         </button>
         <button
-          className="d-b sm pri"
+          className="d-b pri"
+          style={{ width: 44, height: 36 }}
           aria-label={s.playing ? "Pausar" : "Reproducir"}
           onClick={() => cmd("toggle")}
         >
           <Icon name={s.playing ? "pause" : "play"} size="1em" />
         </button>
-        <button className="d-b sm" aria-label="Siguiente" onClick={() => cmd("next")}>
+        <button className="d-b ghost" aria-label="Siguiente" onClick={() => cmd("next")}>
           <Icon name="next" size="1em" />
         </button>
       </div>
     </div>
   );
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 6 ? "Buenas noches" : h < 13 ? "Buenos días" : h < 20 ? "Buenas tardes" : "Buenas noches";
 }
 
 function Home() {
@@ -235,20 +271,24 @@ function Home() {
 
   return (
     <>
-      <h1 className="d-h1">{fmtDay(Date.now())}</h1>
-      <div className="d-grid">
+      <Head title={greeting()} sub={fmtDay(Date.now())} />
+      <div className="d-hero">
         <TimerCard />
-        <MusicCard />
-        {live?.active && (
-          <a href="#meetings" className="d-card" style={{ color: "inherit", textDecoration: "none" }}>
-            <span className="d-label">Reunión en curso</span>
-            <span className="d-row">
-              <Icon name="mic" /> {live.status} →
-            </span>
-          </a>
-        )}
+        <div className="d-stack">
+          {live?.active && (
+            <a href="#meetings" className="d-card" style={{ borderColor: "var(--accent-soft)" }}>
+              <span className="d-row d-label" style={{ color: "var(--accent)" }}>
+                <Icon name="mic" size="1em" /> Reunión en curso
+              </span>
+              <span className="d-row">
+                {live.status} <span className="d-more">abrir →</span>
+              </span>
+            </a>
+          )}
+          <MusicCard />
+        </div>
       </div>
-      <div className="d-grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }}>
+      <div className="d-stats">
         {[
           ["Focos hoy", String(today.length)],
           ["Foco hoy", fmtDur(today.reduce((a, s) => a + (s.end - s.start) / 1000, 0))],
@@ -256,16 +296,23 @@ function Home() {
           ["Racha", `${streak(sessions)} días`],
           ["Pendientes", String(tasks.filter((t) => !t.done).length)],
         ].map(([k, v]) => (
-          <div key={k} className="d-card">
-            <span className="d-label">{k}</span>
+          <div key={k}>
             <span className="d-big">{v}</span>
+            <span className="d-dim" style={{ fontSize: 13 }}>
+              {k}
+            </span>
           </div>
         ))}
       </div>
       <div className="d-card">
-        <span className="d-label">Foco · 14 días</span>
+        <div className="d-row">
+          <span className="d-label">Foco · últimos 14 días</span>
+          <a href="#focus" className="d-more">
+            ver detalle →
+          </a>
+        </div>
         <Bars
-          fmt={fmtDur}
+          hi={days.length - 1}
           data={days.map((d) => ({
             v: d.secs,
             title: fmtDay(d.day),
@@ -275,24 +322,29 @@ function Home() {
       </div>
       <div className="d-grid">
         <div className="d-card">
-          <span className="d-label">Para hoy y vencidas</span>
+          <div className="d-row">
+            <span className="d-label">Para hoy y vencidas</span>
+            <a href="#tasks" className="d-more">
+              todas →
+            </a>
+          </div>
           <div className="d-list">
             {due.map((t) => (
               <label key={t.id} className="d-item" style={{ alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" onChange={(e) => db.setDone(t.id, e.target.checked)} />
                 <span style={{ flex: 1 }}>{t.title}</span>
-                <span className="d-pill" style={{ color: t.due_at! < Date.now() ? "#ff6b6b" : undefined }}>
+                <span className="d-pill" style={{ color: t.due_at! < Date.now() ? "var(--err)" : undefined }}>
                   {fmtDate(t.due_at!)}
                 </span>
               </label>
             ))}
-            {!due.length && <span className="d-dim">Nada con fecha para hoy.</span>}
+            {!due.length && <span className="d-empty">Nada con fecha para hoy.</span>}
           </div>
         </div>
         <div className="d-card">
           <div className="d-row">
             <span className="d-label">Sugerencias por revisar</span>
-            <a href="#suggestions" className="d-dim" style={{ marginLeft: "auto" }}>
+            <a href="#suggestions" className="d-more">
               ver todas →
             </a>
           </div>
@@ -303,7 +355,7 @@ function Home() {
                 <span className="d-pill">{fmtDate(s.meeting * 1000)}</span>
               </div>
             ))}
-            {!pending.length && <span className="d-dim">Todo revisado.</span>}
+            {!pending.length && <span className="d-empty">Todo revisado.</span>}
           </div>
         </div>
       </div>
@@ -311,12 +363,14 @@ function Home() {
   );
 }
 
+const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const PERIODS = { 7: "7 días", 30: "30 días", 90: "90 días" } as const;
 
 function Focus() {
   const { tasks, cats } = useTasks();
   const [n, setN] = useState<keyof typeof PERIODS>(30);
   const rows = useLive(() => db.listSessions(dayStart(n - 1)), [n]) ?? [];
+  const year = useLive(() => db.listSessions(dayStart(371))) ?? [];
   const focus = rows.filter((r) => r.mode === "focus");
   const secs = (r: db.SessionRow) => (r.end - r.start) / 1000;
   const total = focus.reduce((a, r) => a + secs(r), 0);
@@ -331,30 +385,55 @@ function Focus() {
     return c ? `${c.icon} ${c.name}` : "Sin categoría";
   };
   const days = perDay(rows, n);
+  const best = days.reduce((a, d) => (d.secs > a.secs ? d : a), days[0]);
   const every = n > 30 ? 7 : n > 7 ? 3 : 1; // etiquetas espaciadas en períodos largos
+  const today = (new Date().getDay() + 6) % 7;
 
   return (
     <>
-      <div className="d-row">
-        <h1 className="d-h1">Foco</h1>
-        <span className="d-dim">
-          {fmtDur(total)} en {focus.length} focos · media {fmtDur(total / n)}/día
-        </span>
-        <span style={{ marginLeft: "auto" }} />
-        {(Object.keys(PERIODS) as unknown as (keyof typeof PERIODS)[]).map((k) => (
-          <button
-            key={k}
-            className={`d-b ${n == k ? "on" : ""}`}
-            onClick={() => setN(Number(k) as keyof typeof PERIODS)}
-          >
-            {PERIODS[k]}
-          </button>
+      <Head title="Foco" sub={`Tus sesiones de los últimos ${PERIODS[n]}`}>
+        <div className="d-seg">
+          {(Object.keys(PERIODS) as unknown as (keyof typeof PERIODS)[]).map((k) => (
+            <button
+              key={k}
+              className={`d-b ${n == k ? "on" : ""}`}
+              onClick={() => setN(Number(k) as keyof typeof PERIODS)}
+            >
+              {PERIODS[k]}
+            </button>
+          ))}
+        </div>
+      </Head>
+      <div className="d-stats">
+        {[
+          ["Tiempo de foco", fmtDur(total)],
+          ["Focos", String(focus.length)],
+          ["Media por día", fmtDur(total / n)],
+          ["Días con foco", `${days.filter((d) => d.secs).length}/${n}`],
+          [
+            best?.secs
+              ? `Mejor día · ${new Date(best.day).toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" })}`
+              : "Mejor día",
+            fmtDur(best?.secs ?? 0),
+          ],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <span className="d-big">{v}</span>
+            <span className="d-dim" style={{ fontSize: 13 }}>
+              {k}
+            </span>
+          </div>
         ))}
+      </div>
+      <div className="d-card">
+        <span className="d-label">Calendario de foco</span>
+        <Heatmap rows={year} />
       </div>
       <div className="d-card">
         <span className="d-label">Por día</span>
         <Bars
-          fmt={fmtDur}
+          hi={days.length - 1}
+          avg={total / n}
           data={days.map((d, i) => ({
             v: d.secs,
             title: fmtDay(d.day),
@@ -362,11 +441,28 @@ function Focus() {
           }))}
         />
       </div>
+      <div className="d-grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))" }}>
+        <div className="d-card">
+          <span className="d-label">¿A qué hora te concentras?</span>
+          <Bars
+            hi={new Date().getHours()}
+            data={byHour(rows).map((v, h) => ({ v, title: `${h}:00`, label: h % 3 ? "" : String(h) }))}
+          />
+        </div>
+        <div className="d-card">
+          <span className="d-label">Media por día de la semana</span>
+          <Bars
+            hi={today}
+            data={byWeekday(days).map((v, i) => ({ v, title: WEEKDAYS[i], label: WEEKDAYS[i].slice(0, 2) }))}
+          />
+        </div>
+      </div>
       <div className="d-grid">
         <div className="d-card">
           <span className="d-label">Por proyecto</span>
           <HBars
             fmt={fmtDur}
+            total={total}
             data={sum((r) =>
               r.task_id == null ? "Sin tarea" : (task.get(r.task_id)?.project ?? "Sin proyecto"),
             )}
@@ -374,27 +470,26 @@ function Focus() {
         </div>
         <div className="d-card">
           <span className="d-label">Por categoría</span>
-          <HBars fmt={fmtDur} data={sum(catName)} />
+          <HBars fmt={fmtDur} total={total} data={sum(catName)} />
         </div>
         <div className="d-card">
           <span className="d-label">Por tarea</span>
-          <HBars fmt={fmtDur} data={sum((r) => task.get(r.task_id!)?.title ?? "Sin tarea").slice(0, 8)} />
+          <HBars
+            fmt={fmtDur}
+            total={total}
+            data={sum((r) => task.get(r.task_id!)?.title ?? "Sin tarea").slice(0, 8)}
+          />
         </div>
       </div>
       <div className="d-card">
-        <span className="d-label">¿A qué hora te concentras?</span>
-        <Bars
-          fmt={fmtDur}
-          data={byHour(rows).map((v, h) => ({ v, title: `${h}:00`, label: h % 3 ? "" : String(h) }))}
-        />
-      </div>
-      <div className="d-card">
         <span className="d-label">Sesiones</span>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table className="d-table">
           <tbody>
             {rows.slice(0, 200).map((r) => (
-              <tr key={r.id} style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
-                <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>{fmtDate(r.start)}</td>
+              <tr key={r.id}>
+                <td style={{ whiteSpace: "nowrap" }} className="d-dim">
+                  {fmtDate(r.start)}
+                </td>
                 <td>
                   <span className="d-pill" style={{ color: MODE_COLOR[r.mode as Mode] }}>
                     {MODE_LABEL[r.mode as Mode] ?? r.mode}
@@ -403,11 +498,12 @@ function Focus() {
                 <td style={{ width: "100%" }}>
                   {task.get(r.task_id!)?.title ?? <span className="d-dim">—</span>}
                 </td>
-                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>{fmtDur(secs(r))}</td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                  {fmtDur(secs(r))}
+                </td>
                 <td>
                   <button
-                    className="d-b sm"
-                    style={{ border: 0, background: "none" }}
+                    className="d-b sm ghost"
                     title="Borrar sesión"
                     onClick={() => confirm("¿Borrar esta sesión?") && db.deleteSession(r.id)}
                   >
@@ -418,73 +514,127 @@ function Focus() {
             ))}
           </tbody>
         </table>
-        {!rows.length && <span className="d-dim">Sin sesiones en este período.</span>}
+        {!rows.length && <span className="d-empty">Sin sesiones en este período.</span>}
       </div>
     </>
   );
 }
 
 const OUTCOME = {
-  mission: ["Hecho", "#3cb371"],
-  oops: ["Error", "#ff6b6b"],
-  ask: ["Pidió permiso", "#e8a33c"],
+  mission: ["Hecho", "var(--ok)"],
+  oops: ["Error", "var(--err)"],
+  ask: ["Pidió permiso", "var(--warn)"],
 } as const;
 
-/** Historial del chat con Claude Code (chat_log), con búsqueda en pedido, respuesta y comandos. */
-function ChatLog() {
+function Pills({ r }: { r: db.ChatRow }) {
+  const [label, color] = OUTCOME[r.outcome as keyof typeof OUTCOME] ?? [r.outcome, undefined];
+  return (
+    <>
+      <span className="d-pill" style={{ color }}>
+        {label}
+      </span>
+      {!!r.god && (
+        <span className="d-pill" style={{ color: "var(--accent)" }}>
+          modo dios
+        </span>
+      )}
+    </>
+  );
+}
+
+/** Historial del chat con Claude Code (chat_log): listado con búsqueda (#chat) y cada orden (#chat/<id>). */
+function ChatLog({ id }: { id?: number }) {
   const rows = useLive(() => db.chatHistory(0, 1000)) ?? [];
   const [q, setQ] = useState("");
   const shown = rows
     .filter((r) => !q || [r.prompt, r.reply, r.tools].some((t) => t?.toLowerCase().includes(q.toLowerCase())))
     .reverse();
+  const i = shown.findIndex((r) => r.id === id);
+  const cur = shown[i] ?? rows.find((r) => r.id === id);
+
+  if (cur) {
+    const prev = shown[i + 1]; // más antigua
+    const next = shown[i - 1];
+    return (
+      <>
+        <div className="d-row">
+          <a href="#chat" className="d-more" style={{ marginLeft: 0 }}>
+            ← Chat
+          </a>
+          <span style={{ marginLeft: "auto" }} />
+          <a href={prev ? `#chat/${prev.id}` : undefined} className="d-b sm ghost" aria-disabled={!prev}>
+            ← Anterior
+          </a>
+          <a href={next ? `#chat/${next.id}` : undefined} className="d-b sm ghost" aria-disabled={!next}>
+            Siguiente →
+          </a>
+        </div>
+        <div className="d-card" style={{ gap: 14, padding: 22 }}>
+          <div className="d-row">
+            <span className="d-dim" style={{ fontSize: 13 }}>
+              {fmtDate(cur.at)}
+            </span>
+            <Pills r={cur} />
+          </div>
+          <h1 className="d-h1" style={{ fontSize: 20 }}>
+            <Hl text={cur.prompt} q={q} />
+          </h1>
+          {cur.reply && (
+            <div className="d-prose">
+              <Hl text={cur.reply} q={q} />
+            </div>
+          )}
+          {cur.tools && (
+            <details>
+              <summary>{cur.tools.split("\n").length} herramientas usadas</summary>
+              <pre>{cur.tools}</pre>
+            </details>
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="d-row">
-        <h1 className="d-h1">Chat con Claude Code</h1>
-        <span className="d-dim">{rows.length} órdenes</span>
+      <Head title="Chat con Claude Code" sub={`${rows.length} órdenes`}>
         <input
           className="d-in"
+          type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar…"
-          style={{ marginLeft: "auto", width: 260 }}
+          placeholder="Buscar en pedidos, respuestas y comandos…"
+          style={{ width: 320, maxWidth: "100%" }}
         />
-      </div>
-      {shown.map((r) => {
-        const [label, color] = OUTCOME[r.outcome as keyof typeof OUTCOME] ?? [r.outcome, undefined];
-        return (
-          <div key={r.id} className="d-card">
-            <div className="d-row">
-              <span className="d-dim">{fmtDate(r.at)}</span>
-              <span className="d-pill" style={{ color }}>
-                {label}
-              </span>
-              {!!r.god && (
-                <span className="d-pill" style={{ color: "#e8523c" }}>
-                  modo dios
+      </Head>
+      <div className="d-card" style={{ padding: 8 }}>
+        {shown.map((r) => (
+          <a key={r.id} href={`#chat/${r.id}`} className="d-lrow">
+            <div style={{ flex: "1 1 260px", minWidth: 0, display: "grid", gap: 2 }}>
+              <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <Hl text={r.prompt} q={q} />
+              </b>
+              {r.reply && (
+                <span
+                  className="d-dim"
+                  style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {r.reply.split("\n")[0]}
                 </span>
               )}
             </div>
-            <b>
-              <Hl text={r.prompt} q={q} />
-            </b>
-            {r.reply && (
-              <div style={{ whiteSpace: "pre-wrap" }}>
-                <Hl text={r.reply} q={q} />
-              </div>
-            )}
-            {r.tools && (
-              <details>
-                <summary>{r.tools.split("\n").length} herramientas usadas</summary>
-                <pre>{r.tools}</pre>
-              </details>
-            )}
-          </div>
-        );
-      })}
-      {!shown.length && (
-        <span className="d-dim">{q ? "Nada coincide." : "Todavía no hay conversaciones."}</span>
-      )}
+            <Pills r={r} />
+            <span className="d-dim" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>
+              {fmtDate(r.at)}
+            </span>
+          </a>
+        ))}
+        {!shown.length && (
+          <span className="d-empty" style={{ padding: 10, display: "block" }}>
+            {q ? "Nada coincide." : "Todavía no hay conversaciones."}
+          </span>
+        )}
+      </div>
     </>
   );
 }

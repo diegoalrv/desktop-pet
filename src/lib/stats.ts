@@ -34,3 +34,22 @@ export function byHour(rows: Ses[]) {
   rows.forEach((r) => (h[new Date(r.start).getHours()] += focusSecs(r)));
   return h;
 }
+
+const STEPS = [5, 10, 15, 30, 60, 120, 180, 240, 360, 480, 720, 1440].map((m) => m * 60);
+/** Marcas "redondas" del eje Y para duraciones en segundos (≤ 4 tramos): [0, 30m, 1h, 1h 30m]. */
+export function durTicks(max: number) {
+  const step = STEPS.find((s) => s * 4 >= max) ?? Math.ceil(max / 4 / 3600) * 3600;
+  return Array.from({ length: Math.max(1, Math.ceil(max / step)) + 1 }, (_, i) => i * step);
+}
+
+/** Media de foco por día de la semana (lunes primero), a partir de perDay. */
+export function byWeekday(days: { day: number; secs: number }[]) {
+  const sum = Array<number>(7).fill(0);
+  const n = Array<number>(7).fill(0);
+  days.forEach((d) => {
+    const w = (new Date(d.day).getDay() + 6) % 7;
+    sum[w] += d.secs;
+    n[w]++;
+  });
+  return sum.map((s, i) => (n[i] ? s / n[i] : 0));
+}

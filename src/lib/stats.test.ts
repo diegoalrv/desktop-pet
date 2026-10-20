@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byHour, dayStart, perDay, streak } from "./stats";
+import { byHour, byWeekday, dayStart, durTicks, perDay, streak } from "./stats";
 
 const now = new Date(2026, 9, 20, 15).getTime();
 const at = (ago: number, h = 10, min = 25) => {
@@ -20,5 +20,15 @@ describe("stats", () => {
   });
   it("agrupa por hora de inicio", () => {
     expect(byHour([at(0, 9), at(1, 9), at(0, 22)])[9]).toBe(3000);
+  });
+  it("eje Y con marcas redondas", () => {
+    expect(durTicks(0)).toEqual([0, 300]);
+    expect(durTicks(100 * 60)).toEqual([0, 1800, 3600, 5400, 7200]);
+    expect(durTicks(7 * 3600)).toEqual([0, 7200, 14400, 21600, 28800]);
+  });
+  it("media por día de la semana, lunes primero", () => {
+    const days = perDay([at(0), at(7)], 14, now); // 20 oct 2026 es martes
+    expect(byWeekday(days)[1]).toBe(1500);
+    expect(byWeekday(days)[0]).toBe(0);
   });
 });
