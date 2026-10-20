@@ -4,7 +4,7 @@
 //! devuelve las tareas sugeridas.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use std::time::Duration;
@@ -187,6 +187,22 @@ pub fn parse_lines(s: &str) -> Vec<Line> {
             Some(Line { who, text: text.to_string() })
         })
         .collect()
+}
+
+/// PCM little-endian → f32 en [-1, 1], tomando el primer canal de cada `step` muestras intercaladas.
+/// Formatos sin soporte (p. ej. 24 bits) devuelven vacío en vez de ruido.
+pub fn decode(data: &[u8], float: bool, bits: u32, step: usize) -> Vec<f32> {
+    let n = (bits / 8) as usize;
+    let one = |c: &[u8]| match (float, n) {
+        (true, 4) => f32::from_le_bytes([c[0], c[1], c[2], c[3]]),
+        (false, 2) => i16::from_le_bytes([c[0], c[1]]) as f32 / 32_768.0,
+        (false, 4) => i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2_147_483_648.0,
+        _ => f32::NAN,
+    };
+    if n == 0 || one(&[0; 4]).is_nan() {
+        return vec![];
+    }
+    data.chunks_exact(n).step_by(step.max(1)).map(one).collect()
 }
 
 pub fn rms(x: &[f32]) -> f32 {
@@ -429,7 +445,15 @@ mod mac {
 
     type Bufs = Arc<Mutex<[Vec<f32>; 2]>>; // 0 = micrófono, 1 = audio del sistema
 
-    struct Capture(Bufs);
+    /// Para el estado en vivo: muestras recibidas y pico desde la última lectura (bits de f32 >= 0, así
+    /// `fetch_max` sobre los bits ordena igual que sobre los f32).
+    #[derive(Default)]
+    struct Meter {
+        got: [AtomicUsize; 2],
+        peak: [AtomicU32; 2],
+    }
+
+    struct Capture(Bufs, Arc<Meter>);
 
     impl SCStreamOutputTrait for Capture {
         fn did_output_sample_buffer(&self, sample: CMSampleBuffer, kind: SCStreamOutputType) {
@@ -438,18 +462,20 @@ mod mac {
                 SCStreamOutputType::Audio => 1,
                 SCStreamOutputType::Screen => return,
             };
-            let rate = sample.format_description().and_then(|f| f.audio_sample_rate()).unwrap_or(RATE as f64);
+            let fd = sample.format_description();
+            let rate = fd.as_ref().and_then(|f| f.audio_sample_rate()).unwrap_or(RATE as f64);
+            // El audio del sistema llega en float32, pero el micrófono puede llegar en enteros (16 bits): leerlo
+            // como float lo dejaba a media velocidad y "en silencio".
+            let float = fd.as_ref().is_none_or(|f| f.audio_is_float());
+            let bits = fd.as_ref().and_then(|f| f.audio_bits_per_channel()).unwrap_or(32);
             let Ok(list) = sample.audio_buffer_list() else { return };
-            // ponytail: solo el primer canal (ScreenCaptureKit entrega float32 sin intercalar, un buffer por canal).
+            // ponytail: solo el primer canal (un buffer por canal, o intercalados en uno: `step` los salta).
             let Some(b) = list.get(0) else { return };
-            let step = b.number_channels.max(1) as usize;
-            let mono: Vec<f32> = b
-                .data()
-                .chunks_exact(4)
-                .step_by(step)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let mono = super::decode(b.data(), float, bits, b.number_channels.max(1) as usize);
             let out = resample(&mono, rate);
+            let peak = out.iter().fold(0f32, |a, v| a.max(v.abs()));
+            self.1.got[src].fetch_add(out.len(), Ordering::Relaxed);
+            self.1.peak[src].fetch_max(peak.to_bits(), Ordering::Relaxed);
             self.0.lock().unwrap()[src].extend_from_slice(&out);
         }
     }
@@ -524,7 +550,7 @@ mod mac {
             .ok_or_else(|| "falta el permiso de Micrófono (Ajustes del Sistema → Privacidad → Micrófono)".to_string())
     }
 
-    fn start_capture(bufs: Bufs) -> Result<SCStream, String> {
+    fn start_capture(bufs: Bufs, meter: Arc<Meter>) -> Result<SCStream, String> {
         mic_permission()?;
         // Apple fija el micrófono explícitamente (uniqueID del dispositivo por defecto); sin id no llega audio.
         let mic = screencapturekit::audio_devices::AudioInputDevice::default_device().ok_or("no hay micrófono")?;
@@ -547,8 +573,8 @@ mod mac {
             .with_microphone_capture_device_id(&mic.id)
             .map_err(|e| e.to_string())?;
         let mut stream = SCStream::new(&filter, &config).map_err(|e| e.to_string())?;
-        stream.add_output_handler(Capture(bufs.clone()), SCStreamOutputType::Audio).map_err(|e| e.to_string())?;
-        stream.add_output_handler(Capture(bufs), SCStreamOutputType::Microphone).map_err(|e| e.to_string())?;
+        stream.add_output_handler(Capture(bufs.clone(), meter.clone()), SCStreamOutputType::Audio).map_err(|e| e.to_string())?;
+        stream.add_output_handler(Capture(bufs, meter), SCStreamOutputType::Microphone).map_err(|e| e.to_string())?;
         stream.start_capture().map_err(|e| e.to_string())?;
         Ok(stream)
     }
@@ -597,8 +623,19 @@ mod mac {
         let mut transcribe = |audio: &[f32]| transcribe(&mut ws, audio);
 
         let bufs: Bufs = Arc::default();
-        let stream = start_capture(bufs.clone())?;
+        let meter: Arc<Meter> = Arc::default();
+        let stream = start_capture(bufs.clone(), meter.clone())?;
         update(app, |g| g.snap.status = "Escuchando…".into());
+        // "Escuchando · Yo 0:42 con voz · Otros 0:10 en silencio": muestra si de verdad llega audio de cada fuente.
+        let listening = || {
+            let src = |i: usize| {
+                let secs = meter.got[i].load(Ordering::Relaxed) / RATE;
+                let peak = f32::from_bits(meter.peak[i].swap(0, Ordering::Relaxed));
+                let how = if secs == 0 { "sin audio" } else if peak < SILENCE { "en silencio" } else { "con voz" };
+                format!("{} {}:{:02} {how}", WHO[i], secs / 60, secs % 60)
+            };
+            format!("Escuchando · {} · {}", src(0), src(1))
+        };
 
         let mut lines: Vec<Line> = vec![];
         let mut push = |app: &AppHandle, lines: &mut Vec<Line>, flush: bool| {
@@ -607,6 +644,8 @@ mod mac {
                     if rms(&chunk) < SILENCE / 2.0 {
                         continue; // todo silencio: whisper alucinaría
                     }
+                    let secs = chunk.len() / RATE;
+                    update(app, |g| g.snap.status = format!("Transcribiendo {secs} s de {}…", WHO[src]));
                     if let Some(text) = clean(&transcribe(&chunk)) {
                         let line = Line { who: WHO[src], text };
                         lines.push(line.clone());
@@ -619,6 +658,8 @@ mod mac {
         while !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(300));
             push(app, &mut lines, false);
+            let st = listening();
+            update(app, |g| g.snap.status = st);
         }
 
         let _ = stream.stop_capture();
@@ -671,6 +712,16 @@ mod tests {
         let mut buf = tone(2.0, 0.3);
         assert_eq!(take_chunk(&mut buf, true).unwrap().len(), 2 * RATE);
         assert!(take_chunk(&mut buf, true).is_none());
+    }
+
+    #[test]
+    fn decodifica_pcm() {
+        let f: Vec<u8> = [0.5f32, -0.25].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(decode(&f, true, 32, 1), vec![0.5, -0.25]);
+        let i: Vec<u8> = [16_384i16, -32_768, 1, 2].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(decode(&i, false, 16, 1), vec![0.5, -1.0, 1.0 / 32_768.0, 2.0 / 32_768.0]);
+        assert_eq!(decode(&i, false, 16, 2), vec![0.5, 1.0 / 32_768.0]); // estéreo intercalado: primer canal
+        assert!(decode(&i, false, 24, 1).is_empty());
     }
 
     #[test]
