@@ -28,8 +28,9 @@ pnpm tauri build
 - macOS → `src-tauri/target/release/bundle/dmg/*.dmg` (y `.app`)
 - Windows → `src-tauri/target/release/bundle/msi/*.msi` (se genera construyendo en Windows)
 
-Los instaladores salen **sin firmar**. Para distribuirlos:
-- macOS: firma con un certificado *Developer ID* y notariza (variables `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`; ver la guía de Tauri). Sin firma, abre con clic derecho → Abrir.
+En macOS el build se firma con **"Pet Local Signing"** (`bundle.macOS.signingIdentity`): un certificado propio en el llavero de login, solo para este Mac. Con firma estable macOS recuerda los permisos de Micrófono y Grabación de pantalla entre builds (con firma ad-hoc los vuelve a pedir en cada instalación). Sin hardened runtime ni notarización.
+- Otro Mac: crear el certificado (`openssl req -x509` con `extendedKeyUsage=codeSigning`, importar el `.p12` con `security import … -T /usr/bin/codesign`) o borrar `signingIdentity` para volver a ad-hoc.
+- Para distribuir: certificado *Developer ID* y notarizar (variables `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`; ver la guía de Tauri) y activar `hardenedRuntime` con el entitlement `com.apple.security.device.audio-input`.
 - Windows: configura `bundle.windows.certificateThumbprint` en `tauri.conf.json`.
 
 ## Uso
