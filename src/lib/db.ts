@@ -30,6 +30,9 @@ const exec = async (sql: string, args: unknown[] = []) => {
   emit("db://changed"); // otras ventanas recargan
 };
 
+/** Consulta libre de solo lectura (vistas del panel web: historial, estadísticas). */
+export const query = select;
+
 export const listCategories = () => select<Category>("SELECT * FROM categories ORDER BY sort, id");
 export const listTasks = () => select<Task>("SELECT * FROM tasks");
 
@@ -83,3 +86,22 @@ export type ChatRow = { id: number; at: number; session: string | null; prompt: 
 /** Últimas órdenes desde `since` (epoch ms: cuándo se empezó el chat actual). */
 export const chatHistory = (since = 0, limit = 30) =>
   select<ChatRow>("SELECT * FROM (SELECT * FROM chat_log WHERE at > $1 ORDER BY id DESC LIMIT $2) ORDER BY id", [since, limit]);
+
+export type Suggestion = { id: number; meeting: number; title: string; detail: string; status: "pending" | "accepted" | "dismissed" };
+/** Tareas sugeridas por el LLM (meeting.rs las guarda al terminar cada reunión). */
+export const listSuggestions = (status?: Suggestion["status"]) =>
+  status
+    ? select<Suggestion>("SELECT * FROM meeting_tasks WHERE status = $1 ORDER BY meeting DESC, id", [status])
+    : select<Suggestion>("SELECT * FROM meeting_tasks ORDER BY meeting DESC, id");
+export const setSuggestion = (id: number, status: Suggestion["status"]) =>
+  exec("UPDATE meeting_tasks SET status = $1 WHERE id = $2", [status, id]);
+/** Crea la tarea (título editable, proyecto opcional) y marca la sugerencia como aceptada. */
+export const acceptSuggestion = async (s: Suggestion, title = s.title, project: string | null = null) => {
+  await addTask({ title, category_id: null, project, priority: 1, due_at: null, est_pomodoros: 1 });
+  await setSuggestion(s.id, "accepted");
+};
+
+export type SessionRow = { id: number; start: number; end: number; mode: string; task_id: number | null };
+export const listSessions = (since: number) =>
+  select<SessionRow>("SELECT * FROM sessions WHERE start >= $1 ORDER BY start DESC", [since]);
+export const deleteSession = (id: number) => exec("DELETE FROM sessions WHERE id = $1", [id]);

@@ -1,4 +1,17 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+
+/** Comando de la app: `invoke` en las ventanas; en la web local, POST a /api/invoke (src-tauri/src/web.rs).
+ *  Desde la web los comandos de reunión usan los LLMs de Ajustes (Rust los lee de settings.json). */
+export const call = async <T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> => {
+  if (isTauri()) return invoke<T>(cmd, args);
+  const r = await fetch("/api/invoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cmd, args }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+};
 
 export type Mode = "focus" | "short" | "long";
 export interface TimerSnap {

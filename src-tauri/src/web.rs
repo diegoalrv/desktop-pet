@@ -1,20 +1,30 @@
 use std::thread;
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{async_runtime::block_on, AppHandle, Emitter, Manager};
+use tauri_plugin_store::StoreExt;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::db::{self, Db};
+use crate::{meeting, music, timer};
 
-/// Web local de tareas y tracking: http://127.0.0.1:4747 (mismo frontend que la app, misma pet.db).
-pub const PORT: u16 = 4747;
+/// Panel web local: http://127.0.0.1:4747 (mismo frontend que la app, misma pet.db).
+/// En dev 4748, así `tauri dev` convive con la app instalada (vite.config.ts apunta su proxy ahí).
+pub const PORT: u16 = if cfg!(debug_assertions) { 4748 } else { 4747 };
 
 #[derive(Deserialize)]
 struct Sql {
     sql: String,
     #[serde(default)]
     args: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct Cmd {
+    cmd: String,
+    #[serde(default)]
+    args: Value,
 }
 
 /// Abre la web local en el navegador por defecto (macOS).
@@ -52,6 +62,40 @@ fn trusted(req: &Request) -> bool {
     host_ok && origin_ok
 }
 
+/// LLMs de Ajustes (settings.json): el navegador no tiene las prefs ni debe ver las API keys.
+fn llms(app: &AppHandle) -> Vec<meeting::Llm> {
+    let prefs = app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default();
+    serde_json::from_value(prefs["llms"].clone()).unwrap_or_default()
+}
+
+/// Los comandos de la app que la web puede usar (mismo nombre que el `invoke` de Tauri).
+fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
+    let a = &c.args;
+    let ok = |_| Ok(Value::Null);
+    match c.cmd.as_str() {
+        "timer_get" => Ok(json!(timer::timer_get(app.state()))),
+        "timer_start" => {
+            let mode: timer::Mode = serde_json::from_value(a["mode"].clone()).map_err(|e| e.to_string())?;
+            // sin `seconds`, la duración configurada en Ajustes
+            let secs = a["seconds"].as_u64().unwrap_or_else(|| app.state::<timer::TimerState>().lock().unwrap().secs_for(mode));
+            ok(timer::timer_start(mode, secs, a["taskId"].as_i64(), app.clone(), app.state()))
+        }
+        "timer_pause" => ok(timer::timer_pause(app.clone(), app.state())),
+        "timer_resume" => ok(timer::timer_resume(app.clone(), app.state())),
+        "timer_reset" => ok(timer::timer_reset(app.clone(), app.state())),
+        "timer_restart" => ok(timer::timer_restart(app.clone(), app.state())),
+        "timer_skip" => ok(timer::timer_skip(app.clone(), app.state())),
+        "meeting_state" => Ok(json!(meeting::meeting_state(app.state()))),
+        "meetings_list" => Ok(json!(meeting::meetings_list(app.clone()))),
+        "meeting_start" => meeting::meeting_start(app.clone(), app.state(), llms(app)).map(|_| Value::Null),
+        "meeting_stop" => ok(meeting::meeting_stop(app.state())),
+        "meeting_retry" => meeting::meeting_retry(app.clone(), app.state(), llms(app), a["id"].as_u64()).map(|_| Value::Null),
+        "music_state" => Ok(music::music_state()),
+        "music_cmd" => ok(music::music_cmd(app.clone(), a["cmd"].as_str().unwrap_or_default().into(), a.get("arg").cloned())),
+        _ => Err(format!("comando desconocido: {}", c.cmd)),
+    }
+}
+
 fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
     let json = |status: u16, v: Value| (status, "application/json".to_string(), v.to_string().into_bytes());
     if !trusted(req) {
@@ -59,10 +103,19 @@ fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
     }
     let path = req.url().split('?').next().unwrap_or("/").to_string();
     match (req.method(), path.as_str()) {
-        (Method::Post, "/api/select" | "/api/execute") => {
-            if !header(req, "Content-Type").is_some_and(|c| c.starts_with("application/json")) {
-                return json(415, "json only".into());
+        (Method::Post, _) if !header(req, "Content-Type").is_some_and(|c| c.starts_with("application/json")) => {
+            json(415, "json only".into())
+        }
+        (Method::Post, "/api/invoke") => {
+            let mut body = String::new();
+            let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Cmd>(&body).ok());
+            let Some(c) = parsed else { return json(400, "bad request".into()) };
+            match invoke(app, c) {
+                Ok(v) => json(200, v),
+                Err(e) => json(400, e.into()),
             }
+        }
+        (Method::Post, "/api/select" | "/api/execute") => {
             let mut body = String::new();
             let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Sql>(&body).ok());
             let Some(q) = parsed else { return json(400, "bad request".into()) };

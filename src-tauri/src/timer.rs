@@ -173,6 +173,15 @@ impl Timer {
         }
     }
 
+    /// Duración configurada de cada modo (s).
+    pub fn secs_for(&self, mode: Mode) -> u64 {
+        match mode {
+            Mode::Focus => self.cfg.focus_s,
+            Mode::Short => self.cfg.short_s,
+            Mode::Long => self.cfg.long_s,
+        }
+    }
+
     pub fn snap(&self, now: u64) -> Snap {
         Snap {
             mode: self.mode,

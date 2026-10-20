@@ -8,19 +8,19 @@ import { initTasksStore } from "./store/useTasks";
 import { initSettingsStore } from "./store/useSettings";
 import { initMusicStore } from "./store/useMusic";
 import { SettingsWindow } from "./settings/SettingsWindow";
-import { TasksWindow } from "./tasks/TasksWindow";
+import { Dashboard } from "./web/Dashboard";
 import { IS_WEB } from "./lib/db";
 
 initTasksStore();
-// En el navegador (web local servida por la app) solo existe el gestor de tareas.
+// En el navegador (web local servida por la app) solo existe el panel web.
 if (!IS_WEB) {
   initTimerStore();
   initSettingsStore();
   initMusicStore();
 }
 const Root = IS_WEB
-  ? TasksWindow
-  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: TasksWindow }[getCurrentWindow().label] ?? PetWindow);
+  ? Dashboard
+  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard }[getCurrentWindow().label] ?? PetWindow);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

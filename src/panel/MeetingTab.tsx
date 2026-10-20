@@ -3,21 +3,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import * as db from "../lib/db";
 import { useSettings } from "../store/useSettings";
+import { useLive } from "../store/useTasks";
 import { Icon } from "./icons";
 
 interface Snapshot {
   active: boolean;
   status: string;
   lines: { who: "Yo" | "Otros"; text: string }[];
-  suggestions: Suggestion[];
 }
-type Suggestion = { id: number; title: string; detail: string };
 
 /** Escucha la reunión (todo vive en Rust: meeting.rs) y muestra transcripción y tareas sugeridas. */
 export function MeetingTab() {
   const prefs = useSettings((s) => s.prefs);
   const [s, setS] = useState<Snapshot | null>(null);
   const [err, setErr] = useState("");
+  const suggestions = useLive(() => db.listSuggestions("pending")) ?? [];
   const log = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,11 +32,6 @@ export function MeetingTab() {
       .then(() => setErr(""))
       .catch((e) => setErr(String(e)));
   const busy = s?.status.startsWith("Buscando tareas");
-
-  const accept = async (id: number, title: string) => {
-    await db.addTask({ title, category_id: null, project: null, priority: 1, due_at: null, est_pomodoros: 1 });
-    invoke("meeting_dismiss", { id });
-  };
 
   if (!s) return null;
   return (
@@ -75,19 +70,19 @@ export function MeetingTab() {
         )}
       </div>
 
-      {s.suggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <section className="stack" style={{ gap: ".4em" }}>
           <span className="label">Tareas sugeridas</span>
-          {s.suggestions.map((t) => (
+          {suggestions.map((t) => (
             <div key={t.id} className="card row" style={{ padding: ".6em .7em", alignItems: "flex-start" }}>
               <div className="grow" style={{ display: "grid", gap: ".15em" }}>
                 <span>{t.title}</span>
                 {t.detail && <span className="small muted">{t.detail}</span>}
               </div>
-              <button className="b b-sq b-sm" style={{ color: "#3cb371" }} title="Agregar a tareas" aria-label="Agregar a tareas" onClick={() => accept(t.id, t.title)}>
+              <button className="b b-sq b-sm" style={{ color: "#3cb371" }} title="Agregar a tareas" aria-label="Agregar a tareas" onClick={() => db.acceptSuggestion(t)}>
                 <Icon name="check" size="1em" />
               </button>
-              <button className="b b-ghost b-sq b-sm" title="Descartar" aria-label="Descartar" onClick={() => invoke("meeting_dismiss", { id: t.id })}>
+              <button className="b b-ghost b-sq b-sm" title="Descartar" aria-label="Descartar" onClick={() => db.setSuggestion(t.id, "dismissed")}>
                 <Icon name="x" size="1em" />
               </button>
             </div>

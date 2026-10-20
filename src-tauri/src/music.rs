@@ -3,6 +3,8 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 
 const URL: &str = "https://music.youtube.com/";
 const PREFIX: &str = "PETSTATE:";
+/// Último estado publicado (JSON), para la web local que no recibe eventos. Vacío = ventana sin estado aún.
+pub static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 // UA de Safari: con el UA por defecto del webview Google puede rechazar el login.
 const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
@@ -19,6 +21,7 @@ pub fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .initialization_script(include_str!("music_bridge.js"))
         .on_document_title_changed(|w, title| {
             if let Some(json) = title.strip_prefix(PREFIX) {
+                *LAST.lock().unwrap() = json.to_string();
                 let _ = w.app_handle().emit("music://state", json);
             }
         })
@@ -43,6 +46,12 @@ pub fn music_open(app: AppHandle, show: bool) -> Result<(), String> {
         w.set_focus().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Último estado del reproductor (null si la ventana todavía no publicó nada).
+#[tauri::command]
+pub fn music_state() -> serde_json::Value {
+    serde_json::from_str(&LAST.lock().unwrap()).unwrap_or_default()
 }
 
 /// Comando al reproductor (toggle, next, prev, vol, seek, search, duck). No-op si la ventana no existe.

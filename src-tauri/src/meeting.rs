@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{async_runtime::block_on, AppHandle, Emitter, Manager, State};
 
 pub const RATE: usize = 16_000; // whisper trabaja a 16 kHz mono
 const MIN_S: usize = 8; // fragmento mínimo antes de buscar un silencio para cortar
@@ -25,13 +25,6 @@ const SILENCE: f32 = 0.01;
 pub struct Line {
     pub who: &'static str, // "Yo" | "Otros"
     pub text: String,
-}
-
-#[derive(Clone, Serialize)]
-pub struct Suggestion {
-    pub id: u64,
-    pub title: String,
-    pub detail: String,
 }
 
 /// Proveedor del LLM con sus modelos en orden de preferencia. `provider` es un nombre conocido (`base_url`) o la
@@ -59,13 +52,11 @@ pub struct Snapshot {
     active: bool,
     status: String,
     lines: Vec<Line>,
-    suggestions: Vec<Suggestion>, // tareas del postproceso, para aceptar o descartar
 }
 
 #[derive(Default)]
 struct Inner {
     snap: Snapshot,
-    next_id: u64,
     stop: Option<Arc<AtomicBool>>,
 }
 
@@ -85,10 +76,28 @@ pub fn meeting_state(state: State<MeetingState>) -> Snapshot {
     state.0.lock().unwrap().snap.clone()
 }
 
-/// Quita una sugerencia del panel (aceptada o descartada; aceptar crea la tarea desde el frontend).
+#[derive(Serialize)]
+pub struct Saved {
+    id: u64, // epoch s = nombre del .md
+    text: String,
+}
+
+/// Transcripciones guardadas, la más reciente primero.
+/// ponytail: lee todos los .md completos; paginar si algún día son cientos de reuniones largas.
 #[tauri::command]
-pub fn meeting_dismiss(app: AppHandle, id: u64) {
-    update(&app, |g| g.snap.suggestions.retain(|s| s.id != id));
+pub fn meetings_list(app: AppHandle) -> Vec<Saved> {
+    let Some(dir) = meetings_dir(&app) else { return vec![] };
+    let mut v: Vec<Saved> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            let id = p.file_name()?.to_str()?.strip_suffix(".md")?.parse().ok()?;
+            Some(Saved { id, text: std::fs::read_to_string(&p).ok()? })
+        })
+        .collect();
+    v.sort_by(|a, b| b.id.cmp(&a.id));
+    v
 }
 
 #[tauri::command]
@@ -131,30 +140,28 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>)
     Ok(())
 }
 
-/// Vuelve a mandar al LLM la última transcripción guardada (si falló la llamada o se cerró la app).
+/// Vuelve a mandar al LLM una transcripción guardada (`id`; sin id, la última): si falló la llamada o se cerró la app.
 #[tauri::command]
-pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>) -> Result<(), String> {
+pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, id: Option<u64>) -> Result<(), String> {
     if state.0.lock().unwrap().stop.is_some() {
         return Err("Hay una reunión en curso".into());
     }
-    let dir = meetings_dir(&app).ok_or("No encontré la carpeta de reuniones")?;
-    // Los archivos se llaman <epoch>.md: el mayor nombre es el más reciente.
-    let last = std::fs::read_dir(&dir)
-        .map_err(|_| "No hay reuniones guardadas".to_string())?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "md"))
-        .max()
-        .ok_or("No hay reuniones guardadas")?;
-    let lines = parse_lines(&std::fs::read_to_string(&last).map_err(|e| e.to_string())?);
+    let saved = meetings_list(app.clone());
+    let m = match id {
+        Some(id) => saved.into_iter().find(|m| m.id == id),
+        None => saved.into_iter().next(),
+    }
+    .ok_or("No hay reuniones guardadas")?;
+    let (id, lines) = (m.id, parse_lines(&m.text));
     if lines.is_empty() {
-        return Err("La última transcripción está vacía".into());
+        return Err("La transcripción está vacía".into());
     }
     update(&app, |g| {
         g.snap.lines = lines.clone();
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llms, &lines);
+        let res = finalize(&app, &llms, id, &lines);
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(()) => "Reunión revisada".into(),
@@ -338,18 +345,21 @@ fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, 
     Ok(parse_tasks(v["choices"][0]["message"]["content"].as_str().unwrap_or("")))
 }
 
-/// Postproceso: transcripción limpia → LLM → tareas sugeridas en el panel, con notificación.
-fn finalize(app: &AppHandle, llms: &[Llm], lines: &[Line]) -> Result<(), String> {
+/// Postproceso: transcripción limpia → LLM → tareas sugeridas (tabla meeting_tasks), con notificación.
+/// Reintentar reemplaza las pendientes de esa reunión; las aceptadas o descartadas se quedan.
+fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line]) -> Result<(), String> {
     let tasks = ask_any(llms, &condense(lines), |m| {
         update(app, |g| g.snap.status = format!("Buscando tareas en la reunión ({m})…"));
     })?;
     let n = tasks.len();
-    update(app, |g| {
-        for (title, detail) in tasks {
-            g.next_id += 1;
-            g.snap.suggestions.push(Suggestion { id: g.next_id, title, detail });
-        }
-    });
+    let pool = &app.state::<crate::db::Db>().0;
+    let id = json!(id);
+    let run = |sql: &str, args: &[Value]| block_on(crate::db::execute(pool, sql, args)).map_err(|e| e.to_string());
+    run("DELETE FROM meeting_tasks WHERE meeting = $1 AND status = 'pending'", &[id.clone()])?;
+    for (title, detail) in tasks {
+        run("INSERT INTO meeting_tasks (meeting, title, detail) VALUES ($1, $2, $3)", &[id.clone(), json!(title), json!(detail)])?;
+    }
+    let _ = app.emit("db://changed", ());
     let msg = match n {
         0 => "No encontré tareas para ti".to_string(),
         1 => "1 tarea sugerida".to_string(),
@@ -535,19 +545,21 @@ mod mac {
         update(app, |g| g.snap.status = "Transcribiendo lo último…".into());
         push(app, &mut lines, true);
         if !lines.is_empty() {
-            save(app, &lines);
+            let id = save(app, &lines);
             update(app, |g| g.snap.status = "Buscando tareas en la reunión…".into());
-            finalize(app, llms, &lines)?;
+            finalize(app, llms, id, &lines)?;
         }
         Ok(())
     }
 
-    /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md.
-    fn save(app: &AppHandle, lines: &[Line]) {
-        let Some(dir) = meetings_dir(app) else { return };
-        let _ = std::fs::create_dir_all(&dir);
+    /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md y devuelve el epoch (id de la reunión).
+    fn save(app: &AppHandle, lines: &[Line]) -> u64 {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let _ = std::fs::write(dir.join(format!("{secs}.md")), fmt_lines(lines));
+        if let Some(dir) = meetings_dir(app) {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(dir.join(format!("{secs}.md")), fmt_lines(lines));
+        }
+        secs
     }
 }
 

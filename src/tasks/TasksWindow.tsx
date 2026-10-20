@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import * as db from "../lib/db";
 import { compareTasks, PRIORITIES, projectsOf, startOfDay, type Task } from "../lib/tasks";
@@ -86,7 +85,7 @@ export function TasksWindow() {
     .filter((g) => g.ts.length);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: T.text, padding: 20, display: "grid", gap: 14 }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: T.text, display: "grid", gap: 14 }}>
       <style>{PANEL_CSS + `body{margin:0} input,select{min-width:0;font-size:13px} th{font-weight:600;text-align:left;color:${T.dim};font-size:12px;padding:4px 6px}`}</style>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -170,11 +169,6 @@ export function TasksWindow() {
           </button>
         ))}
         <span style={{ marginLeft: "auto", color: T.dim }}>{shown.length} tareas</span>
-        {!db.IS_WEB && (
-          <button style={btn} title="http://127.0.0.1:4747" onClick={() => invoke("open_web")}>
-            Abrir en navegador ↗
-          </button>
-        )}
       </div>
 
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>

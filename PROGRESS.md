@@ -79,3 +79,11 @@
 - Guitarra de pie sobre las patas traseras (`upright`) y animación nueva `headbang` (cabezazo con pata y cuernos), que entra en la rotación con música (`ROCK` en `schema.ts`).
 - Leer y escribir sentada en la silla (`seated`, compartido con `work`): libro entre las patas / lápiz sobre el escritorio.
 - Ajustes → Skin → "Tamaño en pantalla" (pref `petSize`, 64–320 px, por defecto 128): fija el alto del sprite y la ventana de la mascota se redimensiona sola (`core:window:allow-set-size`).
+
+## Extra: panel web completo
+- La web local (http://127.0.0.1:4747, en dev 4748 vía localhost:1420) y la ventana Tareas de la app muestran el mismo panel (`src/web/`), con rutas por hash (`#meetings/<id>`).
+- Resumen: timer en vivo con controles (sin `seconds` usa la duración de Ajustes), música, focos/tiempo de hoy, racha, 14 días, tareas para hoy y sugerencias pendientes.
+- Reuniones: búsqueda con resaltado en todas las transcripciones, filtro Yo/Otros, copiar/descargar .md, empezar/terminar reunión y "Buscar tareas de nuevo" por reunión (`meeting_retry` con `id`).
+- Sugerencias: las tareas del LLM ahora se guardan en `meeting_tasks` (migración 4) con estado pendiente/aceptada/descartada; título editable, proyecto al aceptar, aceptar/descartar todas, recuperar descartadas. El panel de la mascota lee de la misma tabla.
+- Foco: por día (7/30/90), por proyecto/categoría/tarea, por hora del día y lista de sesiones borrables. Chat: historial de `chat_log` con búsqueda. Respaldo JSON de todo (solo navegador).
+- La web llama comandos de la app por `POST /api/invoke` (`web.rs`, lista cerrada); los de reunión usan los LLMs de `settings.json`, así las API keys no pasan por el navegador.

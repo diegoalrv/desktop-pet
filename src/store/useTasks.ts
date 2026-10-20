@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import * as db from "../lib/db";
@@ -41,4 +42,18 @@ export function initTasksStore() {
     window.addEventListener("db://changed", load);
     document.title = "Tareas · Pet";
   } else listen("db://changed", load);
+}
+
+/** Resultado de `load`, recargado cada vez que cambia la BD (useTasks recarga en db://changed y, en la web, cada 3 s). */
+export function useLive<T>(load: () => Promise<T>, deps: unknown[] = []): T | undefined {
+  const rev = useTasks((s) => s.tasks);
+  const [v, setV] = useState<T>();
+  useEffect(() => {
+    let alive = true;
+    load().then((x) => alive && setV(x));
+    return () => {
+      alive = false;
+    };
+  }, [rev, ...deps]);
+  return v;
 }
