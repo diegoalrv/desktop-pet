@@ -32,6 +32,7 @@ export const timer = {
   reset: () => invoke("timer_reset"),
   restart: () => invoke("timer_restart"),
   skip: () => invoke("timer_skip"),
+  setTask: (taskId: number | null) => invoke("timer_set_task", { taskId }),
 };
 export const togglePanel = () => invoke("toggle_panel");
 export const notify = (title: string, body: string) => invoke("send_notification", { title, body });

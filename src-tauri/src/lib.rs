@@ -159,6 +159,7 @@ pub fn run() {
             timer::timer_reset,
             timer::timer_restart,
             timer::timer_skip,
+            timer::timer_set_task,
             timer::send_notification
         ])
         .setup(|app| {

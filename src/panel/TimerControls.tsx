@@ -4,6 +4,8 @@ import { fmt } from "../lib/time";
 import { MODE_COLOR } from "../pet/TimerPill";
 import { useTimer } from "../store/useTimer";
 import { useTasks } from "../store/useTasks";
+import * as db from "../lib/db";
+import { compareTasks, type Task } from "../lib/tasks";
 import { useSettings } from "../store/useSettings";
 import { Icon } from "./icons";
 
@@ -54,10 +56,23 @@ export function TimerControls() {
   const shown = active ? snap.mode : mode;
   const color = MODE_COLOR[shown];
   const defMin = MINS[mode];
-  const taskId = active ? snap.task_id : mode === "focus" ? selected : null;
+  const pending = tasks.filter((t) => !t.done).sort(compareTasks);
+  // La elegida puede haberse terminado desde Tareas: entonces no cuenta.
+  const sel = pending.some((t) => t.id === selected) ? selected : null;
+  const taskId = active ? snap.task_id : mode === "focus" ? sel : null;
   const task = tasks.find((t) => t.id === taskId);
+  const next = pending.find((t) => t.id !== taskId) ?? null;
+  const pick = (id: number | null) => {
+    select(id);
+    timer.setTask(id);
+  };
+  const finish = async (t: Task) => {
+    await db.setDone(t.id, true);
+    pick(next?.id ?? null); // preselecciona la siguiente pendiente
+  };
   const start = (min: number) =>
-    min > 0 && timer.start(mode, Math.round(min * 60), mode === "focus" ? selected : null);
+    min > 0 && timer.start(mode, Math.round(min * 60), mode === "focus" ? sel : null);
+  const reached = task && !task.done && task.done_pomodoros >= task.est_pomodoros;
   const caption = !active
     ? `${snap.count} ${snap.count === 1 ? "foco" : "focos"} en este ciclo`
     : snap.status === "paused"
@@ -86,27 +101,52 @@ export function TimerControls() {
           <span style={{ color }}>
             <Icon name="target" />
           </span>
-          <select className="field field-sm grow" aria-label="Tarea" value={selected ?? ""} onChange={(e) => select(e.target.value ? Number(e.target.value) : null)}>
+          <select className="field field-sm grow" aria-label="Tarea" value={sel ?? ""} onChange={(e) => pick(e.target.value ? Number(e.target.value) : null)}>
             <option value="">Sin tarea</option>
-            {tasks
-              .filter((t) => !t.done)
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title} ({t.done_pomodoros}/{t.est_pomodoros})
-                </option>
-              ))}
+            {pending.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title} ({t.done_pomodoros}/{t.est_pomodoros})
+              </option>
+            ))}
           </select>
         </div>
-      ) : task && (
-        <div className="card row" style={{ padding: ".55em .7em" }}>
-          <span style={{ color }}>
-            <Icon name="target" />
-          </span>
-          <span className="grow ellipsis">{task.title}</span>
-          <span className="chip">
-            {task.done_pomodoros}/{task.est_pomodoros} <Icon name="tomato" size="1em" />
-          </span>
+      ) : (
+        task && (
+          <div className="card row" style={{ padding: ".55em .7em" }}>
+            <span style={{ color }}>
+              <Icon name={task.done ? "check" : "target"} />
+            </span>
+            <span className="grow ellipsis">{task.title}</span>
+            <span className="chip">
+              {task.done_pomodoros}/{task.est_pomodoros} <Icon name="tomato" size="1em" />
+            </span>
+            {!task.done && (
+              <button className="b b-sm" onClick={() => finish(task)}>
+                <Icon name="check" size="1em" /> Terminada
+              </button>
+            )}
+          </div>
+        )
+      )}
+
+      {task?.done ? (
+        <div className="small muted center">
+          Terminada. {next ? `Siguiente: ${next.title}` : "Elige la siguiente en Tareas."}
         </div>
+      ) : (
+        reached && (
+          <div className="card row" style={{ padding: ".55em .7em" }}>
+            <span className="grow small">
+              Llegaste a {task.done_pomodoros}/{task.est_pomodoros}. ¿Terminada o seguir?
+            </span>
+            <button className="b b-sm" onClick={() => finish(task)}>
+              <Icon name="check" size="1em" /> Terminar
+            </button>
+            <button className="b b-sm" onClick={() => db.updateTask(task.id, "est_pomodoros", task.est_pomodoros + 1)}>
+              <Icon name="plus" size="1em" /> 1 foco
+            </button>
+          </div>
+        )
       )}
 
       {!active ? (

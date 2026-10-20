@@ -333,6 +333,12 @@ pub fn timer_restart(app: AppHandle, s: State<TimerState>) {
     changed(&app, &t);
 }
 
+/// Tarea del próximo foco encadenado (auto_cycle). No toca el foco en curso: lo trabajado se acredita a la tarea con la que empezó.
+#[tauri::command]
+pub fn timer_set_task(task_id: Option<i64>, s: State<TimerState>) {
+    s.lock().unwrap().last_task = task_id;
+}
+
 #[tauri::command]
 pub fn timer_skip(app: AppHandle, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
