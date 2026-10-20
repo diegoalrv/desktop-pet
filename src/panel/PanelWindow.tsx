@@ -58,6 +58,9 @@ export function PanelWindow() {
           <div className="pn-title">Candolita</div>
           <Status />
         </div>
+        <button className="b b-ghost b-sq" title="Abrir el panel web en el navegador" aria-label="Abrir el panel web" onClick={() => invoke("open_web")}>
+          <Icon name="external" />
+        </button>
         <button className="b b-ghost b-sq" title="Ajustes" aria-label="Ajustes" onClick={() => invoke("open_window", { label: "settings" })}>
           <Icon name="sliders" />
         </button>
