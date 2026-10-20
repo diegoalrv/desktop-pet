@@ -5,6 +5,8 @@ import { T } from "../panel/ui";
 import { Icon } from "../panel/icons";
 import { durTicks, perDay } from "../lib/stats";
 import { fmtDur } from "../lib/time";
+import { describeAction, parseAction } from "../lib/suggestions";
+import { useTasks } from "../store/useTasks";
 
 /** Estilos del panel web (todo bajo `.d`). Mismos tokens que el panel de la mascota (PN_CSS). */
 export const DASH_CSS = `
@@ -331,6 +333,8 @@ export function download(name: string, text: string, type = "text/plain") {
 export function SuggestionRow({ s, project }: { s: db.Suggestion; project: string }) {
   const [title, setTitle] = useState(s.title);
   const pending = s.status === "pending";
+  const action = parseAction(s.action);
+  const chips = action ? describeAction(action, useTasks.getState().tasks) : [];
   return (
     <div className="d-item" style={{ opacity: pending ? 1 : 0.6 }}>
       <div style={{ flex: 1, display: "grid", gap: 3, minWidth: 0 }}>
@@ -344,6 +348,11 @@ export function SuggestionRow({ s, project }: { s: db.Suggestion; project: strin
         ) : (
           <span style={{ textDecoration: s.status === "dismissed" ? "line-through" : undefined }}>
             {s.title}
+          </span>
+        )}
+        {chips.length > 0 && (
+          <span className="d-dim" style={{ fontSize: 13 }}>
+            {chips.join(" · ")}
           </span>
         )}
         {s.detail && (

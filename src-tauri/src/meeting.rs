@@ -2,6 +2,9 @@
 //! transcribe en local con whisper por fragmentos. Al terminar guarda la transcripción, la limpia (`condense`)
 //! y la manda completa, en una sola llamada, a un LLM compatible con OpenAI (Gemini, Claude, Ollama) que
 //! devuelve las tareas sugeridas.
+//!
+//! Modo gestión (`manage`): solo el micrófono, para dictar cómo ordenar las tareas. Al terminar el LLM recibe
+//! además las tareas pendientes y devuelve acciones (crear, editar, completar) que el usuario aprueba una a una.
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -51,6 +54,7 @@ fn base_url(provider: &str) -> &str {
 #[derive(Clone, Default, Serialize)]
 pub struct Snapshot {
     active: bool,
+    manage: bool, // modo gestión: solo micrófono, el LLM devuelve acciones sobre las tareas
     status: String,
     lines: Vec<Line>,
 }
@@ -119,7 +123,7 @@ pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
 }
 
 #[tauri::command]
-pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>) -> Result<(), String> {
+pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("Escuchar reuniones solo funciona en macOS".into());
     }
@@ -132,18 +136,19 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>)
         g.stop = Some(stop.clone());
     }
     update(&app, |g| {
-        g.snap = Snapshot { active: true, status: "Preparando…".into(), ..Default::default() };
+        g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
     });
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
-        let res = mac::run(&app, &stop, &llms);
+        let res = mac::run(&app, &stop, &llms, manage);
         #[cfg(not(target_os = "macos"))]
         let res: Result<(), String> = Ok(());
         update(&app, |g| {
             g.stop = None;
             g.snap.active = false;
             g.snap.status = match res {
-                Ok(()) if g.snap.status.starts_with("Reunión revisada") => g.snap.status.clone(),
+                Ok(()) if g.snap.status.contains(" revisada con ") => g.snap.status.clone(),
+                Ok(()) if manage => "Gestión terminada".into(),
                 Ok(()) => "Reunión terminada".into(),
                 Err(e) => format!("Error: {e}"),
             };
@@ -164,16 +169,17 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         None => saved.into_iter().next(),
     }
     .ok_or("No hay reuniones guardadas")?;
-    let (id, lines) = (m.id, parse_lines(&m.text));
+    let (id, lines, manage) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER));
     if lines.is_empty() {
         return Err("La transcripción está vacía".into());
     }
     update(&app, |g| {
         g.snap.lines = lines.clone();
+        g.snap.manage = manage;
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llms, id, &lines);
+        let res = finalize(&app, &llms, id, &lines, manage);
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(m) => m,
@@ -183,6 +189,9 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     });
     Ok(())
 }
+
+/// Primera línea del .md de una sesión de gestión (`parse_lines` la ignora: no empieza por "Yo: ").
+const MANAGE_HEADER: &str = "# gestión\n";
 
 fn meetings_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("meetings"))
@@ -274,6 +283,112 @@ fn prompt(lines: &[Line]) -> String {
     )
 }
 
+const MANAGE_PROMPT: &str = "Eres el asistente personal del usuario. Recibes su lista de tareas pendientes (cada una con su id) \
+y la transcripción automática de lo que dictó al micrófono (puede tener errores de reconocimiento) para ordenar sus tareas.\n\
+Devuelve las acciones que pidió: crear tareas nuevas, editar existentes (título, proyecto, prioridad, fecha, pomodoros) \
+o completar existentes. Solo lo que pidió explícitamente; no inventes. Para editar o completar usa el id de la lista; si \
+ninguna tarea calza claramente con lo que dice, no inventes un id (crea una nueva solo si lo pidió). Resuelve fechas \
+relativas (\"el viernes\", \"pasado mañana\", \"en dos semanas\") con la fecha de hoy, en formato AAAA-MM-DD. Prioridad: \
+0 baja, 1 media, 2 alta. Pomodoros = bloques de foco de 25 min estimados.\n\
+Responde únicamente JSON: {\"acciones\":[{\"op\":\"crear\",\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
+\"proyecto\":\"nombre o null\",\"prioridad\":1,\"fecha\":\"AAAA-MM-DD o null\",\"pomodoros\":1,\"detalle\":\"contexto breve o vacío\"},\
+{\"op\":\"editar\",\"id\":14,\"fecha\":\"2026-10-27\"},{\"op\":\"completar\",\"id\":9}]}. En \"editar\" incluye solo los campos que \
+cambian. Si no hay acciones: {\"acciones\":[]}.";
+
+/// Acción sobre las tareas propuesta por el LLM en modo gestión. Se guarda tal cual (JSON) en meeting_tasks.action y
+/// el frontend la aplica al aceptar (src/lib/suggestions.ts).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Action {
+    pub op: String, // crear | editar | completar
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub titulo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proyecto: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prioridad: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fecha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pomodoros: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detalle: Option<String>,
+}
+
+/// Tarea pendiente tal como se le describe al LLM.
+pub struct Pending {
+    pub id: i64,
+    pub title: String,
+    pub project: Option<String>,
+    pub priority: i64,
+    pub due: Option<String>, // AAAA-MM-DD
+    pub pomodoros: i64,
+}
+
+/// Mensaje de usuario del modo gestión: fecha de hoy, pendientes con id y la transcripción.
+pub fn manage_input(today: &str, pending: &[Pending], lines: &[Line]) -> String {
+    const PRIO: [&str; 3] = ["baja", "media", "alta"];
+    let tasks: Vec<String> = pending
+        .iter()
+        .map(|t| {
+            let mut extra = vec![];
+            if let Some(p) = &t.project {
+                extra.push(format!("proyecto: {p}"));
+            }
+            extra.push(format!("prioridad: {}", PRIO[t.priority.clamp(0, 2) as usize]));
+            if let Some(d) = &t.due {
+                extra.push(format!("vence: {d}"));
+            }
+            extra.push(format!("{} pomodoros", t.pomodoros));
+            format!("- [{}] {} ({})", t.id, t.title, extra.join("; "))
+        })
+        .collect();
+    let tasks = if tasks.is_empty() { "(ninguna)".to_string() } else { tasks.join("\n") };
+    format!("Hoy es {today}.\nTareas pendientes:\n{tasks}\nTranscripción:\n{}", fmt_lines(lines))
+}
+
+/// Acciones del JSON del modelo, ya validadas: ids que existan entre los pendientes, "crear" con título, "editar"
+/// con algo que cambiar, prioridad en 0..=2 y fecha AAAA-MM-DD (otra cosa se descarta). Sin `{"acciones":[…]}` = error.
+pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> {
+    let v = json_of(content, "acciones")?;
+    let date_ok = |d: &str| d.len() == 10 && d.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() });
+    let clean = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.chars().take(120).collect::<String>());
+    Ok(v
+        .iter()
+        .filter_map(|a| {
+            let mut act = Action {
+                op: a["op"].as_str()?.trim().to_lowercase(),
+                id: a["id"].as_i64(),
+                titulo: clean(a["titulo"].as_str()),
+                proyecto: clean(a["proyecto"].as_str()),
+                prioridad: a["prioridad"].as_i64().filter(|p| (0..=2).contains(p)),
+                fecha: clean(a["fecha"].as_str()).filter(|d| date_ok(d)),
+                pomodoros: a["pomodoros"].as_i64().filter(|p| (1..=20).contains(p)),
+                detalle: clean(a["detalle"].as_str()),
+            };
+            let known = act.id.is_some_and(|id| ids.contains(&id));
+            let changes = act.titulo.is_some() || act.proyecto.is_some() || act.prioridad.is_some() || act.fecha.is_some() || act.pomodoros.is_some();
+            match act.op.as_str() {
+                "crear" if act.titulo.is_some() => act.id = None,
+                "editar" if known && changes => act.detalle = None,
+                "completar" if known => act = Action { op: act.op, id: act.id, titulo: None, proyecto: None, prioridad: None, fecha: None, pomodoros: None, detalle: None },
+                _ => return None,
+            }
+            Some(act)
+        })
+        .collect())
+}
+
+/// El array `key` del JSON que venga en la respuesta; tolera texto o `<think>…</think>` alrededor.
+fn json_of(content: &str, key: &str) -> Result<Vec<Value>, String> {
+    let c = content.rsplit("</think>").next().unwrap_or(content);
+    let bad = || format!("respuesta sin JSON de {key}: {}", c.trim().chars().take(120).collect::<String>());
+    let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
+    let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
+    v[key].as_array().cloned().ok_or_else(bad)
+}
+
 fn fmt_lines(lines: &[Line]) -> String {
     lines.iter().map(|l| format!("{}: {}", l.who, l.text)).collect::<Vec<_>>().join("\n")
 }
@@ -316,12 +431,7 @@ pub fn condense(lines: &[Line]) -> Vec<Line> {
 /// (título, detalle) del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
 /// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas".
 pub fn parse_tasks(content: &str) -> Result<Vec<(String, String)>, String> {
-    let c = content.rsplit("</think>").next().unwrap_or(content);
-    let bad = || format!("respuesta sin JSON de tareas: {}", c.trim().chars().take(120).collect::<String>());
-    let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
-    let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
-    let tareas = v["tareas"].as_array().ok_or_else(bad)?;
-    Ok(tareas
+    Ok(json_of(content, "tareas")?
         .iter()
         .filter_map(|t| {
             let title = t["titulo"].as_str()?.trim();
@@ -333,12 +443,12 @@ pub fn parse_tasks(content: &str) -> Result<Vec<(String, String)>, String> {
 
 /// Prueba cada proveedor y, dentro de él, cada modelo en orden hasta que uno responda (sobrecarga, cuota, key
 /// inválida… cualquier error pasa al siguiente). `on_try` avisa cuál se está probando.
-fn ask_any(llms: &[Llm], lines: &[Line], mut on_try: impl FnMut(&str)) -> Result<Vec<(String, String)>, String> {
+fn ask_any<T>(llms: &[Llm], system: &str, user: &str, parse: impl Fn(&str) -> Result<T, String>, mut on_try: impl FnMut(&str)) -> Result<T, String> {
     let mut errs = vec![];
     for llm in llms {
         for model in &llm.models {
             on_try(model);
-            match ask(llm, model, lines) {
+            match ask(llm, model, system, user).and_then(|c| parse(&c)) {
                 Ok(t) => return Ok(t),
                 Err(e) => errs.push(format!("{model}: {e}")),
             }
@@ -349,7 +459,7 @@ fn ask_any(llms: &[Llm], lines: &[Line], mut on_try: impl FnMut(&str)) -> Result
 
 /// `claude -p` (Claude Code instalado y con sesión): sin API key ni llamada propia a la API. Una app con
 /// bundle no hereda el PATH del shell, por eso se prueban las rutas típicas del binario.
-fn ask_claude_code(model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+fn ask_claude_code(model: &str, system: &str, user: &str) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let home = std::env::var("HOME").unwrap_or_default();
@@ -358,7 +468,7 @@ fn ask_claude_code(model: &str, lines: &[Line]) -> Result<Vec<(String, String)>,
         .iter()
         .find_map(|b| {
             Command::new(b)
-                .args(["-p", "--model", model, "--tools", "", "--no-session-persistence", "--system-prompt", &prompt(lines)])
+                .args(["-p", "--model", model, "--tools", "", "--no-session-persistence", "--system-prompt", system])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -366,18 +476,19 @@ fn ask_claude_code(model: &str, lines: &[Line]) -> Result<Vec<(String, String)>,
                 .ok()
         })
         .ok_or("no encuentro el comando `claude` (instala Claude Code)")?;
-    child.stdin.take().unwrap().write_all(format!("Transcripción:\n{}", fmt_lines(lines)).as_bytes()).map_err(|e| e.to_string())?;
+    child.stdin.take().unwrap().write_all(user.as_bytes()).map_err(|e| e.to_string())?;
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("claude -p: {}", err.trim().chars().take(200).collect::<String>()));
     }
-    parse_tasks(&String::from_utf8_lossy(&out.stdout)).map_err(|e| format!("claude -p: {e}"))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, String> {
+/// Texto de la respuesta del modelo (el JSON lo lee quien llama).
+fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, String> {
     if llm.provider.trim().eq_ignore_ascii_case("claude-code") {
-        return ask_claude_code(model, lines);
+        return ask_claude_code(model, system, user);
     }
     let url = base_url(&llm.provider);
     // ponytail: "remoto" = no es localhost; Ollama local no pide key.
@@ -389,8 +500,8 @@ fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, 
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": prompt(lines)},
-            {"role": "user", "content": format!("Transcripción:\n{}", fmt_lines(lines))},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
     });
     let mut req = ureq::post(format!("{}/chat/completions", url.trim_end_matches('/')))
@@ -412,33 +523,79 @@ fn ask(llm: &Llm, model: &str, lines: &[Line]) -> Result<Vec<(String, String)>, 
         return Err(format!("LLM {}: {}", status.as_u16(), msg.chars().take(200).collect::<String>()));
     }
     let v: Value = serde_json::from_str(&text).map_err(|_| "LLM: respuesta no es JSON".to_string())?;
-    parse_tasks(v["choices"][0]["message"]["content"].as_str().unwrap_or("")).map_err(|e| format!("LLM: {e}"))
+    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
 }
 
 /// Postproceso: transcripción limpia → LLM → tareas sugeridas (tabla meeting_tasks), con notificación.
 /// Reintentar reemplaza las pendientes de esa reunión; las aceptadas o descartadas se quedan.
-fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line]) -> Result<String, String> {
-    let mut model = String::new();
-    let tasks = ask_any(llms, &condense(lines), |m| {
-        model = m.to_string();
-        update(app, |g| g.snap.status = format!("Buscando tareas en la reunión ({m})…"));
-    })?;
-    let n = tasks.len();
+fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool) -> Result<String, String> {
     let pool = &app.state::<crate::db::Db>().0;
+    let lines = condense(lines);
+    let mut model = String::new();
+    let what = if manage { "Ordenando las tareas" } else { "Buscando tareas en la reunión" };
+    let on_try = |m: &str| {
+        model = m.to_string();
+        update(app, |g| g.snap.status = format!("{what} ({m})…"));
+    };
+    // (título, detalle, acción JSON): en reunión solo tareas nuevas; en gestión acciones sobre las tareas.
+    let rows: Vec<(String, String, Option<String>)> = if manage {
+        let pending = pending_tasks(pool)?;
+        let ids: Vec<i64> = pending.iter().map(|t| t.id).collect();
+        let user = manage_input(&today(), &pending, &lines);
+        ask_any(llms, MANAGE_PROMPT, &user, |c| parse_actions(c, &ids), on_try)?
+            .into_iter()
+            .map(|a| {
+                let title = a.titulo.clone().or_else(|| pending.iter().find(|t| Some(t.id) == a.id).map(|t| t.title.clone())).unwrap_or_default();
+                (title, a.detalle.clone().unwrap_or_default(), Some(serde_json::to_string(&a).unwrap_or_default()))
+            })
+            .collect()
+    } else {
+        let user = format!("Transcripción:\n{}", fmt_lines(&lines));
+        ask_any(llms, &prompt(&lines), &user, parse_tasks, on_try)?.into_iter().map(|(t, d)| (t, d, None)).collect()
+    };
+    let n = rows.len();
     let id = json!(id);
     let run = |sql: &str, args: &[Value]| block_on(crate::db::execute(pool, sql, args)).map_err(|e| e.to_string());
     run("DELETE FROM meeting_tasks WHERE meeting = $1 AND status = 'pending'", &[id.clone()])?;
-    for (title, detail) in tasks {
-        run("INSERT INTO meeting_tasks (meeting, title, detail) VALUES ($1, $2, $3)", &[id.clone(), json!(title), json!(detail)])?;
+    for (title, detail, action) in rows {
+        run("INSERT INTO meeting_tasks (meeting, title, detail, action) VALUES ($1, $2, $3, $4)", &[id.clone(), json!(title), json!(detail), json!(action)])?;
     }
     let _ = app.emit("db://changed", ());
+    let (noun, head) = if manage { ("cambio", "Gestión revisada") } else { ("tarea sugerida", "Reunión revisada") };
     let msg = match n {
+        0 if manage => "No encontré cambios que hacer".to_string(),
         0 => "No encontré tareas para ti".to_string(),
-        1 => "1 tarea sugerida".to_string(),
-        n => format!("{n} tareas sugeridas"),
+        1 => format!("1 {noun}"),
+        n => format!("{n} {noun}s"),
     };
-    crate::timer::send_notification(app.clone(), "Reunión revisada".into(), format!("{msg}. Revísalas en el panel."));
-    Ok(format!("Reunión revisada con {model}: {}", msg.to_lowercase()))
+    crate::timer::send_notification(app.clone(), head.into(), format!("{msg}. Revísalos en el panel."));
+    Ok(format!("{head} con {model}: {}", msg.to_lowercase()))
+}
+
+/// Tareas sin terminar, como se le describen al LLM (fechas en local, AAAA-MM-DD).
+fn pending_tasks(pool: &sqlx::SqlitePool) -> Result<Vec<Pending>, String> {
+    use chrono::{Local, TimeZone};
+    let rows = block_on(crate::db::select(pool, "SELECT id, title, project, priority, due_at, est_pomodoros FROM tasks WHERE done = 0 ORDER BY id", &[]))
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(|r| Pending {
+            id: r["id"].as_i64().unwrap_or(0),
+            title: r["title"].as_str().unwrap_or("").to_string(),
+            project: r["project"].as_str().filter(|p| !p.is_empty()).map(String::from),
+            priority: r["priority"].as_i64().unwrap_or(1),
+            due: r["due_at"].as_i64().and_then(|ms| Local.timestamp_millis_opt(ms).single()).map(|d| d.format("%Y-%m-%d").to_string()),
+            pomodoros: r["est_pomodoros"].as_i64().unwrap_or(1),
+        })
+        .collect())
+}
+
+/// "martes 2026-10-20" en hora local: el LLM resuelve "el viernes" con esto.
+fn today() -> String {
+    use chrono::{Datelike, Local};
+    const DAYS: [&str; 7] = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+    let now = Local::now();
+    format!("{} {}", DAYS[now.weekday().num_days_from_monday() as usize], now.format("%Y-%m-%d"))
 }
 
 #[cfg(target_os = "macos")]
@@ -560,7 +717,9 @@ mod mac {
             .ok_or_else(|| "falta el permiso de Micrófono (Ajustes del Sistema → Privacidad → Micrófono)".to_string())
     }
 
-    fn start_capture(bufs: Bufs, meter: Arc<Meter>) -> Result<SCStream, String> {
+    /// `manage`: solo micrófono (sin audio del sistema). ponytail: sigue pasando por ScreenCaptureKit, así que
+    /// pide igual el permiso de Grabación de pantalla; AVAudioEngine/cpal si eso molesta.
+    fn start_capture(bufs: Bufs, meter: Arc<Meter>, manage: bool) -> Result<SCStream, String> {
         mic_permission()?;
         // Apple fija el micrófono explícitamente (uniqueID del dispositivo por defecto); sin id no llega audio.
         let mic = screencapturekit::audio_devices::AudioInputDevice::default_device().ok_or("no hay micrófono")?;
@@ -574,7 +733,7 @@ mod mac {
             .with_width(2)
             .with_height(2)
             .with_minimum_frame_interval(&CMTime::new(1, 1))
-            .with_captures_audio(true)
+            .with_captures_audio(!manage)
             .with_excludes_current_process_audio(true)
             .with_sample_rate(RATE as i32)
             .with_channel_count(1)
@@ -583,7 +742,9 @@ mod mac {
             .with_microphone_capture_device_id(&mic.id)
             .map_err(|e| e.to_string())?;
         let mut stream = SCStream::new(&filter, &config).map_err(|e| e.to_string())?;
-        stream.add_output_handler(Capture(bufs.clone(), meter.clone()), SCStreamOutputType::Audio).map_err(|e| e.to_string())?;
+        if !manage {
+            stream.add_output_handler(Capture(bufs.clone(), meter.clone()), SCStreamOutputType::Audio).map_err(|e| e.to_string())?;
+        }
         stream.add_output_handler(Capture(bufs, meter), SCStreamOutputType::Microphone).map_err(|e| e.to_string())?;
         stream.start_capture().map_err(|e| e.to_string())?;
         Ok(stream)
@@ -623,7 +784,8 @@ mod mac {
         println!("{:.2}s para {:.1}s de audio", t.elapsed().as_secs_f32(), audio.len() as f32 / RATE as f32);
     }
 
-    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm]) -> Result<(), String> {
+    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool) -> Result<(), String> {
+        let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
         let path = model_path(app)?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
         whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
@@ -634,7 +796,7 @@ mod mac {
 
         let bufs: Bufs = Arc::default();
         let meter: Arc<Meter> = Arc::default();
-        let stream = start_capture(bufs.clone(), meter.clone())?;
+        let stream = start_capture(bufs.clone(), meter.clone(), manage)?;
         update(app, |g| g.snap.status = "Escuchando…".into());
         // "Escuchando · Yo 0:42 con voz · Otros 0:10 en silencio": muestra si de verdad llega audio de cada fuente.
         let listening = || {
@@ -644,12 +806,13 @@ mod mac {
                 let how = if secs == 0 { "sin audio" } else if peak < SILENCE { "en silencio" } else { "con voz" };
                 format!("{} {}:{:02} {how}", WHO[i], secs / 60, secs % 60)
             };
-            format!("Escuchando · {} · {}", src(0), src(1))
+            let srcs: Vec<String> = (0..sources).map(src).collect();
+            format!("Escuchando · {}", srcs.join(" · "))
         };
 
         let mut lines: Vec<Line> = vec![];
         let mut push = |app: &AppHandle, lines: &mut Vec<Line>, flush: bool| {
-            for src in 0..2 {
+            for src in 0..sources {
                 while let Some(chunk) = take_chunk(&mut bufs.lock().unwrap()[src], flush) {
                     if rms(&chunk) < SILENCE / 2.0 {
                         continue; // todo silencio: whisper alucinaría
@@ -676,20 +839,21 @@ mod mac {
         update(app, |g| g.snap.status = "Transcribiendo lo último…".into());
         push(app, &mut lines, true);
         if !lines.is_empty() {
-            let id = save(app, &lines);
-            update(app, |g| g.snap.status = "Buscando tareas en la reunión…".into());
-            let msg = finalize(app, llms, id, &lines)?;
+            let id = save(app, &lines, manage);
+            update(app, |g| g.snap.status = if manage { "Ordenando las tareas…" } else { "Buscando tareas en la reunión…" }.into());
+            let msg = finalize(app, llms, id, &lines, manage)?;
             update(app, |g| g.snap.status = msg);
         }
         Ok(())
     }
 
     /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md y devuelve el epoch (id de la reunión).
-    fn save(app: &AppHandle, lines: &[Line]) -> u64 {
+    fn save(app: &AppHandle, lines: &[Line], manage: bool) -> u64 {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         if let Some(dir) = meetings_dir(app) {
             let _ = std::fs::create_dir_all(&dir);
-            let _ = std::fs::write(dir.join(format!("{secs}.md")), fmt_lines(lines));
+            let head = if manage { MANAGE_HEADER } else { "" };
+            let _ = std::fs::write(dir.join(format!("{secs}.md")), format!("{head}{}", fmt_lines(lines)));
         }
         secs
     }
@@ -782,17 +946,51 @@ mod tests {
         // Sin key ninguno llega a la red: cada uno falla y pasa al siguiente.
         let llm = |p: &str, m: &[&str]| Llm { provider: p.into(), apikey: "".into(), models: m.iter().map(|s| s.to_string()).collect() };
         let mut tried = vec![];
-        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], &[], |m| tried.push(m.to_string()));
+        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], "", "", parse_tasks, |m| tried.push(m.to_string()));
         assert_eq!(tried, ["a", "b", "c"]);
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
-        assert!(ask_any(&[], &[], |_| {}).is_err());
+        assert!(ask_any(&[], "", "", parse_tasks, |_| {}).is_err());
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
+    }
+
+    #[test]
+    fn lee_las_acciones_del_modelo() {
+        let out = r#"{"acciones":[
+            {"op":"crear","titulo":" Revisar deploy ","proyecto":"pet","prioridad":2,"fecha":"2026-10-23","pomodoros":2,"detalle":"antes del demo"},
+            {"op":"crear","titulo":"","fecha":"x"},
+            {"op":"editar","id":14,"fecha":"27/10/2026","prioridad":7},
+            {"op":"editar","id":14,"fecha":"2026-10-27","detalle":"ignorado"},
+            {"op":"editar","id":99,"fecha":"2026-10-27"},
+            {"op":"completar","id":9,"titulo":"ignorado"},
+            {"op":"borrar","id":9}
+        ]}"#;
+        let got = parse_actions(out, &[9, 14]).unwrap();
+        let a = |j: &str| serde_json::from_str::<Action>(j).unwrap();
+        assert_eq!(
+            got,
+            [
+                a(r#"{"op":"crear","titulo":"Revisar deploy","proyecto":"pet","prioridad":2,"fecha":"2026-10-23","pomodoros":2,"detalle":"antes del demo"}"#),
+                a(r#"{"op":"editar","id":14,"fecha":"2026-10-27"}"#),
+                a(r#"{"op":"completar","id":9}"#),
+            ]
+        );
+        assert_eq!(serde_json::to_string(&got[2]).unwrap(), r#"{"op":"completar","id":9}"#); // sin nulls en la BD
+        assert!(parse_actions("{\"tareas\":[]}", &[]).is_err());
+        let input = manage_input(
+            "martes 2026-10-20",
+            &[Pending { id: 14, title: "Enviar propuesta".into(), project: Some("Spadelab".into()), priority: 2, due: Some("2026-10-20".into()), pomodoros: 2 }],
+            &[Line { who: "Yo", text: "pásala al jueves".into() }],
+        );
+        assert_eq!(
+            input,
+            "Hoy es martes 2026-10-20.\nTareas pendientes:\n- [14] Enviar propuesta (proyecto: Spadelab; prioridad: alta; vence: 2026-10-20; 2 pomodoros)\nTranscripción:\nYo: pásala al jueves"
+        );
     }
 
     #[test]
     fn relee_la_transcripcion_guardada() {
         let lines = vec![Line { who: "Yo", text: "Hora: 10:30".into() }, Line { who: "Otros", text: "ok".into() }];
-        let back = parse_lines(&format!("{}\nbasura sin hablante", fmt_lines(&lines)));
+        let back = parse_lines(&format!("{MANAGE_HEADER}{}\nbasura sin hablante", fmt_lines(&lines)));
         assert_eq!(fmt_lines(&back), fmt_lines(&lines));
     }
 }
@@ -815,7 +1013,8 @@ fn probar_llm() {
     let clean = condense(&lines);
     println!("{} líneas → {} tras limpiar", lines.len(), clean.len());
     let t = std::time::Instant::now();
-    let tasks = ask_any(&[llm], &clean, |m| println!("probando {m}")).unwrap();
+    let user = format!("Transcripción:\n{}", fmt_lines(&clean));
+    let tasks = ask_any(&[llm], &prompt(&clean), &user, parse_tasks, |m| println!("probando {m}")).unwrap();
     println!("{:.1}s", t.elapsed().as_secs_f32());
     for (title, detail) in tasks {
         println!("  + {title} — {detail}");

@@ -87,7 +87,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "timer_skip" => ok(timer::timer_skip(app.clone(), app.state())),
         "meeting_state" => Ok(json!(meeting::meeting_state(app.state()))),
         "meetings_list" => Ok(json!(meeting::meetings_list(app.clone()))),
-        "meeting_start" => meeting::meeting_start(app.clone(), app.state(), llms(app)).map(|_| Value::Null),
+        "meeting_start" => meeting::meeting_start(app.clone(), app.state(), llms(app), a["manage"].as_bool().unwrap_or(false)).map(|_| Value::Null),
         "meeting_stop" => ok(meeting::meeting_stop(app.state())),
         "meeting_reset" => ok(meeting::meeting_reset(app.clone(), app.state())),
         "meeting_retry" => meeting::meeting_retry(app.clone(), app.state(), llms(app), a["id"].as_u64()).map(|_| Value::Null),

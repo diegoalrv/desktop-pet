@@ -69,6 +69,16 @@ las tareas que te tocan; las apruebas con ✓ o las descartas con ✕.
   pendientes se mantienen. **Reintentar tareas de la última reunión** vuelve a mandarla al LLM.
 - Las transcripciones quedan en `~/Library/Application Support/xyz.spadelab.pet/meetings/<epoch>.md`.
 
+### Modo Gestión (ordenar tareas por voz)
+
+En la misma pestaña, el selector **Reunión | Gestión**. Gestión escucha **solo el micrófono** (sin audio del sistema) y
+sirve para dictar qué hacer con tus tareas: "la del contrato ya está, la propuesta pásala al jueves con prioridad alta y
+agrégame revisar el deploy de pet con dos pomodoros". Al **Terminar**, el LLM recibe tus pendientes (con id) y la
+fecha de hoy, y propone acciones **crear**, **editar** (título, proyecto, prioridad, fecha, pomodoros) o **completar**.
+Cada propuesta muestra el cambio (`fecha 20 oct → 23 oct`, `✓ completar`) y no se aplica hasta que la apruebes con ✓.
+Las fechas relativas ("el viernes") se resuelven con la fecha local; una tarea con fecha queda a las 9:00 de ese día.
+La transcripción se guarda igual que una reunión (empieza con `# gestión`) y **Reintentar la última** la vuelve a mandar.
+
 ## Skins
 
 Un skin es una carpeta o `.zip` con `manifest.json` y sprite sheets horizontales. Importa desde Ajustes → "Importar carpeta…" / "Importar .zip / imagen…".

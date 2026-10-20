@@ -33,6 +33,8 @@ sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runti
 tiny_http = "0.12"
 # LLM compatible con OpenAI (Ollama / Gemini / Claude) para sugerir tareas de reuniones
 ureq = "3.4.2"
+# Modo gestión: fecha de hoy y vencimientos en hora local para el prompt (ya venía como dependencia transitiva)
+chrono = "0.4"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

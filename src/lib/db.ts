@@ -2,6 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { emit } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import type { Category, Task } from "./tasks";
+import { dueFromDate, parseAction } from "./suggestions";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
@@ -87,17 +88,42 @@ export type ChatRow = { id: number; at: number; session: string | null; prompt: 
 export const chatHistory = (since = 0, limit = 30) =>
   select<ChatRow>("SELECT * FROM (SELECT * FROM chat_log WHERE at > $1 ORDER BY id DESC LIMIT $2) ORDER BY id", [since, limit]);
 
-export type Suggestion = { id: number; meeting: number; title: string; detail: string; status: "pending" | "accepted" | "dismissed" };
-/** Tareas sugeridas por el LLM (meeting.rs las guarda al terminar cada reunión). */
+export type Suggestion = {
+  id: number;
+  meeting: number;
+  title: string;
+  detail: string;
+  status: "pending" | "accepted" | "dismissed";
+  action: string | null; // modo gestión: JSON de lib/suggestions.ts `Action`; null = sugerencia de reunión
+};
+/** Tareas sugeridas por el LLM (meeting.rs las guarda al terminar cada reunión o sesión de gestión). */
 export const listSuggestions = (status?: Suggestion["status"]) =>
   status
     ? select<Suggestion>("SELECT * FROM meeting_tasks WHERE status = $1 ORDER BY meeting DESC, id", [status])
     : select<Suggestion>("SELECT * FROM meeting_tasks ORDER BY meeting DESC, id");
 export const setSuggestion = (id: number, status: Suggestion["status"]) =>
   exec("UPDATE meeting_tasks SET status = $1 WHERE id = $2", [status, id]);
-/** Crea la tarea (título editable, proyecto opcional) y marca la sugerencia como aceptada. */
+/** Aplica la sugerencia y la marca como aceptada: crea la tarea (título editable, proyecto opcional) o, en modo
+ *  gestión, la acción que trae (crear con sus campos, editar los campos presentes, completar). */
 export const acceptSuggestion = async (s: Suggestion, title = s.title, project: string | null = null) => {
-  await addTask({ title, category_id: null, project, priority: 1, due_at: null, est_pomodoros: 1 });
+  const a = parseAction(s.action);
+  if (!a || a.op === "crear") {
+    await addTask({
+      title: a?.titulo ?? title,
+      category_id: null,
+      project: a?.proyecto ?? project,
+      priority: a?.prioridad ?? 1,
+      due_at: a?.fecha ? dueFromDate(a.fecha) : null,
+      est_pomodoros: a?.pomodoros ?? 1,
+    });
+  } else if (a.op === "completar") await setDone(a.id!, true);
+  else {
+    if (a.titulo) await renameTask(a.id!, a.titulo);
+    if (a.proyecto) await updateTask(a.id!, "project", a.proyecto);
+    if (a.prioridad != null) await updateTask(a.id!, "priority", a.prioridad);
+    if (a.fecha) await updateTask(a.id!, "due_at", dueFromDate(a.fecha));
+    if (a.pomodoros != null) await updateTask(a.id!, "est_pomodoros", a.pomodoros);
+  }
   await setSuggestion(s.id, "accepted");
 };
 
