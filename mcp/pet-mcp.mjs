@@ -1,0 +1,313 @@
+#!/usr/bin/env node
+// Servidor MCP de Desktop Pet: la Candola (chat con `claude -p`) lee y maneja tareas, timer, reuniones y sugerencias.
+// Proyecto aparte de la app: corre por stdio (lo lanza Claude Code con --mcp-config) y habla con la app solo por la
+// API de la web local (`/api/select`, `/api/execute`, `/api/invoke`) con el token por arranque.
+// Env: PET_PORT (4747 en la app instalada, 4748 en dev) y PET_TOKEN (lo pone la app al lanzar `claude`).
+// ponytail: sin @modelcontextprotocol/sdk; el protocolo por stdio es JSON-RPC por líneas y así no hay node_modules
+// que empaquetar con la app. Si algún día hacen falta recursos, prompts o notificaciones, pasar al SDK.
+
+import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
+
+const PROTOCOL = "2025-06-18";
+const PORT = process.env.PET_PORT || "4747";
+const TOKEN = process.env.PET_TOKEN || "";
+
+async function api(path, body) {
+  const r = await fetch(`http://127.0.0.1:${PORT}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Pet-Token": TOKEN },
+    body: JSON.stringify(body),
+  });
+  const v = await r.json().catch(() => null);
+  if (r.status === 401) throw new Error("la app se reinició o no está abierta: token inválido");
+  if (!r.ok) throw new Error(typeof v === "string" ? v : `la app respondió ${r.status}`);
+  return v;
+}
+const select = (sql, args = []) => api("/api/select", { sql, args });
+const execute = (sql, args = []) => api("/api/execute", { sql, args });
+const invoke = (cmd, args = {}) => api("/api/invoke", { cmd, args });
+
+const obj = (properties = {}, required = []) => ({ type: "object", properties, required });
+const int = { type: "integer" };
+const str = { type: "string" };
+const id = obj({ id: int }, ["id"]);
+
+export const TOOLS = [
+  {
+    name: "list_tasks",
+    description:
+      "Tareas del usuario. filter: today (pendientes que vencen hoy o antes), pending (todas las pendientes, por defecto) o all (incluye hechas). priority: 0 baja, 1 media, 2 alta; due en hora local.",
+    inputSchema: obj({ filter: { type: "string", enum: ["today", "pending", "all"] } }),
+  },
+  {
+    name: "add_task",
+    description:
+      'Crea una tarea. due: fecha local "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" (sin hora = 09:00). priority: 0 baja, 1 media, 2 alta. repeat: none, daily, weekdays, weekly o monthly (necesita due).',
+    inputSchema: obj(
+      {
+        title: str,
+        due: str,
+        project: str,
+        priority: { type: "integer", minimum: 0, maximum: 2 },
+        est_pomodoros: { type: "integer", minimum: 1 },
+        repeat: { type: "string", enum: ["none", "daily", "weekdays", "weekly", "monthly"] },
+      },
+      ["title"],
+    ),
+  },
+  {
+    name: "complete_task",
+    description: "Marca una tarea como hecha (si se repite, la app crea la siguiente).",
+    inputSchema: id,
+  },
+  {
+    name: "timer_get",
+    description:
+      "Estado del timer pomodoro: mode (focus, short, long), status (idle, running, paused), remaining en segundos y task_id.",
+    inputSchema: obj(),
+  },
+  {
+    name: "timer_start",
+    description:
+      "Arranca el timer. mode: focus (por defecto), short o long (pausas). minutes: opcional, si no la duración de Ajustes. task_id: la tarea en la que se enfoca.",
+    inputSchema: obj({
+      mode: { type: "string", enum: ["focus", "short", "long"] },
+      minutes: { type: "integer", minimum: 1 },
+      task_id: int,
+    }),
+  },
+  { name: "timer_pause", description: "Pausa el timer en curso.", inputSchema: obj() },
+  { name: "timer_resume", description: "Reanuda el timer pausado.", inputSchema: obj() },
+  {
+    name: "timer_stop",
+    description: "Termina el bloque actual (lo trabajado en un foco queda registrado).",
+    inputSchema: obj(),
+  },
+  {
+    name: "meetings_list",
+    description: "Reuniones grabadas, la más reciente primero: id, fecha, título, participantes y resumen.",
+    inputSchema: obj({ limit: { type: "integer", minimum: 1 } }),
+  },
+  {
+    name: "meeting_get",
+    description:
+      "Una reunión completa: transcripción (Yo = el usuario, Otros = el resto), resumen, decisiones y tareas sugeridas.",
+    inputSchema: id,
+  },
+  {
+    name: "meeting_search",
+    description:
+      "Busca un texto (sin distinguir mayúsculas) en todas las transcripciones; devuelve las líneas que calzan con su reunión.",
+    inputSchema: obj({ q: str }, ["q"]),
+  },
+  {
+    name: "suggestions_list",
+    description:
+      "Tareas sugeridas por las reuniones, pendientes de revisar. action (si no es null) es lo que propone el modo Gestión: crear, editar o completar.",
+    inputSchema: obj(),
+  },
+  {
+    name: "suggestion_set",
+    description:
+      "Marca una sugerencia como accepted o dismissed. Aceptar NO crea ni cambia la tarea: hazlo antes con add_task o complete_task.",
+    inputSchema: obj({ id: int, status: { type: "string", enum: ["accepted", "dismissed"] } }, [
+      "id",
+      "status",
+    ]),
+  },
+];
+
+/** "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" en hora local → epoch ms. Sin hora, 09:00 (como las fechas del modo Gestión). */
+export function parseDue(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/.exec(String(s).trim());
+  const bad = new Error(`fecha inválida: ${s} (usa AAAA-MM-DD o AAAA-MM-DD HH:MM)`);
+  if (!m) throw bad;
+  const [y, mo, d, h = 9, mi = 0] = m.slice(1).map((x) => (x === undefined ? undefined : Number(x)));
+  const dt = new Date(y, mo - 1, d, h, mi);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d || h > 23 || mi > 59)
+    throw bad;
+  return dt.getTime();
+}
+
+export function fmtMs(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Líneas de las transcripciones que contienen `q` (sin distinguir mayúsculas), como "id · línea". Máximo `max`. */
+export function search(meetings, q, max = 40) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  return meetings
+    .flatMap((m) =>
+      m.text
+        .split("\n")
+        .filter((l) => l.toLowerCase().includes(needle))
+        .map((l) => `${m.id} · ${l}`),
+    )
+    .slice(0, max);
+}
+
+async function notes(id) {
+  const [n] = await select("SELECT summary, decisions FROM meeting_notes WHERE meeting = $1", [id]);
+  return { summary: n?.summary ?? "", decisions: n ? JSON.parse(n.decisions || "[]") : [] };
+}
+
+const timer = async (cmd, args) => (cmd && (await invoke(cmd, args)), invoke("timer_get"));
+
+/** Ejecuta una herramienta; el resultado va como texto JSON para que la Candola lo lea. */
+export async function call(name, a = {}) {
+  switch (name) {
+    case "list_tasks": {
+      const rows = await select(
+        "SELECT id, title, project, priority, done, due_at, est_pomodoros, done_pomodoros, repeat FROM tasks ORDER BY done, due_at IS NULL, due_at, priority DESC",
+      );
+      const endOfDay = new Date().setHours(23, 59, 59, 999);
+      const keep =
+        { all: () => true, today: (t) => !t.done && t.due_at != null && t.due_at <= endOfDay }[a.filter] ??
+        ((t) => !t.done);
+      return rows
+        .filter(keep)
+        .map(({ due_at, done, ...t }) => ({
+          ...t,
+          done: !!done,
+          due: due_at == null ? null : fmtMs(due_at),
+        }));
+    }
+    case "add_task": {
+      const title = String(a.title ?? "").trim();
+      if (!title) throw new Error("falta title");
+      const due = a.due?.trim() ? parseDue(a.due) : null;
+      const repeat = a.repeat ?? "none";
+      if (repeat !== "none" && due == null) throw new Error("una tarea que se repite necesita due");
+      const prio = Math.min(2, Math.max(0, a.priority ?? 1));
+      const r = await execute(
+        "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)",
+        [title, a.project?.trim() || null, prio, due, Math.max(1, a.est_pomodoros ?? 1), repeat, Date.now()],
+      );
+      return { id: r.lastInsertId, title, due: due == null ? null : fmtMs(due) };
+    }
+    case "complete_task": {
+      if (!Number.isInteger(a.id)) throw new Error("falta id");
+      if (!(await select("SELECT id FROM tasks WHERE id = $1", [a.id])).length)
+        throw new Error(`no existe la tarea ${a.id}`);
+      await invoke("task_set_done", { id: a.id, done: true });
+      return { done: a.id };
+    }
+    case "timer_get":
+      return timer();
+    case "timer_start":
+      return timer("timer_start", {
+        mode: a.mode ?? "focus",
+        seconds: a.minutes ? a.minutes * 60 : undefined,
+        taskId: a.task_id,
+      });
+    case "timer_pause":
+      return timer("timer_pause");
+    case "timer_resume":
+      return timer("timer_resume");
+    case "timer_stop":
+      return timer("timer_reset");
+    case "meetings_list": {
+      const ms = (await invoke("meetings_list")).slice(0, a.limit ?? 10);
+      return Promise.all(
+        ms.map(async (m) => ({
+          id: m.id,
+          date: fmtMs(m.id * 1000),
+          title: m.title,
+          attendees: m.attendees,
+          summary: (await notes(m.id)).summary,
+        })),
+      );
+    }
+    case "meeting_get": {
+      const m = (await invoke("meetings_list")).find((m) => m.id === a.id);
+      if (!m) throw new Error(`no existe la reunión ${a.id}`);
+      const suggestions = await select(
+        "SELECT id, title, detail, status FROM meeting_tasks WHERE meeting = $1",
+        [m.id],
+      );
+      return {
+        id: m.id,
+        date: fmtMs(m.id * 1000),
+        title: m.title,
+        attendees: m.attendees,
+        ...(await notes(m.id)),
+        suggestions,
+        transcript: m.text,
+      };
+    }
+    case "meeting_search": {
+      const hits = search(await invoke("meetings_list"), String(a.q ?? ""));
+      return hits.length ? hits.join("\n") : "sin coincidencias";
+    }
+    case "suggestions_list":
+      return select(
+        "SELECT id, meeting, title, detail, action FROM meeting_tasks WHERE status = 'pending' ORDER BY id",
+      );
+    case "suggestion_set": {
+      if (!["accepted", "dismissed"].includes(a.status))
+        throw new Error("status debe ser accepted o dismissed");
+      const r = await execute("UPDATE meeting_tasks SET status = $1 WHERE id = $2", [a.status, a.id]);
+      if (!r.rowsAffected) throw new Error("no existe esa sugerencia");
+      return { id: a.id, status: a.status };
+    }
+    default:
+      throw new Error(`herramienta desconocida: ${name}`);
+  }
+}
+
+/** Una petición JSON-RPC → su respuesta (`null` para notificaciones). `run` ejecuta las herramientas. */
+export async function rpc(req, run = call) {
+  if (req.id === undefined) return null; // notificación: no se responde
+  const ok = (result) => ({ jsonrpc: "2.0", id: req.id, result });
+  switch (req.method) {
+    case "initialize":
+      return ok({
+        protocolVersion: req.params?.protocolVersion ?? PROTOCOL,
+        capabilities: { tools: {} },
+        serverInfo: { name: "pet", version: "0.1.0" },
+      });
+    case "ping":
+      return ok({});
+    case "tools/list":
+      return ok({ tools: TOOLS });
+    case "tools/call":
+      try {
+        const out = await run(req.params?.name, req.params?.arguments ?? {});
+        return ok({
+          content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out) }],
+          isError: false,
+        });
+      } catch (e) {
+        return ok({ content: [{ type: "text", text: e.message }], isError: true });
+      }
+    default:
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32601, message: `método desconocido: ${req.method}` },
+      };
+  }
+}
+
+// stdio: un mensaje JSON por línea; stdout es solo del protocolo.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  for await (const line of createInterface({ input: process.stdin })) {
+    if (!line.trim()) continue;
+    let req;
+    try {
+      req = JSON.parse(line);
+    } catch {
+      process.stdout.write(
+        JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "JSON inválido" } }) +
+          "\n",
+      );
+      continue;
+    }
+    const res = await rpc(req);
+    if (res) process.stdout.write(JSON.stringify(res) + "\n");
+  }
+}

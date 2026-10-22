@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 use crate::db::Db;
 
@@ -52,11 +52,12 @@ pub fn command(args: &[String]) -> Command {
     c
 }
 
-fn mcp_config(port: u16, token: &str) -> String {
+/// `node` del PATH del usuario: `claude` corre bajo el zsh de login (`command`) y hereda su PATH.
+fn mcp_config(server: &str, port: u16, token: &str) -> String {
     serde_json::json!({"mcpServers": {"pet": {
-        "type": "http",
-        "url": format!("http://127.0.0.1:{port}/mcp"),
-        "headers": {"X-Pet-Token": token},
+        "command": "node",
+        "args": [server],
+        "env": {"PET_PORT": port.to_string(), "PET_TOKEN": token},
     }}})
     .to_string()
 }
@@ -98,9 +99,12 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
     if let Some(s) = session {
         args.extend(["--resume".into(), s]);
     }
-    // Las herramientas de la app (mcp.rs) por la web local, con su token. Antes de --allowedTools: --mcp-config
-    // acepta varios valores y se comería los que vengan detrás hasta el próximo flag.
-    args.extend(["--mcp-config".into(), mcp_config(crate::web::PORT, crate::web::token())]);
+    // Las herramientas de la app: servidor MCP aparte (`mcp/pet-mcp.mjs`, recurso del bundle) que habla con la web
+    // local con el token. Antes de --allowedTools: --mcp-config acepta varios valores y se comería los que vengan
+    // detrás hasta el próximo flag. Sin el archivo, la Candola sigue sin herramientas de la app.
+    if let Some(server) = app.path().resolve("mcp/pet-mcp.mjs", BaseDirectory::Resource).ok().filter(|p| p.exists()) {
+        args.extend(["--mcp-config".into(), mcp_config(&server.to_string_lossy(), crate::web::PORT, crate::web::token())]);
+    }
     if god {
         args.push("--dangerously-skip-permissions".into());
     } else {
@@ -180,9 +184,9 @@ mod tests {
     }
 
     #[test]
-    fn mcp_config_http() {
-        let c: Value = serde_json::from_str(&mcp_config(4748, "abc")).unwrap();
-        assert_eq!(c["mcpServers"]["pet"]["url"], "http://127.0.0.1:4748/mcp");
-        assert_eq!(c["mcpServers"]["pet"]["headers"]["X-Pet-Token"], "abc");
+    fn mcp_config_stdio() {
+        let c: Value = serde_json::from_str(&mcp_config("/r/mcp/pet-mcp.mjs", 4748, "abc")).unwrap();
+        assert_eq!(c["mcpServers"]["pet"]["args"][0], "/r/mcp/pet-mcp.mjs");
+        assert_eq!(c["mcpServers"]["pet"]["env"], serde_json::json!({"PET_PORT": "4748", "PET_TOKEN": "abc"}));
     }
 }

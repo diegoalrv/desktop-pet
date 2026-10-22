@@ -8,7 +8,7 @@ use tauri_plugin_store::StoreExt;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::db::{self, Db};
-use crate::{mcp, meeting, music, timer};
+use crate::{meeting, music, timer};
 
 /// Panel web local: http://127.0.0.1:4747 (mismo frontend que la app, misma pet.db).
 /// En dev 4748, así `tauri dev` convive con la app instalada (vite.config.ts apunta su proxy ahí).
@@ -30,6 +30,7 @@ struct Cmd {
 
 /// Token por arranque, solo en memoria: la pestaña lo recibe en la URL al abrirla desde la app y lo manda en cada
 /// POST. Sin él, otro proceso del Mac que llegue a loopback no puede ejecutar SQL ni arrancar una reunión.
+/// También lo recibe el servidor MCP de la Candola (`mcp/pet-mcp.mjs`, vía `claude.rs`).
 pub fn token() -> &'static str {
     static TOKEN: OnceLock<String> = OnceLock::new();
     TOKEN.get_or_init(|| {
@@ -50,7 +51,7 @@ pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
         // Solo loopback. Si el puerto está ocupado (otra instancia de la app), simplemente no hay web.
         let Ok(server) = Server::http(("127.0.0.1", PORT)) else { return };
-        #[cfg(debug_assertions)] // para probar /api y /mcp con curl en `tauri dev`
+        #[cfg(debug_assertions)] // para probar /api y el servidor MCP con curl en `tauri dev`
         eprintln!("[web] http://127.0.0.1:{PORT} token {}", token());
         for mut req in server.incoming_requests() {
             // Un hilo por pedido: preguntarle a las reuniones espera al LLM y no debe congelar el resto de la web.
@@ -148,17 +149,6 @@ fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
                 Err(e) => json(400, e.into()),
             }
         }
-        // Servidor MCP de la Candola (mcp.rs). Sin SSE: el GET del transporte HTTP se rechaza con 405, como pide MCP.
-        (Method::Post, "/mcp") => {
-            let mut body = String::new();
-            let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Value>(&body).ok());
-            let Some(r) = parsed else { return json(400, "bad request".into()) };
-            match mcp::rpc(&r, |name, args| mcp::call(app, name, args)) {
-                Some(v) => json(200, v),
-                None => (202, "application/json".into(), vec![]), // notificación
-            }
-        }
-        (Method::Get, "/mcp") => json(405, "method not allowed".into()),
         (Method::Post, "/api/select" | "/api/execute") => {
             let mut body = String::new();
             let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Sql>(&body).ok());

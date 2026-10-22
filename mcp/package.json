@@ -1,0 +1,10 @@
+{
+  "name": "pet-mcp",
+  "private": true,
+  "description": "Servidor MCP de Desktop Pet (tareas, timer, reuniones y sugerencias) para la Candola. Sin dependencias; habla con la app por su web local.",
+  "type": "module",
+  "bin": "pet-mcp.mjs",
+  "engines": {
+    "node": ">=18"
+  }
+}
