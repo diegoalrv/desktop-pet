@@ -17,6 +17,7 @@ const ANIM: Record<PetState, string> = {
   mission: "jump .5s ease-out infinite",
   oops: "bob 3.5s ease-in-out infinite",
   ask: "perk 1.2s ease-in-out infinite",
+  tea: "bob 3.5s ease-in-out infinite",
 };
 
 const CSS = `

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initial, transition as t, type Ctx, type PetEvent } from "./stateMachine";
+import { initial, TEA_S, transition as t, type Ctx, type PetEvent } from "./stateMachine";
 
 const run = (c: Ctx, ...evs: PetEvent[]) => evs.reduce((acc, e) => t(acc, e, 0.5), c);
 const tick = (dt: number): PetEvent => ({ type: "tick", dt });
@@ -123,5 +123,15 @@ describe("stateMachine", () => {
     expect(
       run(initial(), start, { type: "drag" }, end("mission"), { type: "drop" }, { type: "land" }).state,
     ).toBe("idle");
+  });
+  it("cierre del día: celebra si cumplió la meta, toma té si no, sin interrumpir foco ni arrastre", () => {
+    const meta = run(initial(), { type: "dayEnd", met: true });
+    expect(meta.state).toBe("celebrate");
+    expect(run(meta, tick(2.1)).state).toBe("idle");
+    const te = run(initial(), { type: "dayEnd", met: false });
+    expect(te.state).toBe("tea");
+    expect(run(te, tick(TEA_S + 0.1)).state).toBe("idle");
+    expect(run(initial(), { type: "timerStart" }, { type: "dayEnd", met: false }).state).toBe("focus");
+    expect(run(initial(), { type: "drag" }, { type: "dayEnd", met: false }).state).toBe("dragged");
   });
 });

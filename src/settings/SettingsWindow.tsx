@@ -170,6 +170,30 @@ export function SettingsWindow() {
         Ciclo automático (al terminar una pausa arranca el siguiente foco)
       </label>
 
+      <h2 style={h}>Cierre del día</h2>
+      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        Avisar a las (hora, 0 = apagado)
+        <input
+          type="number"
+          min={0}
+          max={23}
+          value={prefs.dayEndHour}
+          onChange={(e) => setPrefs({ dayEndHour: Number(e.target.value) })}
+          style={{ ...btn, width: 64, padding: 4 }}
+        />
+      </label>
+      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        Meta de foco diaria (min)
+        <input
+          type="number"
+          min={1}
+          max={960}
+          value={prefs.dailyGoalMin}
+          onChange={(e) => setPrefs({ dailyGoalMin: Number(e.target.value) })}
+          style={{ ...btn, width: 64, padding: 4 }}
+        />
+      </label>
+
       <h2 style={h}>Sonido</h2>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <label>

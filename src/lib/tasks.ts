@@ -28,6 +28,7 @@ export interface Task {
   notified: number;
   created_at: number;
   repeat: Repeat; // al completarla, db.rs crea la siguiente (task_set_done)
+  done_at: number | null; // ms epoch en que se completó (task_set_done)
 }
 
 export const PRIORITIES = ["Baja", "Media", "Alta"] as const;

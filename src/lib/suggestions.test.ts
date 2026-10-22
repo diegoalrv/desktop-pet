@@ -15,6 +15,7 @@ const task: Task = {
   notified: 0,
   created_at: 0,
   repeat: "none",
+  done_at: null,
 };
 
 describe("suggestions", () => {

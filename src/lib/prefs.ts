@@ -40,6 +40,9 @@ export const prefsSchema = z.object({
   llms: z.array(llmSchema).catch(DEFAULT_LLMS),
   // Carpeta desde la que corre Claude Code en el chat (lee su CLAUDE.md: VPS, Coolify, etc.); vacía = home
   claudeCwd: z.string().trim().catch(""),
+  // Cierre del día (pet/PetWindow.tsx): hora del aviso (0 = apagado) y meta de foco diaria en minutos
+  dayEndHour: z.coerce.number().int().min(0).max(23).catch(18),
+  dailyGoalMin: mins(120, 960),
   petSize: z.coerce.number().int().min(PET_SIZE.min).max(PET_SIZE.max).catch(PET_SIZE.def), // alto en pantalla (px lógicos)
 });
 export type Prefs = z.infer<typeof prefsSchema>;

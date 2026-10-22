@@ -134,7 +134,13 @@ pub async fn set_done(pool: &SqlitePool, id: i64, done: bool, now_ms: i64) -> Re
         .fetch_optional(&mut *tx)
         .await?;
     let Some(r) = row else { return Ok(()) };
-    sqlx::query("UPDATE tasks SET done = ? WHERE id = ?").bind(done).bind(id).execute(&mut *tx).await?;
+    // done_at: se fija al completarla (una vez) y se borra al desmarcarla.
+    sqlx::query("UPDATE tasks SET done = ?1, done_at = CASE WHEN ?1 = 0 THEN NULL WHEN done = 0 THEN ?2 ELSE done_at END WHERE id = ?3")
+        .bind(done)
+        .bind(now_ms)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     let repeat: String = r.get("repeat");
     if done && r.get::<i64, _>("done") == 0 && repeat != "none" {
         let due_ms = r.get::<Option<i64>, _>("due_at").unwrap_or(now_ms);
@@ -240,13 +246,14 @@ mod tests {
             .unwrap();
         set_done(&pool, 1, true, now).await.unwrap();
         set_done(&pool, 1, true, now).await.unwrap(); // ya estaba hecha: no duplica
-        let rows = select(&pool, "SELECT id, done, due_at, notified, project, repeat FROM tasks ORDER BY id", &[]).await.unwrap();
+        let rows = select(&pool, "SELECT id, done, done_at, due_at, notified, project, repeat FROM tasks ORDER BY id", &[]).await.unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0]["done"], 1);
+        assert_eq!((rows[0]["done"].clone(), rows[0]["done_at"].clone()), (1.into(), now.into()));
         let next = Local.with_ymd_and_hms(2026, 10, 23, 9, 0, 0).unwrap().timestamp_millis();
         assert_eq!((rows[1]["done"].clone(), rows[1]["due_at"].clone(), rows[1]["notified"].clone()), (0.into(), next.into(), 0.into()));
         assert_eq!((rows[1]["project"].as_str(), rows[1]["repeat"].as_str()), (Some("casa"), Some("daily")));
-        set_done(&pool, 1, false, now).await.unwrap(); // desmarcar no crea nada
-        assert_eq!(select(&pool, "SELECT id FROM tasks", &[]).await.unwrap().len(), 2);
+        set_done(&pool, 1, false, now).await.unwrap(); // desmarcar no crea nada y borra done_at
+        let rows = select(&pool, "SELECT done_at FROM tasks", &[]).await.unwrap();
+        assert_eq!((rows.len(), rows[0]["done_at"].clone()), (2, Value::Null));
     }
 }
