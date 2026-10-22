@@ -6,8 +6,8 @@ import type { FaceLandmarker, ObjectDetector } from "@mediapipe/tasks-vision";
 // ponytail: solo el build SIMD (WebKit lo tiene desde macOS 13.3); agregar el nosimd si alguna vez falla al cargar
 import wasmLoaderPath from "@mediapipe/tasks-vision/vision_wasm_internal.js?url";
 import wasmBinaryPath from "@mediapipe/tasks-vision/vision_wasm_internal.wasm?url";
-import { basePitch, initCam, step, type CamEvent, type CamState } from "./focusCam";
-import { logCamSample } from "./db";
+import { addSample, basePitch, initCam, step, type CamEvent, type CamState, type Segment } from "./focusCam";
+import { logCamSegment } from "./db";
 import { clip } from "./sound";
 import { notify } from "./ipc";
 import { useTimer } from "../store/useTimer";
@@ -84,9 +84,14 @@ async function openCam(): Promise<Cam> {
 export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   let cam: Cam | null = null;
   let st: CamState | null = null; // st.away = el foco está pausado porque te fuiste
+  let seg: Segment | null = null; // tramo en curso para cam_segments; se guarda al cerrarse
   let busy = false;
 
+  const save = (g: Segment | null) =>
+    g && void logCamSegment(g).catch((e) => console.warn("cam_segments:", e));
   const close = () => {
+    save(seg); // ponytail: si la app se cae a mitad de un tramo, ese tramo se pierde
+    seg = null;
     cam?.stop();
     cam = st = null;
   };
@@ -154,15 +159,16 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     };
     const r = step(st!, sample, prefs);
     st = r.state;
-    // ponytail: ~1800 filas por hora de foco, sin purga; borrar las viejas si la base crece demasiado
-    void logCamSample({
+    const log = addSample(seg, {
       ...seen,
       at: now,
       phone: seen.phoneScore,
       idle: ctx.idle,
       base: basePitch(st),
       events: r.events.map((e) => e.type),
-    }).catch((e) => console.warn("cam_samples:", e));
+    });
+    seg = log.seg;
+    save(log.done);
     for (const ev of r.events) await handle(ev, ctx.meeting);
   };
 

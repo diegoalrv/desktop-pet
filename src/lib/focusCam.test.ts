@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { CALIB_N, initCam, REBARK_MS, step, type CamEvent, type CamState, type Sample } from "./focusCam";
+import {
+  addSample,
+  CALIB_N,
+  initCam,
+  REBARK_MS,
+  step,
+  type CamEvent,
+  type CamState,
+  type LogSample,
+  type Sample,
+  type Segment,
+} from "./focusCam";
 
 const P = { headDownDeg: 20, barkAfterSec: 15, awayPauseSec: 90 };
 const T0 = 1_000_000;
@@ -68,5 +79,74 @@ describe("focusCam", () => {
   it("irse en plena distracción la cierra antes de pausar", () => {
     const r = run(initCam(), T0, [...n(12, down), ...n(50, { ...ok, face: false, pitch: null })]);
     expect(r.types).toEqual(["growl", "bark", "calm", "away"]);
+  });
+});
+
+describe("addSample (cam_segments)", () => {
+  const s = (at: number, o: Partial<LogSample> = {}): LogSample => ({
+    at,
+    face: true,
+    pitch: 12,
+    yaw: 0,
+    roll: 0,
+    phone: 0,
+    idle: 0,
+    base: 12,
+    events: [],
+    ...o,
+  });
+  const feed = (xs: LogSample[]) => {
+    let seg: Segment | null = null;
+    const done: Segment[] = [];
+    for (const x of xs) {
+      const r = addSample(seg, x);
+      seg = r.seg;
+      if (r.done) done.push(r.done);
+    }
+    return [...done, seg!];
+  };
+  it("5 min quieto = un solo tramo", () => {
+    const segs = feed(
+      Array.from({ length: 150 }, (_, i) => s(i * 2000, { pitch: 12 + (i % 3), idle: i % 2 ? 5 : 0 })),
+    );
+    expect(segs).toHaveLength(1);
+    expect(segs[0]).toMatchObject({ start: 0, end: 298_000, n: 150, active: 75 });
+    expect(segs[0].pitch).toEqual([12 * 150 + 150, 12, 14]); // suma, min, max (12,13,14,…)
+  });
+  it("corta al agachar la cabeza, al perder la cara y al ver el teléfono", () => {
+    const segs = feed([
+      s(0),
+      s(2000, { pitch: 14 }),
+      s(4000, { pitch: 30 }),
+      s(6000, { pitch: 31 }), // +18°: tramo nuevo
+      s(8000, { face: false, pitch: null, yaw: null }),
+      s(10000, { phone: 0.3 }),
+      s(12000, { phone: 0.45 }),
+      s(14000, { phone: 0.8 }), // 0,2–0,5 y ≥ 0,5 son rangos distintos
+    ]);
+    expect(segs.map((g) => [g.start, g.n])).toEqual([
+      [0, 2],
+      [4000, 2],
+      [8000, 1],
+      [10000, 2],
+      [14000, 1],
+    ]);
+    expect(segs[3].phone).toBe(0.45);
+  });
+  it("un evento queda en su propia fila", () => {
+    const segs = feed([s(0), s(2000), s(4000, { events: ["growl"] }), s(6000), s(8000)]);
+    expect(segs.map((g) => [g.n, g.events])).toEqual([
+      [2, []],
+      [1, ["growl"]],
+      [2, []],
+    ]);
+  });
+  it("un tramo no dura más de 10 min", () => {
+    expect(feed(Array.from({ length: 450 }, (_, i) => s(i * 2000))).map((g) => g.n)).toEqual([300, 150]);
+  });
+  it("yaw: mirar el otro monitor corta", () => {
+    expect(feed([s(0, { yaw: 0 }), s(2000, { yaw: 8 }), s(4000, { yaw: 25 })]).map((g) => g.n)).toEqual([
+      2, 1,
+    ]);
   });
 });

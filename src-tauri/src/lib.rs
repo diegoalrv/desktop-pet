@@ -152,6 +152,12 @@ pub fn run() {
                             sql: include_str!("../migrations/010_cam_samples.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 11,
+                            description: "cam_segments",
+                            sql: include_str!("../migrations/011_cam_segments.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

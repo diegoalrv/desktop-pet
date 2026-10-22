@@ -125,3 +125,81 @@ export function step(prev: CamState, x: Sample, p: CamPrefs): { state: CamState;
   }
   return { state: s, events };
 }
+
+// Registro en la base (cam_segments): muestras seguidas "iguales" se juntan en un tramo [start, end].
+// Igual = misma presencia de cara, mismo rango de teléfono y ángulos dentro de una ventana; un evento cierra el
+// tramo (queda en su propia fila) para que se vea dónde gruñó, ladró o pausó.
+
+export interface LogSample {
+  at: number;
+  face: boolean;
+  pitch: number | null;
+  yaw: number | null;
+  roll: number | null;
+  phone: number; // score del detector
+  idle: number;
+  base: number;
+  events: string[];
+}
+
+export interface Segment {
+  start: number;
+  end: number;
+  n: number;
+  face: boolean;
+  pitch: [number, number, number] | null; // suma, min, max
+  yaw: [number, number, number] | null;
+  roll: number; // suma
+  phone: number; // máximo
+  active: number; // muestras con teclado/mouse en los últimos ACTIVE_S
+  base: number; // la del final del tramo
+  events: string[];
+}
+
+export const PITCH_SPAN = 6; // grados: un tramo no se estira más que esto en pitch...
+export const YAW_SPAN = 10; // ...ni en yaw
+export const SEG_MAX_MS = 10 * 60_000; // ...ni en tiempo: acota lo que se pierde si la app se cae a mitad de tramo
+const phoneBucket = (s: number) => (s >= 0.5 ? 2 : s >= 0.2 ? 1 : 0);
+const widen = (r: [number, number, number] | null, v: number | null): [number, number, number] | null =>
+  r && v !== null ? [r[0] + v, Math.min(r[1], v), Math.max(r[2], v)] : v !== null ? [v, v, v] : null;
+
+const fits = (s: Segment, x: LogSample) => {
+  if (s.events.length || x.events.length || s.face !== x.face || x.at - s.start >= SEG_MAX_MS) return false;
+  if (phoneBucket(s.phone) !== phoneBucket(x.phone)) return false;
+  const p = widen(s.pitch, x.pitch);
+  const y = widen(s.yaw, x.yaw);
+  return (!p || p[2] - p[1] <= PITCH_SPAN) && (!y || y[2] - y[1] <= YAW_SPAN);
+};
+
+const open = (x: LogSample): Segment => ({
+  start: x.at,
+  end: x.at,
+  n: 1,
+  face: x.face,
+  pitch: widen(null, x.pitch),
+  yaw: widen(null, x.yaw),
+  roll: x.roll ?? 0,
+  phone: x.phone,
+  active: x.idle < ACTIVE_S ? 1 : 0,
+  base: x.base,
+  events: x.events,
+});
+
+/** Suma una muestra: o estira el tramo en curso, o lo cierra (`done`, para guardar) y abre otro. */
+export function addSample(seg: Segment | null, x: LogSample): { seg: Segment; done: Segment | null } {
+  if (!seg || !fits(seg, x)) return { seg: open(x), done: seg };
+  return {
+    seg: {
+      ...seg,
+      end: x.at,
+      n: seg.n + 1,
+      pitch: widen(seg.pitch, x.pitch),
+      yaw: widen(seg.yaw, x.yaw),
+      roll: seg.roll + (x.roll ?? 0),
+      phone: Math.max(seg.phone, x.phone),
+      active: seg.active + (x.idle < ACTIVE_S ? 1 : 0),
+      base: x.base,
+    },
+    done: null,
+  };
+}

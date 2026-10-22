@@ -4,6 +4,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { updateSql, type Category, type Repeat, type Task } from "./tasks";
 import { dueFromDate, parseAction } from "./suggestions";
 import { call, post } from "./ipc";
+import type { Segment } from "./focusCam";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
@@ -25,22 +26,17 @@ const exec = async (sql: string, args: unknown[] = []) => {
   emit("db://changed"); // otras ventanas recargan
 };
 
-/** Muestra de la cámara del foco (F17, migración 010). Sin `db://changed`: nadie la muestra y llega cada 2 s. */
-export const logCamSample = async (r: {
-  at: number;
-  face: boolean;
-  pitch: number | null;
-  yaw: number | null;
-  roll: number | null;
-  phone: number;
-  idle: number;
-  base: number;
-  events: string[];
-}) =>
-  (await get()).execute(
-    "INSERT INTO cam_samples (at, face, pitch, yaw, roll, phone, idle, base, events) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    [r.at, r.face ? 1 : 0, r.pitch, r.yaw, r.roll, r.phone, r.idle, r.base, r.events.join(",") || null],
+/** Tramo de la cámara del foco (F17, migración 011). Sin `db://changed`: nadie lo muestra. */
+export const logCamSegment = async (g: Segment) => {
+  const avg = (r: [number, number, number] | null) => (r ? r[0] / g.n : null);
+  const [p, y] = [g.pitch, g.yaw];
+  await (await get()).execute(
+    `INSERT INTO cam_segments (start, end, n, face, pitch, pitch_min, pitch_max, yaw, yaw_min, yaw_max, roll, phone,
+       active, base, events) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+    [g.start, g.end, g.n, g.face ? 1 : 0, avg(p), p?.[1] ?? null, p?.[2] ?? null, avg(y), y?.[1] ?? null,
+      y?.[2] ?? null, g.face ? g.roll / g.n : null, g.phone, g.active, g.base, g.events.join(",") || null],
   );
+};
 
 /** Consulta libre de solo lectura (vistas del panel web: historial, estadísticas). */
 export const query = select;
