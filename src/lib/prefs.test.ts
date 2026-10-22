@@ -22,6 +22,7 @@ describe("prefs", () => {
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
       focusShortcut: "CommandOrControl+Shift+F",
+      distractions: [],
       icalUrl: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",
@@ -32,6 +33,12 @@ describe("prefs", () => {
     expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([
       200, 128,
     ]);
+  });
+  it("distractions: lista de bundle ids, inválida -> vacía", () => {
+    expect(normalizePrefs({ distractions: [" com.tinyspeck.slackmacgap "] }).distractions).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+    expect(normalizePrefs({ distractions: "x" }).distractions).toEqual([]);
   });
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };

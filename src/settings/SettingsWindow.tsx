@@ -23,6 +23,7 @@ export function SettingsWindow() {
   const [msg, setMsg] = useState("");
   const [auto, setAuto] = useState(false);
   const [shortcutErr, setShortcutErr] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState<{ bundle: string; name: string }[]>([]);
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => {
     refresh();
@@ -197,6 +198,43 @@ export function SettingsWindow() {
         />{" "}
         Mostrar el tiempo en la barra de menú
       </label>
+
+      <h2 style={h}>Distracciones durante el foco</h2>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {prefs.distractions.map((id) => (
+          <button
+            key={id}
+            style={{ ...btn, padding: "2px 8px" }}
+            title="Quitar"
+            onClick={() => setPrefs({ distractions: prefs.distractions.filter((d) => d !== id) })}
+          >
+            {running.find((a) => a.bundle === id)?.name ?? id} ✕
+          </button>
+        ))}
+        {!prefs.distractions.length && <small style={{ color: T.dim }}>Ninguna.</small>}
+      </div>
+      <select
+        style={{ ...btn, padding: 4 }}
+        value=""
+        onFocus={() => invoke<typeof running>("running_apps").then(setRunning).catch(() => {})}
+        onChange={(e) =>
+          e.target.value &&
+          setPrefs({ distractions: [...new Set([...prefs.distractions, e.target.value])] })
+        }
+      >
+        <option value="">Agregar una app abierta…</option>
+        {running
+          .filter((a) => !prefs.distractions.includes(a.bundle))
+          .map((a) => (
+            <option key={a.bundle} value={a.bundle}>
+              {a.name}
+            </option>
+          ))}
+      </select>
+      <small style={{ opacity: 0.7 }}>
+        Solo macOS. Si abres una de estas apps en pleno foco, Candolita se queja; si te quedas más de 1 min,
+        avisa. El tiempo por app de cada foco se ve en la web (Foco).
+      </small>
 
       <h2 style={h}>Sonido</h2>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

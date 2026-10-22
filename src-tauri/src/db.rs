@@ -34,16 +34,29 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
     let (start, end) = ((end_ms - d.elapsed * 1000) as i64, end_ms as i64);
     let pomodoro = (d.mode == Mode::Focus && !d.skipped).then_some(d.task_id).flatten();
     let task = d.task_id;
+    let apps = d.apps.clone();
     let pool = app.state::<Db>().0.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = sqlx::query("INSERT INTO sessions (start, end, mode, task_id) VALUES (?, ?, ?, ?)")
+        let session = sqlx::query("INSERT INTO sessions (start, end, mode, task_id) VALUES (?, ?, ?, ?)")
             .bind(start)
             .bind(end)
             .bind(mode)
             .bind(task)
             .execute(&pool)
             .await;
+        if let Ok(session) = session {
+            for a in apps.iter().filter(|a| a.ms >= 1000 || a.hits > 0) {
+                let _ = sqlx::query("INSERT INTO session_apps (session_id, bundle, name, secs, hits) VALUES (?, ?, ?, ?, ?)")
+                    .bind(session.last_insert_rowid())
+                    .bind(&a.bundle)
+                    .bind(&a.name)
+                    .bind((a.ms / 1000) as i64)
+                    .bind(a.hits)
+                    .execute(&pool)
+                    .await;
+            }
+        }
         if let Some(id) = pomodoro {
             let _ = sqlx::query("UPDATE tasks SET done_pomodoros = done_pomodoros + 1 WHERE id = ?")
                 .bind(id)

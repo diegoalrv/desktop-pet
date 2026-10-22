@@ -136,4 +136,15 @@ export const acceptSuggestion = async (s: Suggestion, title = s.title, project: 
 export type SessionRow = { id: number; start: number; end: number; mode: string; task_id: number | null };
 export const listSessions = (since: number) =>
   select<SessionRow>("SELECT * FROM sessions WHERE start >= $1 ORDER BY start DESC", [since]);
-export const deleteSession = (id: number) => exec("DELETE FROM sessions WHERE id = $1", [id]);
+export const deleteSession = async (id: number) => {
+  await exec("DELETE FROM session_apps WHERE session_id = $1", [id]);
+  await exec("DELETE FROM sessions WHERE id = $1", [id]);
+};
+
+/** Tiempo por app durante cada foco (F11, solo macOS); `hits` = veces que se abrió como distracción. */
+export type AppUseRow = { session_id: number; start: number; bundle: string; name: string; secs: number; hits: number };
+export const listAppUse = (since: number) =>
+  select<AppUseRow>(
+    "SELECT a.*, s.start FROM session_apps a JOIN sessions s ON s.id = a.session_id WHERE s.start >= $1",
+    [since],
+  );

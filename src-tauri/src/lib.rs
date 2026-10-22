@@ -1,3 +1,4 @@
+mod apps;
 mod claude;
 mod db;
 mod meeting;
@@ -120,6 +121,13 @@ pub fn run() {
                             sql: include_str!("../migrations/005_meeting_actions.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        // 006, 007 y 009 son de otros carriles (meeting_notes, tasks.repeat, meeting_chunks)
+                        tauri_plugin_sql::Migration {
+                            version: 8,
+                            description: "session_apps",
+                            sql: include_str!("../migrations/008_session_apps.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -175,7 +183,8 @@ pub fn run() {
             timer::timer_restart,
             timer::timer_skip,
             timer::timer_set_task,
-            timer::send_notification
+            timer::send_notification,
+            apps::running_apps
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

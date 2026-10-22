@@ -64,6 +64,7 @@ export function PetWindow() {
       longEvery: prefs.longEvery,
       autoCycle: prefs.autoCycle,
       trayTimer: prefs.trayTimer,
+      distractions: prefs.distractions,
     });
     invoke("set_quick_shortcut", { kind: "panel", accel: prefs.shortcut }).catch(() => {});
     invoke("set_quick_shortcut", { kind: "focus", accel: prefs.focusShortcut }).catch(() => {});
@@ -237,6 +238,7 @@ export function PetWindow() {
       // Saltar también suena si arranca otro bloque; saltar a la nada (fin del ciclo) no.
       if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
     });
+    const unDistract = listen("focus://distraction", () => send({ type: "distracted" }));
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
     const unClaude = listen("claude://start", () => send({ type: "claudeStart" }));
     const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) =>
@@ -315,6 +317,7 @@ export function PetWindow() {
       unsub();
       unDone.then((f) => f());
       unTask.then((f) => f());
+      unDistract.then((f) => f());
       unClaude.then((f) => f());
       unClaudeEnd.then((f) => f());
       unPanel.then((f) => f());
