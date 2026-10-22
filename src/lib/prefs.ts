@@ -3,7 +3,7 @@ import { z } from "zod";
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export const DEFAULT_FOCUS_SHORTCUT = "CommandOrControl+Shift+F";
 export const DEFAULT_VOICE_SHORTCUT = "Alt+Space";
-export const DEFAULT_CENTER_SHORTCUT = "CommandOrControl+Alt+P";
+export const DEFAULT_CENTER_SHORTCUT = "CommandOrControl+Shift+Escape";
 export const PET_SIZE = { min: 64, max: 320, def: 128 };
 
 /** Un proveedor con sus modelos en orden: si uno falla (sobrecarga, cuota…) se prueba el siguiente.

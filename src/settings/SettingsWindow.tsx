@@ -25,6 +25,28 @@ const h = {
   color: T.accent,
 } as const;
 
+/** Número que se puede escribir: guarda apenas el valor queda dentro de [min, max] (escribir "47" pasa por "4", que
+ *  si se guardara al tiro el saneo de prefs lo devolvería al valor por defecto); al salir con uno inválido, vuelve. */
+function NumInput({ value, min, max, onCommit }: { value: number; min: number; max: number; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const ok = (s: string) => s.trim() !== "" && Number.isInteger(Number(s)) && +s >= min && +s <= max;
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        if (ok(e.target.value)) onCommit(Number(e.target.value));
+      }}
+      onBlur={() => !ok(draft) && setDraft(String(value))}
+      style={{ ...btn, width: 64, padding: 4 }}
+    />
+  );
+}
+
 export function SettingsWindow() {
   const { skin, setSkin, reloadSkin, prefs, setPrefs } = useSettings();
   const [skins, setSkins] = useState<{ id: string; name: string }[]>([]);
@@ -54,19 +76,22 @@ export function SettingsWindow() {
     }
   };
 
-  const num = (
-    key: "focusMin" | "shortMin" | "longMin" | "longEvery" | "headDownDeg" | "barkAfterSec" | "awayPauseSec",
-    label: string,
-  ) => (
+  // Rangos iguales a los de prefsSchema (lib/prefs.ts).
+  const RANGE = {
+    focusMin: [1, 180],
+    shortMin: [1, 180],
+    longMin: [1, 180],
+    longEvery: [1, 12],
+    headDownDeg: [5, 60],
+    barkAfterSec: [3, 300],
+    awayPauseSec: [10, 900],
+    dayEndHour: [0, 23],
+    dailyGoalMin: [1, 960],
+  } as const;
+  const num = (key: keyof typeof RANGE, label: string) => (
     <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       {label}
-      <input
-        type="number"
-        min={1}
-        value={prefs[key]}
-        onChange={(e) => setPrefs({ [key]: Number(e.target.value) })}
-        style={{ ...btn, width: 64, padding: 4 }}
-      />
+      <NumInput value={prefs[key]} min={RANGE[key][0]} max={RANGE[key][1]} onCommit={(n) => setPrefs({ [key]: n })} />
     </label>
   );
 
@@ -272,28 +297,8 @@ export function SettingsWindow() {
       </small>
 
       <h2 style={h}>Cierre del día</h2>
-      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        Avisar a las (hora, 0 = apagado)
-        <input
-          type="number"
-          min={0}
-          max={23}
-          value={prefs.dayEndHour}
-          onChange={(e) => setPrefs({ dayEndHour: Number(e.target.value) })}
-          style={{ ...btn, width: 64, padding: 4 }}
-        />
-      </label>
-      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        Meta de foco diaria (min)
-        <input
-          type="number"
-          min={1}
-          max={960}
-          value={prefs.dailyGoalMin}
-          onChange={(e) => setPrefs({ dailyGoalMin: Number(e.target.value) })}
-          style={{ ...btn, width: 64, padding: 4 }}
-        />
-      </label>
+      {num("dayEndHour", "Avisar a las (hora, 0 = apagado)")}
+      {num("dailyGoalMin", "Meta de foco diaria (min)")}
 
       <h2 style={h}>Sonido</h2>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
