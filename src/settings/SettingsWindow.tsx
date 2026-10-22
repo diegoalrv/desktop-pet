@@ -266,7 +266,7 @@ export function SettingsWindow() {
       <small style={{ opacity: 0.7 }}>
         Si miras el teléfono (cabeza abajo sin usar el computador, o teléfono a la vista), Candolita gruñe; si
         sigues, ladra y cuenta como distracción. Si te vas, pausa el foco. Todo se procesa en tu Mac y no se guarda
-        ninguna imagen; la cámara solo se enciende durante el foco. macOS pide permiso la primera vez (Ajustes del
+        ninguna imagen (solo las mediciones, para calibrarla); la cámara solo se enciende durante el foco. macOS pide permiso la primera vez (Ajustes del
         Sistema → Privacidad → Cámara).
       </small>
 

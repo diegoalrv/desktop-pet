@@ -61,6 +61,9 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/** Postura normal calibrada hasta ahora (grados). */
+export const basePitch = (s: CamState) => median(s.pitches);
+
 export function step(prev: CamState, x: Sample, p: CamPrefs): { state: CamState; events: CamEvent[] } {
   const s: CamState = { ...prev };
   const events: CamEvent[] = [];
@@ -69,7 +72,7 @@ export function step(prev: CamState, x: Sample, p: CamPrefs): { state: CamState;
   // Calibración: postura normal = mediana del pitch mientras usa el computador (no mientras mira el teléfono).
   if (x.face && x.pitch !== null && x.idle < ACTIVE_S && s.pitches.length < CALIB_N)
     s.pitches = [...s.pitches, x.pitch];
-  const base = median(s.pitches);
+  const base = basePitch(s);
 
   // Teléfono a la vista, con histéresis para que un frame suelto no prenda ni apague.
   s.phoneRun = x.phone ? s.phoneRun + 1 : 0;

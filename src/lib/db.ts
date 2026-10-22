@@ -25,6 +25,23 @@ const exec = async (sql: string, args: unknown[] = []) => {
   emit("db://changed"); // otras ventanas recargan
 };
 
+/** Muestra de la cámara del foco (F17, migración 010). Sin `db://changed`: nadie la muestra y llega cada 2 s. */
+export const logCamSample = async (r: {
+  at: number;
+  face: boolean;
+  pitch: number | null;
+  yaw: number | null;
+  roll: number | null;
+  phone: number;
+  idle: number;
+  base: number;
+  events: string[];
+}) =>
+  (await get()).execute(
+    "INSERT INTO cam_samples (at, face, pitch, yaw, roll, phone, idle, base, events) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    [r.at, r.face ? 1 : 0, r.pitch, r.yaw, r.roll, r.phone, r.idle, r.base, r.events.join(",") || null],
+  );
+
 /** Consulta libre de solo lectura (vistas del panel web: historial, estadísticas). */
 export const query = select;
 

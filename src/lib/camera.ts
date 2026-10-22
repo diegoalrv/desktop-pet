@@ -6,7 +6,8 @@ import type { FaceLandmarker, ObjectDetector } from "@mediapipe/tasks-vision";
 // ponytail: solo el build SIMD (WebKit lo tiene desde macOS 13.3); agregar el nosimd si alguna vez falla al cargar
 import wasmLoaderPath from "@mediapipe/tasks-vision/vision_wasm_internal.js?url";
 import wasmBinaryPath from "@mediapipe/tasks-vision/vision_wasm_internal.wasm?url";
-import { initCam, step, type CamEvent, type CamState } from "./focusCam";
+import { basePitch, initCam, step, type CamEvent, type CamState } from "./focusCam";
+import { logCamSample } from "./db";
 import { clip } from "./sound";
 import { notify } from "./ipc";
 import { useTimer } from "../store/useTimer";
@@ -15,9 +16,16 @@ import type { PetEvent } from "../pet/stateMachine";
 
 const SAMPLE_MS = 2000; // ponytail: 2 inferencias cada 2 s; si pesa en el Monitor de Actividad, subir a 4000
 const PHONE_SCORE = 0.5;
+const LOG_SCORE = 0.2; // se guarda el score desde acá (cam_samples) para poder recalibrar PHONE_SCORE después
 
 interface Cam {
-  look(): { face: boolean; pitch: number | null; phone: boolean };
+  look(): {
+    face: boolean;
+    pitch: number | null;
+    yaw: number | null;
+    roll: number | null;
+    phoneScore: number;
+  };
   stop(): void;
 }
 
@@ -41,7 +49,7 @@ async function openCam(): Promise<Cam> {
       ObjectDetector.createFromOptions(files, {
         baseOptions: base("/models/efficientdet_lite0.tflite"),
         runningMode: "IMAGE",
-        scoreThreshold: PHONE_SCORE,
+        scoreThreshold: LOG_SCORE,
         categoryAllowlist: ["cell phone"],
         maxResults: 1,
       }),
@@ -50,10 +58,14 @@ async function openCam(): Promise<Cam> {
       look() {
         const f = face.detect(video);
         const m = f.facialTransformationMatrixes[0]?.data;
-        // Rotación en X de la pose (matriz 4x4 column-major): positivo = barbilla hacia el pecho.
-        const pitch = m ? (Math.atan2(m[6], m[10]) * 180) / Math.PI : null;
-        const phone = obj.detect(video).detections.length > 0;
-        return { face: !!m, pitch, phone };
+        // Ángulos de la pose (matriz 4x4 column-major, R[f][c] = m[c*4+f]). Pitch verificado: positivo = barbilla
+        // hacia el pecho; yaw y roll solo se guardan (signo sin verificar).
+        const deg = (r: number) => (r * 180) / Math.PI;
+        const pitch = m ? deg(Math.atan2(m[6], m[10])) : null;
+        const yaw = m ? deg(Math.asin(Math.max(-1, Math.min(1, -m[2])))) : null;
+        const roll = m ? deg(Math.atan2(m[1], m[0])) : null;
+        const phoneScore = obj.detect(video).detections[0]?.categories[0]?.score ?? 0;
+        return { face: !!m, pitch, yaw, roll, phoneScore };
       },
       stop() {
         stream.getTracks().forEach((t) => t.stop()); // apaga el LED
@@ -131,8 +143,26 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     }
     if (st?.away && s.status === "running") st = { ...st, away: false, noFace: null }; // lo reanudaste a mano
     const ctx = await invoke<{ idle: number; meeting: boolean }>("focus_cam_ctx");
-    const r = step(st!, { ...cam.look(), idle: ctx.idle, now: Date.now() }, prefs);
+    const seen = cam.look();
+    const now = Date.now();
+    const sample = {
+      face: seen.face,
+      pitch: seen.pitch,
+      phone: seen.phoneScore >= PHONE_SCORE,
+      idle: ctx.idle,
+      now,
+    };
+    const r = step(st!, sample, prefs);
     st = r.state;
+    // ponytail: ~1800 filas por hora de foco, sin purga; borrar las viejas si la base crece demasiado
+    void logCamSample({
+      ...seen,
+      at: now,
+      phone: seen.phoneScore,
+      idle: ctx.idle,
+      base: basePitch(st),
+      events: r.events.map((e) => e.type),
+    }).catch((e) => console.warn("cam_samples:", e));
     for (const ev of r.events) await handle(ev, ctx.meeting);
   };
 
