@@ -57,6 +57,7 @@ EYES = {  # 4 de ancho, la fila 0 cae en ey-2
     "down":    ["....", "llll", "ekke", ".ew."],          # mira hacia abajo (lee, escribe)
     "wide":    [".www.", "wwkkw", "wwkkw", ".www."],      # sorpresa (5 de ancho)
     "sad":     ["....", ".ee.", "ekwe", ".ke."],          # pupila baja
+    "half":    ["....", "llll", "ekwe", ".ee."],          # párpado a media asta: aburrida, esperando
 }
 BROWS = {  # filas ey-4 y ey-3
     "raise": [".bb.", "b..b"], "focus": ["bb..", "..bb"], "sad": ["..bb", "bb.."], "quirk": [".bbb", "b..."],
@@ -74,6 +75,13 @@ def mouth(c, hx, hy, kind):                                             # comisu
     elif kind == "wobble":
         for k, dy in enumerate((1, 0, 1, 0, 0)): c.put(hx + 7 + k, y + dy, LINE)
     elif kind == "flat": c.line(hx + 7, y, hx + 11, y, LINE)
+    elif kind == "snarl":                                               # gruñido: labio arriba y colmillos
+        c.line(hx + 6, y, hx + 11, y, LINE); c.put(hx + 8, y + 1, WHITE); c.put(hx + 10, y + 1, WHITE)
+        c.put(hx + 6, y - 4, LINE); c.put(hx + 7, y - 5, LINE)                         # arruga del hocico
+    elif kind == "bark":                                                # ladrido: mandíbula abierta
+        c.ell(hx + 8, y + 3, 4.5, 2.5, LINE); c.ell(hx + 8, y + 3, 3.5, 1.5, FUR)
+        c.rect(hx + 6, y, hx + 11, y + 2, LINE); c.rect(hx + 7, y + 1, hx + 10, y + 1, (150, 50, 70))
+        c.put(hx + 10, y + 2, TONGUE); c.put(hx + 9, y + 2, TONGUE); c.put(hx + 11, y, WHITE); c.put(hx + 11, y + 2, WHITE)
     elif kind == "o": c.line(hx + 7, y, hx + 11, y, LINE); c.rect(hx + 9, y + 1, hx + 10, y + 2, LINE); c.put(hx + 9, y + 1, (150, 50, 70))
     else:                                                               # smile / open
         c.put(hx + 7, y - 1, LINE); c.line(hx + 8, y, hx + 11, y, LINE)
@@ -354,6 +362,44 @@ def ask(i):                                                             # espera
                arm=(52, (36, 34, 34, 36)[i]), props=p)
 ACC = (232, 82, 60)
 
+def balloon(c, bx, by):                                                 # globito blanco con colita abajo a la izquierda
+    c.ell(bx + 3, by + 4, 6, 6, LINE); c.ell(bx + 3, by + 4, 5, 5, WHITE)
+    c.put(bx - 1, by + 10, WHITE); c.put(bx - 2, by + 11, LINE)
+
+def growl(i):                                                           # vio el teléfono: agachada, pelo erizado, colmillos y "grrr"
+    shake = (0, 1, 0, -1)[i]
+    def p(c, by, hx, hy):
+        for x in range(20, 38, 4): c.line(x, by - 7, x + 1, by - 10 - (x + i) % 2, LINE)   # lomo erizado
+        for k in range(2):                                                              # rumor del gruñido (zigzag)
+            gx, gy = hx + 14, hy + 1 + k * 4 + i % 2
+            for j in range(5): c.put(gx + j, gy - j % 2, INK)
+        bx, by2 = hx - 17, hy - 20                                                      # globito con el teléfono vibrando
+        balloon(c, bx, by2)
+        c.rect(bx + 1, by2 + 1, bx + 5, by2 + 8, INK); c.rect(bx + 2, by2 + 2, bx + 4, by2 + 6, (110, 170, 230)); c.put(bx + 3, by2 + 7, GREY)
+        if i % 2: c.line(bx - 1, by2 + 2, bx - 1, by2 + 4, ACC); c.line(bx + 7, by2 + 5, bx + 7, by2 + 7, ACC)
+    return dog(bob=1, head=(-1 + shake, 6), eyes="focus", wag=-4, props=p,
+               face=dict(brow="focus", smile="snarl", ear="droop"))
+
+def bark(i):                                                            # distracción que cuenta: ladra con todo, saltito y "!"
+    loud = i in (1, 3)
+    def p(c, by, hx, hy):
+        if not loud: return
+        mx, my = hx + 13, hy + 5                                                        # ondas del ladrido desde el hocico
+        for dx, dy in ((3, -5), (4, 0), (3, 5)):
+            c.line(mx + dx // 3, my + dy // 3, mx + dx, my + dy, ACC if i == 3 else GOLD)
+        ex = hx + 8                                                                     # "!" sobre el hocico
+        c.rect(ex - 1, hy - 19, ex + 1, hy - 13, ACC); c.rect(ex - 1, hy - 11, ex + 1, hy - 10, ACC)
+    return dog(dy=(0, -3, 0, -2)[i], legs=(0, 0, 3, 3) if loud else (0, 0, 0, 0), head=(0, -2 if loud else 0), eyes="focus",
+               wag=(4, -4)[i % 2], props=p, face=dict(brow="focus", smile="bark" if loud else "flat", ear="perk"))
+
+def away(i):                                                            # foco pausado porque te fuiste: echada, te espera con "⏸ ..."
+    def p(c, by, hx, hy):
+        bx, by2 = hx - 4, hy - 21
+        balloon(c, bx, by2)
+        c.rect(bx + 1, by2 + 2, bx + 2, by2 + 6, INK); c.rect(bx + 4, by2 + 2, bx + 5, by2 + 6, INK)
+        for k in range(i % 4): c.put(bx + 11 + k * 3, by2 + 8, INK)                    # puntitos que se van sumando
+    return dog(bob=(0, 0, 1, 0)[i], eyes="closed" if i == 3 else "half", tuck=6, props=p, face=dict(smile="flat", ear="droop"))
+
 def png(path, w, h, rows):
     raw = b"".join(b"\x00" + bytes(v for px in row for v in px) for row in rows)
     def ch(t, d): c = struct.pack(">I", len(d)) + t + d; return c + struct.pack(">I", zlib.crc32(t + d))
@@ -365,7 +411,8 @@ def sheet(fn, n):
 
 anims = {"idle": (idle, 4), "walk": (walk, 6), "focus": (focus, 4), "celebrate": (celeb, 6), "sleep": (sleep, 4), "dragged": (drag, 2),
          "read": (read, 4), "write": (write, 4), "tea": (tea, 4), "guitar": (guitar, 4), "headbang": (headbang, 4), "drums": (drums, 4), "listen": (listen, 4), "work": (laptop, 4),
-         "mission": (mission, 4), "oops": (oops, 4), "ask": (ask, 4)}
+         "mission": (mission, 4), "oops": (oops, 4), "ask": (ask, 4),
+         "growl": (growl, 4), "bark": (bark, 4), "away": (away, 4)}
 for name, (fn, n) in anims.items(): png(f"{OUT}/{name}.png", F * n, F, sheet(fn, n))
 
 # vista previa ampliada x3 con todas las filas (fondo claro)

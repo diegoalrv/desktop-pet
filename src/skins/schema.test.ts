@@ -41,6 +41,15 @@ describe("manifest", () => {
     expect(resolveAnim(m, "fall").key).toBe("idle"); // sin "dragged" -> idle
     expect(resolveAnim(m, "break").key).toBe("idle");
   });
+  it("resolveAnim: estados de la cámara caen a su segunda opción y luego a idle", () => {
+    const anims = (...ks: string[]) =>
+      parseManifest({ ...base, animations: Object.fromEntries(ks.map((k) => [k, a(`${k}.png`)])) });
+    expect(resolveAnim(anims("idle", "growl", "oops"), "growl").key).toBe("growl");
+    expect(resolveAnim(anims("idle", "oops", "sleep"), "growl").key).toBe("oops");
+    expect(resolveAnim(anims("idle", "oops", "sleep"), "bark").key).toBe("oops");
+    expect(resolveAnim(anims("idle", "oops", "sleep"), "away").key).toBe("sleep");
+    expect(resolveAnim(anims("idle"), "away").key).toBe("idle");
+  });
   it("imagen única: todas las animaciones, 1 frame, escala a 128", () => {
     const m = singleImageManifest("img-a", "A", "sprite.png", 512, 256);
     expect(Object.keys(m.animations)).toHaveLength(6);

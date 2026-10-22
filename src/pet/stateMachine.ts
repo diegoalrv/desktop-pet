@@ -13,7 +13,10 @@ export type PetState =
   | "oops"
   | "ask" // Claude Code: trabajando, misión cumplida, falló, espera tu ok
   | "tea" // cierre del día sin cumplir la meta: un té tranquilo
-  | "listen"; // le estás hablando (atajo de voz mantenido)
+  | "listen" // le estás hablando (atajo de voz mantenido)
+  | "growl" // foco: la cámara te ve con el teléfono (aviso, no cuenta)
+  | "bark" // foco: distracción que cuenta (app de la lista o teléfono pasado `barkAfterSec`)
+  | "away"; // foco pausado porque la cámara no te ve: se echa a esperarte
 
 /** Cómo terminó una orden a Claude Code. */
 export type ClaudeOutcome = "mission" | "oops" | "ask";
@@ -30,8 +33,9 @@ export type PetEvent =
   | { type: "timerStop" } // reset / fin de pausa: vuelve a idle
   | { type: "timerEnd" } // fin de foco -> celebrate -> break; fin de break -> idle
   | { type: "taskDone" }
-  | { type: "distracted" } // abrió una app de la lista de distracciones durante el foco (o la cámara vio el teléfono)
-  | { type: "away" } // la cámara no te ve: el foco se pausó solo y se duerme
+  | { type: "distracted" } // abrió una app de la lista de distracciones o siguió con el teléfono: ladra
+  | { type: "growl" } // la cámara vio el teléfono: gruñe
+  | { type: "away" } // la cámara no te ve: el foco se pausó solo y te espera echada
   | { type: "back" } // volviste: despierta al foco (pausado, no lo reanuda)
   | { type: "panelOpen" } // se abrió el panel: quieta y atenta
   | { type: "panelClose" } // se cerró: sigue con lo suyo
@@ -57,7 +61,7 @@ export const IDLE_MIN = 5;
 export const IDLE_SPAN = 10; // 5-15 s
 export const CELEBRATE_S = 2;
 export const SLEEP_AFTER_S = 600;
-export const DISTRACT_S = 3; // oops por una distracción en pleno foco
+export const DISTRACT_S = 3; // gruñido / ladridos por una distracción en pleno foco
 export const OUTCOME_S = 4; // misión cumplida / falló
 export const ASK_S = 60; // esperando tu ok
 export const TEA_S = 8; // té del cierre del día
@@ -65,8 +69,9 @@ export const TEA_S = 8; // té del cierre del día
 /** Estados libres: Claude puede ponerla a trabajar (en foco/pausa no la interrumpe). */
 const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask", "tea", "listen"];
 
-/** oops por distracción: al terminar vuelve al foco (o a la pausa si el foco terminó mientras tanto). */
-const backToTimer = (c: Ctx) => c.state === "oops" && (c.after === "focus" || c.after === "break");
+/** Gruñido/ladridos: al terminar vuelve al foco (o a la pausa si el foco terminó mientras tanto). */
+const backToTimer = (c: Ctx) =>
+  (c.state === "growl" || c.state === "bark") && (c.after === "focus" || c.after === "break");
 
 const idleFor = (r: number) => IDLE_MIN + r * IDLE_SPAN;
 const to = (c: Ctx, state: PetState, left = Infinity, after = c.after): Ctx => ({ ...c, state, left, after });
@@ -89,21 +94,23 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       return c.state === "dragged" ? to(c, "fall") : c;
     case "land":
       if (c.state !== "fall") return c;
-      return c.after === "focus" || c.after === "break" || c.after === "work" ? to(c, c.after) : goIdle(c, r);
+      return c.after === "focus" || c.after === "break" || c.after === "work" || c.after === "away"
+        ? to(c, c.after)
+        : goIdle(c, r);
     case "timerStart":
       return c.state === "dragged" || c.state === "fall"
         ? { ...c, after: "focus" }
         : { ...to(c, "focus"), quiet: 0 };
     case "breakStart":
       if (c.state === "dragged" || c.state === "fall") return { ...c, after: "break" };
-      return c.state === "idle" || c.state === "walk" || c.state === "sleep" || c.state === "attention"
+      return ["idle", "walk", "sleep", "attention", "away"].includes(c.state)
         ? { ...to(c, "break"), quiet: 0 }
         : c;
     case "timerStop":
-      if (c.state === "focus" || c.state === "break") return goIdle(c, r);
-      if (c.state === "sleep" && c.after === "focus") return goIdle({ ...c, after: "idle" }, r); // reset estando ausente
+      if (c.state === "focus" || c.state === "break" || c.state === "away") return goIdle(c, r);
       if (backToTimer(c)) return { ...c, after: "idle" };
-      return (c.state === "dragged" || c.state === "fall") && (c.after === "focus" || c.after === "break")
+      return (c.state === "dragged" || c.state === "fall") &&
+        (c.after === "focus" || c.after === "break" || c.after === "away")
         ? { ...c, after: "idle" }
         : c;
     case "timerEnd":
@@ -115,12 +122,15 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate") return c;
       return to(c, "celebrate", CELEBRATE_S, c.state === "sleep" ? "idle" : c.state);
     }
+    case "growl":
+      return c.state === "focus" ? to(c, "growl", DISTRACT_S, "focus") : c;
     case "distracted":
-      return c.state === "focus" ? to(c, "oops", DISTRACT_S, "focus") : c;
+      if (backToTimer(c)) return to(c, "bark", DISTRACT_S); // conserva `after` (el foco pudo terminar)
+      return c.state === "focus" ? to(c, "bark", DISTRACT_S, "focus") : c;
     case "away":
-      return c.state === "focus" || backToTimer(c) ? to(c, "sleep", Infinity, "focus") : c;
+      return c.state === "focus" || backToTimer(c) ? to(c, "away", Infinity, "focus") : c;
     case "back":
-      return c.state === "sleep" && c.after === "focus" ? to(c, "focus") : c;
+      return c.state === "away" ? to(c, "focus") : c;
     case "panelOpen": {
       const w = { ...c, watching: true, quiet: 0 };
       return w.state === "idle" || w.state === "walk" || w.state === "sleep" ? to(w, "attention") : w;
@@ -155,7 +165,8 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       if (left > 0) return { ...c, left, quiet };
       if (c.state === "idle") return { ...to(c, "walk"), quiet };
       if (backToTimer(c)) return to({ ...c, quiet }, c.after);
-      if (c.state === "mission" || c.state === "oops" || c.state === "ask" || c.state === "tea") return goIdle({ ...c, quiet }, r);
+      if (["mission", "oops", "ask", "tea", "growl", "bark"].includes(c.state))
+        return goIdle({ ...c, quiet }, r);
       if (c.state === "celebrate")
         return c.after === "walk" || c.after === "attention"
           ? goIdle({ ...c, quiet }, r)

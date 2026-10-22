@@ -19,6 +19,9 @@ const ANIM: Record<PetState, string> = {
   ask: "perk 1.2s ease-in-out infinite",
   tea: "bob 3.5s ease-in-out infinite",
   listen: "perk 1.2s ease-in-out infinite",
+  growl: "dangle .12s ease-in-out infinite alternate",
+  bark: "hop .3s ease-in-out infinite",
+  away: "bob 3.5s ease-in-out infinite",
 };
 
 const CSS = `
@@ -127,7 +130,7 @@ function Pack({
 }
 
 function Builtin({ state, size }: { state: PetState; size: number }) {
-  const asleep = state === "sleep";
+  const asleep = state === "sleep" || state === "away";
   return (
     <svg
       width={size}

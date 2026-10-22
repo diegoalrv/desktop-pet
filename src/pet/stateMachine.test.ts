@@ -42,31 +42,48 @@ describe("stateMachine", () => {
     expect(c.state).toBe("sleep");
     expect(run(c, { type: "input" }).state).toBe("idle");
   });
-  it("distracción en foco: oops 3 s y vuelve a focus; fuera del foco no hace nada", () => {
+  it("distracción en foco: ladra 3 s y vuelve a focus; fuera del foco no hace nada", () => {
     let c = run(initial(), { type: "timerStart" }, { type: "distracted" });
-    expect(c.state).toBe("oops");
-    expect(run(c, tick(2.9)).state).toBe("oops");
+    expect(c.state).toBe("bark");
+    expect(run(c, tick(2.9)).state).toBe("bark");
     expect(run(c, tick(3.1)).state).toBe("focus");
-    expect(run(initial(), { type: "distracted" }).state).not.toBe("oops");
-    // el foco termina durante el oops: sigue a la pausa; reset durante el oops: idle
+    expect(run(initial(), { type: "distracted" }).state).not.toBe("bark");
+    // el foco termina durante los ladridos: sigue a la pausa; reset durante los ladridos: idle
     c = run(c, { type: "timerEnd" });
     expect(run(c, tick(3.1)).state).toBe("break");
     c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "timerStop" });
     expect(run(c, tick(3.1)).state).toBe("idle");
   });
-  it("ausencia (cámara): focus -> sleep; back -> focus; reset estando ausente -> idle", () => {
+  it("teléfono (cámara): gruñe 3 s y vuelve a focus; si cuenta, ladra; fuera del foco nada", () => {
+    const c = run(initial(), { type: "timerStart" }, { type: "growl" });
+    expect(c.state).toBe("growl");
+    expect(run(c, tick(3.1)).state).toBe("focus");
+    expect(run(c, { type: "distracted" }).state).toBe("bark");
+    expect(run(c, { type: "distracted" }, { type: "growl" }).state).toBe("bark"); // no baja de ladrar a gruñir
+    expect(run(c, { type: "timerEnd" }, { type: "distracted" }, tick(3.1)).state).toBe("break");
+    expect(run(initial(), { type: "growl" }).state).toBe("idle");
+  });
+  it("ausencia (cámara): focus -> away; back -> focus; reset estando ausente -> idle", () => {
     const c = run(initial(), { type: "timerStart" }, { type: "away" });
-    expect(c.state).toBe("sleep");
-    expect(run(c, tick(700)).state).toBe("sleep");
+    expect(c.state).toBe("away");
+    expect(run(c, tick(700), { type: "input" }, { type: "panelOpen" }).state).toBe("away");
     expect(run(c, { type: "back" }).state).toBe("focus");
     expect(run(c, { type: "timerStop" }, { type: "back" }).state).toBe("idle");
-    expect(run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "away" }).state).toBe("sleep");
+    for (const type of ["distracted", "growl"] as const)
+      expect(run(initial(), { type: "timerStart" }, { type }, { type: "away" }).state).toBe("away");
     expect(run(initial(), { type: "away" }).state).toBe("idle"); // fuera del foco no hace nada
     expect(run(initial(), { type: "back" }).state).toBe("idle");
+    expect(run(initial(), tick(300), tick(301), { type: "back" }).state).toBe("sleep"); // dormida de verdad: no la despierta
+    // arrastrarla estando ausente: vuelve a esperar; reset mientras tanto: idle
+    const drag = [{ type: "drag" }, { type: "drop" }] as PetEvent[];
+    expect(run(c, ...drag, { type: "land" }).state).toBe("away");
+    expect(run(c, ...drag, { type: "timerStop" }, { type: "land" }).state).toBe("idle");
   });
-  it("arrastrarla durante el oops de distracción no pierde el foco", () => {
-    const c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "drag" }, { type: "drop" }, { type: "land" });
-    expect(c.state).toBe("focus");
+  it("arrastrarla durante los ladridos o el gruñido no pierde el foco", () => {
+    for (const type of ["distracted", "growl"] as const) {
+      const c = run(initial(), { type: "timerStart" }, { type }, { type: "drag" }, { type: "drop" });
+      expect(run(c, { type: "land" }).state).toBe("focus");
+    }
   });
   it("drag mientras focus: tras land vuelve a focus", () => {
     const c = run(initial(), { type: "timerStart" }, { type: "drag" }, { type: "drop" }, { type: "land" });

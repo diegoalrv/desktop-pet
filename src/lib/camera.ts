@@ -94,7 +94,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     const loud = !quiet && useSettings.getState().prefs.sound;
     switch (ev.type) {
       case "growl":
-        send({ type: "distracted" });
+        send({ type: "growl" });
         if (loud) clip("growl");
         break;
       case "bark": // Rust suma el tiempo y, en el primero, emite focus://distraction -> oops

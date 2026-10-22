@@ -106,6 +106,24 @@
       "frames": 4,
       "fps": 4,
       "loop": true
+    },
+    "growl": {
+      "file": "growl.png",
+      "frames": 4,
+      "fps": 8,
+      "loop": true
+    },
+    "bark": {
+      "file": "bark.png",
+      "frames": 4,
+      "fps": 6,
+      "loop": true
+    },
+    "away": {
+      "file": "away.png",
+      "frames": 4,
+      "fps": 2,
+      "loop": true
     }
   },
   "walkSpeed": 30,

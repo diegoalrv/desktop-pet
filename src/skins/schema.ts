@@ -41,14 +41,17 @@ const ANIM_OF: Record<PetState, string> = {
   ask: "idle",
   tea: "tea", // skins sin ella caen a idle (resolveAnim)
   listen: "listen",
+  growl: "growl",
+  bark: "bark",
+  away: "away",
 };
+/** Segunda opción antes de `idle` para skins que no traen la animación (la que usaban antes). */
+const SECOND: Record<string, string> = { growl: "oops", bark: "oops", away: "sleep" };
 
-/** Animación para un estado; si el skin no la trae, usa `idle`. */
+/** Animación para un estado; si el skin no la trae, su segunda opción y si no `idle`. */
 export function resolveAnim(m: Manifest, state: PetState): { key: string; anim: Anim } {
-  const want = ANIM_OF[state];
-  return want in m.animations
-    ? { key: want, anim: m.animations[want] }
-    : { key: "idle", anim: m.animations.idle };
+  const key = [ANIM_OF[state], SECOND[ANIM_OF[state]]].find((k) => k && k in m.animations) ?? "idle";
+  return { key, anim: m.animations[key] };
 }
 
 /** Ánimos: variantes por estado que se alternan cada MOOD_S. Con música van las musicales.
