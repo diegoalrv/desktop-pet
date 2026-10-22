@@ -44,7 +44,8 @@ export const prefsSchema = z.object({
   distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
   // Cámara durante el foco (F17, lib/camera.ts): gruñe/ladra si miras el teléfono, pausa si te vas
   focusCam: z.boolean().catch(false),
-  headDownDeg: z.coerce.number().int().min(5).max(60).catch(20), // grados bajo tu postura normal = mirando abajo
+  // grados sobre tu postura normal = mirando abajo; medido: monitor ≈ 12°, cabeza abajo ≈ 30° (+18), techo ≈ −40°
+  headDownDeg: z.coerce.number().int().min(5).max(60).catch(12),
   barkAfterSec: z.coerce.number().int().min(3).max(300).catch(15), // gruñe al tiro; ladra (y cuenta) pasado esto
   awayPauseSec: z.coerce.number().int().min(10).max(900).catch(90),
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar

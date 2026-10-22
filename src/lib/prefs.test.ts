@@ -26,7 +26,7 @@ describe("prefs", () => {
       voice: false,
       distractions: [],
       focusCam: false,
-      headDownDeg: 20,
+      headDownDeg: 12,
       barkAfterSec: 15,
       awayPauseSec: 90,
       icalUrl: "",

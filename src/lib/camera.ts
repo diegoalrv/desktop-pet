@@ -53,7 +53,6 @@ async function openCam(): Promise<Cam> {
         // Rotación en X de la pose (matriz 4x4 column-major): positivo = barbilla hacia el pecho.
         const pitch = m ? (Math.atan2(m[6], m[10]) * 180) / Math.PI : null;
         const phone = obj.detect(video).detections.length > 0;
-        if (import.meta.env.DEV) console.debug("cam", { face: !!m, pitch: pitch?.toFixed(1), phone });
         return { face: !!m, pitch, phone };
       },
       stop() {

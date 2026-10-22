@@ -221,7 +221,7 @@ Cómo:
   `cell phone`, score ≥ 0.5) para el teléfono a la vista. Modelos y `.wasm` copiados a `public/models/` (sin CDN en
   runtime). `getUserMedia` en `PetWindow` con un `<video>` fuera de pantalla; parar los tracks (`track.stop()`,
   apaga el LED) apenas el foco deja de estar `Running`.
-- "Distraído" = (`pitch - base ≥ headDownDeg` (pref, default 20) durante ≥ 3 s **y** sin teclado ni mouse en ese
+- "Distraído" = (`pitch - base ≥ headDownDeg` (pref, default 12; medido: cabeza abajo ≈ +18°) durante ≥ 3 s **y** sin teclado ni mouse en ese
   rato) **o** teléfono visto en 2 muestras seguidas. `base` = mediana del pitch de las primeras ~30 muestras
   usando el computador (input hace < 3 s; así mirar el teléfono al empezar no la ensucia). La cámara del usuario
   está en el monitor, de frente: base ≈ 0, pero se calibra igual por si cambia. Inactividad:
