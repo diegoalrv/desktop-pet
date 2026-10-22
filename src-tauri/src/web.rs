@@ -51,11 +51,15 @@ pub fn spawn(app: AppHandle) {
         // Solo loopback. Si el puerto está ocupado (otra instancia de la app), simplemente no hay web.
         let Ok(server) = Server::http(("127.0.0.1", PORT)) else { return };
         for mut req in server.incoming_requests() {
-            let (status, mime, body) = handle(&app, &mut req);
-            let res = Response::from_data(body)
-                .with_status_code(status)
-                .with_header(Header::from_bytes("Content-Type", mime).unwrap());
-            let _ = req.respond(res);
+            // Un hilo por pedido: preguntarle a las reuniones espera al LLM y no debe congelar el resto de la web.
+            let app = app.clone();
+            thread::spawn(move || {
+                let (status, mime, body) = handle(&app, &mut req);
+                let res = Response::from_data(body)
+                    .with_status_code(status)
+                    .with_header(Header::from_bytes("Content-Type", mime).unwrap());
+                let _ = req.respond(res);
+            });
         }
     });
 }
@@ -112,6 +116,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "meeting_stop" => ok(meeting::meeting_stop(app.state())),
         "meeting_reset" => ok(meeting::meeting_reset(app.clone(), app.state())),
         "meeting_retry" => meeting::meeting_retry(app.clone(), app.state(), llms(app), a["id"].as_u64()).map(|_| Value::Null),
+        "meetings_ask" => meeting::ask_meetings(app, &llms(app), a["q"].as_str().unwrap_or_default()).map(|r| json!(r)),
         "music_state" => Ok(music::music_state()),
         "music_cmd" => ok(music::music_cmd(app.clone(), a["cmd"].as_str().unwrap_or_default().into(), a.get("arg").cloned())),
         _ => Err(format!("comando desconocido: {}", c.cmd)),

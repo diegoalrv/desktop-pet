@@ -126,6 +126,12 @@ pub fn run() {
                             sql: include_str!("../migrations/006_meeting_notes.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 9,
+                            description: "meeting_chunks",
+                            sql: include_str!("../migrations/009_meeting_chunks.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -165,6 +171,7 @@ pub fn run() {
             meeting::meeting_state,
             meeting::meetings_list,
             meeting::meeting_retry,
+            meeting::meetings_ask,
             windows::set_quick_shortcut,
             timer::timer_config,
             timer::timer_get,
@@ -188,6 +195,13 @@ pub fn run() {
             timer::restore(app.handle());
             timer::spawn(app.handle().clone());
             web::spawn(app.handle().clone());
+            // Indexa para preguntarle a las reuniones lo que falte (sin Ollama no hace nada). Espera a que el
+            // frontend corra las migraciones (tauri-plugin-sql), que crean meeting_chunks.
+            let h = app.handle().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(20));
+                let _ = meeting::index_missing(&h);
+            });
             let _ = windows::set_quick_shortcut(
                 windows::DEFAULT_SHORTCUT.into(),
                 app.handle().clone(),

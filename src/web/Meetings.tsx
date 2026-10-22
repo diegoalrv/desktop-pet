@@ -55,6 +55,58 @@ function ProjectInput({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
+type Answer = { answer: string; sources: { n: number; meeting: number; title: string | null; text: string }[] };
+
+/** Pregunta libre a todas las reuniones (meetings_ask: Ollama busca los bloques, el LLM responde con citas). */
+function AskCard() {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<Answer | null>(null);
+  const [err, setErr] = useState("");
+  const ask = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr("");
+    call<Answer>("meetings_ask", { q, ...llms() })
+      .then(setRes, (e) => (setRes(null), setErr(String(e))))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <form className="d-card" onSubmit={ask}>
+      <div className="d-row">
+        <input
+          className="d-in"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Pregúntale a tus reuniones: ¿qué dijimos del plazo de SIMBIO?"
+          style={{ flex: 1, minWidth: 0 }}
+        />
+        <button className="d-b pri" disabled={busy || !q.trim()}>
+          <Icon name="zap" size="1em" /> {busy ? "Buscando…" : "Preguntar"}
+        </button>
+      </div>
+      {err && <span style={{ color: "var(--err)" }}>{err}</span>}
+      {res && (
+        <>
+          <span style={{ whiteSpace: "pre-line", maxWidth: "80ch" }}>{res.answer}</span>
+          {res.sources.map((s) => (
+            <details key={s.n}>
+              <summary>
+                <a href={`#meetings/${s.meeting}`} className="d-more" style={{ marginLeft: 0 }}>
+                  [{s.n}] {s.title || fmtDate(s.meeting * 1000)}
+                </a>
+              </summary>
+              <div className="d-dim" style={{ whiteSpace: "pre-line", fontSize: 13 }}>
+                {s.text}
+              </div>
+            </details>
+          ))}
+        </>
+      )}
+    </form>
+  );
+}
+
 /** Reunión en curso (o estado de la última búsqueda de tareas), con empezar/terminar. */
 function LiveCard({ live, onErr }: { live: Live | undefined; onErr: (e: string) => void }) {
   if (!live) return null;
@@ -255,6 +307,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
         />
       </Head>
       <LiveCard live={live} onErr={setErr} />
+      <AskCard />
       {err && <span style={{ color: "var(--err)" }}>{err}</span>}
       <div className="d-card" style={{ padding: 8 }}>
         {shown.map((m) => {
