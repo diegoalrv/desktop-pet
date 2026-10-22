@@ -5,6 +5,7 @@ mod meeting;
 mod music;
 mod timer;
 mod tray;
+mod voice;
 mod windows;
 mod web;
 
@@ -152,15 +153,16 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, ev| {
-                    if ev.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        return;
-                    }
+                    let pressed = ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed;
                     match windows::shortcut_kind(app, shortcut) {
                         // Abre/cierra el panel tal como quedó (sin forzar una pestaña).
-                        Some("panel") => {
+                        Some("panel") if pressed => {
                             let _ = windows::toggle_panel(app.clone(), app.state());
                         }
-                        Some("focus") => timer::toggle_focus(app),
+                        Some("focus") if pressed => timer::toggle_focus(app),
+                        // Mantener para hablarle a la Candola; al soltar se transcribe.
+                        Some("voice") if pressed => voice::start(app),
+                        Some("voice") => voice::stop(app),
                         _ => {}
                     }
                 })
@@ -171,12 +173,14 @@ pub fn run() {
         .manage(meeting::MeetingState::default())
         .manage(windows::LastBlur::default())
         .manage(windows::Shortcuts::default())
+        .manage(voice::Voice::default())
         .manage(timer::TimerState::new(timer::Timer::new()))
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             fetch_ical,
             claude::claude_ask,
             claude::claude_cancel,
+            voice::voice_say,
             music::music_open,
             music::music_cmd,
             music::music_state,

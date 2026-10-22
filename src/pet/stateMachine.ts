@@ -12,7 +12,8 @@ export type PetState =
   | "mission"
   | "oops"
   | "ask" // Claude Code: trabajando, misión cumplida, falló, espera tu ok
-  | "tea"; // cierre del día sin cumplir la meta: un té tranquilo
+  | "tea" // cierre del día sin cumplir la meta: un té tranquilo
+  | "listen"; // le estás hablando (atajo de voz mantenido)
 
 /** Cómo terminó una orden a Claude Code. */
 export type ClaudeOutcome = "mission" | "oops" | "ask";
@@ -34,6 +35,8 @@ export type PetEvent =
   | { type: "panelClose" } // se cerró: sigue con lo suyo
   | { type: "claudeStart" }
   | { type: "claudeEnd"; outcome: ClaudeOutcome }
+  | { type: "voiceStart" } // mantienes el atajo de voz: te escucha
+  | { type: "voiceEnd" } // lo soltaste: vuelve a lo suyo (si la orden llega, Claude la pone a trabajar)
   | { type: "dayEnd"; met: boolean }; // cierre del día: meta cumplida -> celebra; si no, toma té
 
 export interface Ctx {
@@ -58,7 +61,7 @@ export const ASK_S = 60; // esperando tu ok
 export const TEA_S = 8; // té del cierre del día
 
 /** Estados libres: Claude puede ponerla a trabajar (en foco/pausa no la interrumpe). */
-const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask", "tea"];
+const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask", "tea", "listen"];
 
 /** oops por distracción: al terminar vuelve al foco (o a la pausa si el foco terminó mientras tanto). */
 const backToTimer = (c: Ctx) => c.state === "oops" && (c.after === "focus" || c.after === "break");
@@ -126,6 +129,10 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     case "claudeEnd":
       if (c.state === "work") return to(c, ev.outcome, ev.outcome === "ask" ? ASK_S : OUTCOME_S, "attention");
       return c.after === "work" ? { ...c, after: "attention" } : c; // terminó mientras la arrastraban
+    case "voiceStart":
+      return FREE.includes(c.state) ? { ...to(c, "listen"), quiet: 0 } : c;
+    case "voiceEnd":
+      return c.state === "listen" ? goIdle(c, r) : c;
     case "dayEnd":
       if (ev.met) return transition(c, { type: "taskDone" }, r);
       return FREE.includes(c.state) ? { ...to(c, "tea", TEA_S, "attention"), quiet: 0 } : c;

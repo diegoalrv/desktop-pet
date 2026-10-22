@@ -70,6 +70,7 @@ export function PetWindow() {
     });
     invoke("set_quick_shortcut", { kind: "panel", accel: prefs.shortcut }).catch(() => {});
     invoke("set_quick_shortcut", { kind: "focus", accel: prefs.focusShortcut }).catch(() => {});
+    invoke("set_quick_shortcut", { kind: "voice", accel: prefs.voiceShortcut }).catch(() => {});
   }, [prefs]);
 
   // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
@@ -241,6 +242,7 @@ export function PetWindow() {
       if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
     });
     const unDistract = listen("focus://distraction", () => send({ type: "distracted" }));
+    const unVoice = listen<boolean>("voice://listening", (e) => send({ type: e.payload ? "voiceStart" : "voiceEnd" }));
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
     const unClaude = listen("claude://start", () => send({ type: "claudeStart" }));
     const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) =>
@@ -339,6 +341,7 @@ export function PetWindow() {
       unDone.then((f) => f());
       unTask.then((f) => f());
       unDistract.then((f) => f());
+      unVoice.then((f) => f());
       unClaude.then((f) => f());
       unClaudeEnd.then((f) => f());
       unPanel.then((f) => f());

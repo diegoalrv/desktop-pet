@@ -6,7 +6,7 @@ import { TimerControls } from "./TimerControls";
 import { DayClose } from "./DayClose";
 import { MusicPlayer } from "./MusicPlayer";
 import { MeetingTab } from "./MeetingTab";
-import { ChatTab } from "./ChatTab";
+import { ChatTab, type VoicePrompt } from "./ChatTab";
 import { Icon, type IconName } from "./icons";
 import { PN_CSS } from "./ui";
 import { fmt } from "../lib/time";
@@ -53,9 +53,18 @@ function Status() {
 export function PanelWindow() {
   const [tab, setTab] = useState<Tab>("timer");
   // Rust (open_panel_tab) abre el panel en una pestaña: el aviso de reunión lo deja en "Reunión".
+  // Lo dictado con el atajo de voz (voice.rs): va al chat como si lo hubieras escrito.
+  const [voice, setVoice] = useState<VoicePrompt>();
   useEffect(() => {
     const un = listen<Tab>("panel://tab", (e) => setTab(e.payload));
-    return () => void un.then((f) => f());
+    const unVoice = listen<string>("voice://text", (e) => {
+      setVoice((v) => ({ text: e.payload, n: (v?.n ?? 0) + 1 }));
+      setTab("chat");
+    });
+    return () => {
+      un.then((f) => f());
+      unVoice.then((f) => f());
+    };
   }, []);
 
   return (
@@ -111,7 +120,7 @@ export function PanelWindow() {
         {tab === "tasks" && <TaskList onFocusTask={() => setTab("timer")} />}
         {tab === "meeting" && <MeetingTab />}
         {tab === "music" && <MusicPlayer />}
-        {tab === "chat" && <ChatTab />}
+        {tab === "chat" && <ChatTab voice={voice} />}
       </main>
 
       <nav className="pn-nav">

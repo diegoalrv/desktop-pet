@@ -36,8 +36,13 @@ const clearedAt = () => Number(localStorage.getItem(CLEARED)) || 0;
 
 const SUGGESTIONS = ["¿Qué tengo para hoy?", "¿Qué quedó de la última reunión?", "¿Cómo va mi semana?"];
 
+/** Orden dictada con el atajo de voz; `n` sube con cada una. */
+export type VoicePrompt = { text: string; n: number };
+// La pestaña se monta y desmonta: cada orden dictada corre una sola vez, aunque se vuelva a montar.
+let voiceDone = 0;
+
 /** Chat estilo CLI con Claude Code (claude.rs). Solo lectura por defecto; lo demás se confirma o va en modo dios. */
-export function ChatTab() {
+export function ChatTab({ voice }: { voice?: VoicePrompt }) {
   const cwd = useSettings((s) => s.prefs.claudeCwd);
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState("");
@@ -45,6 +50,7 @@ export function ChatTab() {
   const [god, setGod] = useState(false); // ponytail: no se guarda; al reabrir la pestaña vuelve a seguro
   const [pending, setPending] = useState<Denial[]>([]);
   const session = useRef<string | null>(null);
+  const spoken = useRef(false); // la orden en curso vino por voz: su respuesta se lee en voz alta
   const log = useRef<HTMLDivElement>(null);
   const add = (l: Line) => setLines((ls) => [...ls, l]);
 
@@ -83,6 +89,9 @@ export function ChatTab() {
       if (e.type === "result") {
         if (e.is_error) add({ kind: "err", text: e.result ?? "error" });
         setPending(e.permission_denials ?? []);
+        if (spoken.current && !e.is_error && e.result && useSettings.getState().prefs.voice)
+          invoke("voice_say", { text: e.result }).catch(() => {});
+        spoken.current = false;
       }
     });
     const unExit = listen<{ error: string }>("claude://exit", ({ payload }) => {
@@ -104,10 +113,17 @@ export function ChatTab() {
       setBusy(false);
     });
   };
-  const run = (p: string) => {
-    add({ kind: "you", text: p });
+  const run = (p: string, byVoice = false) => {
+    spoken.current = byVoice;
+    add({ kind: "you", text: byVoice ? `🎙 ${p}` : p });
     ask(p);
   };
+  // Lo dictado espera a que termine la orden en curso (claude.rs corre una a la vez).
+  useEffect(() => {
+    if (!voice || voice.n <= voiceDone || busy) return;
+    voiceDone = voice.n;
+    run(voice.text, true);
+  });
   const send = () => {
     const p = input.trim();
     if (!p || busy) return;

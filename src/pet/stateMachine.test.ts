@@ -150,4 +150,16 @@ describe("stateMachine", () => {
     expect(run(initial(), { type: "timerStart" }, { type: "dayEnd", met: false }).state).toBe("focus");
     expect(run(initial(), { type: "drag" }, { type: "dayEnd", met: false }).state).toBe("dragged");
   });
+  it("voz: escucha mientras mantienes el atajo, sin interrumpir el foco ni el arrastre", () => {
+    const on: PetEvent = { type: "voiceStart" };
+    const off: PetEvent = { type: "voiceEnd" };
+    const c = run(initial(), on);
+    expect(c.state).toBe("listen");
+    expect(run(c, tick(700)).state).toBe("listen"); // no se duerme ni camina mientras le hablas
+    expect(run(c, off).state).toBe("idle");
+    expect(run(initial(), { type: "panelOpen" }, on, off).state).toBe("attention");
+    expect(run(c, off, { type: "claudeStart" }).state).toBe("work");
+    expect(run(initial(), { type: "timerStart" }, on).state).toBe("focus");
+    expect(run(initial(), { type: "drag" }, on, off).state).toBe("dragged");
+  });
 });

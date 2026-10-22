@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export const DEFAULT_FOCUS_SHORTCUT = "CommandOrControl+Shift+F";
+export const DEFAULT_VOICE_SHORTCUT = "Alt+Space";
 export const PET_SIZE = { min: 64, max: 320, def: 128 };
 
 /** Un proveedor con sus modelos en orden: si uno falla (sobrecarga, cuota…) se prueba el siguiente.
@@ -38,6 +39,8 @@ export const prefsSchema = z.object({
   sound: z.boolean().catch(true),
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
   focusShortcut: z.string().min(1).catch(DEFAULT_FOCUS_SHORTCUT), // iniciar/pausar/reanudar el foco
+  voiceShortcut: z.string().min(1).catch(DEFAULT_VOICE_SHORTCUT), // mantener para hablarle a la Candola (voice.rs)
+  voice: z.boolean().catch(false), // leer en voz alta (say) las respuestas a lo dictado
   distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar
   userName: z.string().trim().catch(""), // quién es "Yo" en las reuniones (meeting.rs lo lee de settings.json)

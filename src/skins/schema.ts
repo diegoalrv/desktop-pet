@@ -40,6 +40,7 @@ const ANIM_OF: Record<PetState, string> = {
   oops: "idle",
   ask: "idle",
   tea: "tea", // skins sin ella caen a idle (resolveAnim)
+  listen: "listen",
 };
 
 /** Animación para un estado; si el skin no la trae, usa `idle`. */

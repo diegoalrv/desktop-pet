@@ -78,6 +78,11 @@ fn update(app: &AppHandle, f: impl FnOnce(&mut Inner)) {
     let _ = app.emit("meeting://state", &g.snap);
 }
 
+/// Hay una reunión (o un dictado de Gestión) grabando: el micrófono está ocupado.
+pub fn recording(app: &AppHandle) -> bool {
+    app.state::<MeetingState>().0.lock().unwrap().stop.is_some()
+}
+
 #[tauri::command]
 pub fn meeting_state(state: State<MeetingState>) -> Snapshot {
     state.0.lock().unwrap().snap.clone()
@@ -870,7 +875,7 @@ pub async fn meetings_ask(app: AppHandle, llms: Vec<Llm>, q: String) -> Result<A
 }
 
 #[cfg(target_os = "macos")]
-mod mac {
+pub mod mac {
     use super::*;
     use screencapturekit::prelude::*;
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -962,6 +967,42 @@ mod mac {
         }
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         Ok(path)
+    }
+
+    /// El modelo de voz se carga una vez y queda en memoria: la reunión y el dictado a la Candola (voice.rs) lo
+    /// comparten, así una frase no espera los segundos que tarda cargar ~550 MB.
+    /// ponytail: no se libera nunca (~1 GB de RAM/GPU tras el primer uso); soltarlo tras N min sin uso si molesta.
+    fn whisper(app: &AppHandle) -> Result<Arc<WhisperContext>, String> {
+        static CTX: Mutex<Option<Arc<WhisperContext>>> = Mutex::new(None);
+        let mut g = CTX.lock().unwrap();
+        if let Some(c) = g.as_ref() {
+            return Ok(c.clone());
+        }
+        let path = model_path(app, MODEL, MODEL_URL, "el modelo de voz (~550 MB)")?;
+        whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
+        let c = Arc::new(WhisperContext::new_with_params(&path, WhisperContextParameters::default()).map_err(|e| format!("whisper: {e}"))?);
+        *g = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Graba solo el micrófono hasta `stop` o `max` (dictado a la Candola). Mismo camino que el modo Gestión.
+    pub fn record_mic(stop: &AtomicBool, max: Duration) -> Result<Vec<f32>, String> {
+        let bufs: Bufs = Arc::default();
+        let stream = start_capture(bufs.clone(), Arc::default(), true)?;
+        let t = std::time::Instant::now();
+        while !stop.load(Ordering::Relaxed) && t.elapsed() < max {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = stream.stop_capture();
+        let audio = std::mem::take(&mut bufs.lock().unwrap()[0]);
+        Ok(audio)
+    }
+
+    /// Una frase corta → texto limpio (`None` si no se entendió nada).
+    pub fn transcribe_once(app: &AppHandle, audio: &[f32]) -> Result<Option<String>, String> {
+        let ctx = whisper(app)?;
+        let mut ws = ctx.create_state().map_err(|e| format!("whisper: {e}"))?;
+        Ok(clean(&transcribe(&mut ws, audio)))
     }
 
     /// Permiso de Micrófono. ScreenCaptureKit no lo pide solo: sin él entrega el micrófono vacío y toda la
@@ -1138,11 +1179,8 @@ mod mac {
 
     pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool, cal: Option<Ctx>) -> Result<(), String> {
         let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
-        let path = model_path(app, MODEL, MODEL_URL, "el modelo de voz (~550 MB)")?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
-        whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
-        let ctx = WhisperContext::new_with_params(&path, WhisperContextParameters::default())
-            .map_err(|e| format!("whisper: {e}"))?;
+        let ctx = whisper(app)?;
         let mut ws = ctx.create_state().map_err(|e| format!("whisper: {e}"))?;
         let mut transcribe = |audio: &[f32]| transcribe(&mut ws, audio);
         // Sin el VAD (no bajó o no carga) se sigue con el umbral de RMS: peor con ruido de fondo, pero funciona.

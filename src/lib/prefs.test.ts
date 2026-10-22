@@ -22,6 +22,8 @@ describe("prefs", () => {
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
       focusShortcut: "CommandOrControl+Shift+F",
+      voiceShortcut: "Alt+Space",
+      voice: false,
       distractions: [],
       icalUrl: "",
       userName: "",

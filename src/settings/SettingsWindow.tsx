@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { accelFromEvent, DEFAULT_FOCUS_SHORTCUT, DEFAULT_SHORTCUT, PET_SIZE, type Prefs } from "../lib/prefs";
+import {
+  accelFromEvent,
+  DEFAULT_FOCUS_SHORTCUT,
+  DEFAULT_SHORTCUT,
+  DEFAULT_VOICE_SHORTCUT,
+  PET_SIZE,
+  type Prefs,
+} from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -59,7 +66,8 @@ export function SettingsWindow() {
     </label>
   );
 
-  const setShortcut = async (kind: string, key: "shortcut" | "focusShortcut", accel: string) => {
+  type ShortcutKey = "shortcut" | "focusShortcut" | "voiceShortcut";
+  const setShortcut = async (kind: string, key: ShortcutKey, accel: string) => {
     try {
       await invoke("set_quick_shortcut", { kind, accel });
       setShortcutErr((m) => ({ ...m, [kind]: "" }));
@@ -69,7 +77,7 @@ export function SettingsWindow() {
     }
   };
 
-  const shortcutField = (kind: string, key: "shortcut" | "focusShortcut", label: string, def: string) => (
+  const shortcutField = (kind: string, key: ShortcutKey, label: string, def: string) => (
     <>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <span style={{ width: 130 }}>{label}</span>
@@ -283,6 +291,11 @@ export function SettingsWindow() {
       <h2 style={h}>Atajos globales</h2>
       {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}
       {shortcutField("focus", "focusShortcut", "Iniciar/pausar foco", DEFAULT_FOCUS_SHORTCUT)}
+      {shortcutField("voice", "voiceShortcut", "Hablarle a la Candola", DEFAULT_VOICE_SHORTCUT)}
+      <small style={{ opacity: 0.7 }}>
+        Mantén el atajo de la Candola mientras hablas (hasta 10 s) y suéltalo: la orden entra al chat. Usa el
+        micrófono y el modelo de voz de las reuniones (macOS).
+      </small>
 
       <h2 style={h}>Calendario</h2>
       <input
@@ -321,6 +334,10 @@ export function SettingsWindow() {
         Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (docs del VPS, Coolify, etc.). Vacía = tu
         home.
       </small>
+      <label>
+        <input type="checkbox" checked={prefs.voice} onChange={(e) => setPrefs({ voice: e.target.checked })} />{" "}
+        Leer en voz alta las respuestas a lo que le dices con el atajo
+      </label>
 
       <h2 style={h}>Sistema</h2>
       <label>

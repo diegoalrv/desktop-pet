@@ -101,7 +101,7 @@ pub fn open_window(app: AppHandle, label: String) -> Option<()> {
 pub struct Shortcuts(pub Mutex<HashMap<&'static str, String>>);
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 /// Tipos de atajo conocidos (el handler de `lib.rs` los despacha con `shortcut_kind`).
-const KINDS: [&str; 2] = ["panel", "focus"];
+const KINDS: [&str; 3] = ["panel", "focus", "voice"];
 
 /// Tipo del atajo que se acaba de pulsar.
 pub fn shortcut_kind(app: &AppHandle, pressed: &tauri_plugin_global_shortcut::Shortcut) -> Option<&'static str> {
