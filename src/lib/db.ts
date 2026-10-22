@@ -119,6 +119,16 @@ export const listSuggestions = (status?: Suggestion["status"]) =>
   status
     ? select<Suggestion>("SELECT * FROM meeting_tasks WHERE status = $1 ORDER BY meeting DESC, id", [status])
     : select<Suggestion>("SELECT * FROM meeting_tasks ORDER BY meeting DESC, id");
+/** Resumen y decisiones de cada reunión (meeting.rs, tabla meeting_notes); `decisions` es JSON. */
+export type Notes = { meeting: number; summary: string; decisions: string; model: string; at: number };
+export const listNotes = () => select<Notes>("SELECT * FROM meeting_notes");
+export const decisionsOf = (n?: Notes): string[] => {
+  try {
+    return n ? JSON.parse(n.decisions) : [];
+  } catch {
+    return [];
+  }
+};
 export const setSuggestion = (id: number, status: Suggestion["status"]) =>
   exec("UPDATE meeting_tasks SET status = $1 WHERE id = $2", [status, id]);
 /** Aplica la sugerencia y la marca como aceptada: crea la tarea (título editable, proyecto opcional) o, en modo

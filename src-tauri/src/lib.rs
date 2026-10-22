@@ -17,23 +17,23 @@ struct HitRect(Mutex<[f64; 4]>); // x, y, w, h
 
 /// Descarga el .ics del calendario (URL secreta iCal de Google). Desde el webview lo frena CORS;
 /// ponytail: curl del sistema (macOS y Windows 10+ lo traen) en vez de sumar un cliente HTTP.
-#[tauri::command]
-async fn fetch_ical(url: String) -> Result<String, String> {
+pub fn download_ical(url: &str) -> Result<String, String> {
     if !url.starts_with("https://") {
         return Err("la URL debe empezar con https://".into());
     }
-    let out = tauri::async_runtime::spawn_blocking(move || {
-        std::process::Command::new("curl")
-            .args(["-fsSL", "--max-time", "20", "--max-filesize", "20000000", &url])
-            .output()
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    let out = std::process::Command::new("curl")
+        .args(["-fsSL", "--max-time", "20", "--max-filesize", "20000000", url])
+        .output()
+        .map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(format!("no se pudo descargar ({})", String::from_utf8_lossy(&out.stderr).trim()));
     }
     String::from_utf8(out.stdout).map_err(|_| "respuesta no es texto".into())
+}
+
+#[tauri::command]
+async fn fetch_ical(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || download_ical(&url)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -122,6 +122,12 @@ pub fn run() {
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                         tauri_plugin_sql::Migration {
+                            version: 6,
+                            description: "meeting_notes",
+                            sql: include_str!("../migrations/006_meeting_notes.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
                             version: 7,
                             description: "task_repeat",
                             sql: include_str!("../migrations/007_task_repeat.sql"),
@@ -131,6 +137,12 @@ pub fn run() {
                             version: 8,
                             description: "session_apps",
                             sql: include_str!("../migrations/008_session_apps.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 9,
+                            description: "meeting_chunks",
+                            sql: include_str!("../migrations/009_meeting_chunks.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                     ],
@@ -171,6 +183,7 @@ pub fn run() {
             windows::toggle_panel,
             windows::hide_panel,
             windows::open_window,
+            windows::open_panel_tab,
             web::open_web,
             meeting::meeting_start,
             meeting::meeting_stop,
@@ -178,6 +191,7 @@ pub fn run() {
             meeting::meeting_state,
             meeting::meetings_list,
             meeting::meeting_retry,
+            meeting::meetings_ask,
             windows::set_quick_shortcut,
             db::task_set_done,
             timer::timer_config,
@@ -203,6 +217,13 @@ pub fn run() {
             timer::restore(app.handle());
             timer::spawn(app.handle().clone());
             web::spawn(app.handle().clone());
+            // Indexa para preguntarle a las reuniones lo que falte (sin Ollama no hace nada). Espera a que el
+            // frontend corra las migraciones (tauri-plugin-sql), que crean meeting_chunks.
+            let h = app.handle().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(20));
+                let _ = meeting::index_missing(&h);
+            });
             let _ = windows::set_quick_shortcut(
                 "panel".into(),
                 windows::DEFAULT_SHORTCUT.into(),

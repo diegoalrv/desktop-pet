@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { call } from "../lib/ipc";
+import { call, meetingCtx } from "../lib/ipc";
 import * as db from "../lib/db";
 import { useLive, useTasks } from "../store/useTasks";
 import { useSettings } from "../store/useSettings";
@@ -7,7 +7,8 @@ import { projectsOf } from "../lib/tasks";
 import { Icon } from "../panel/icons";
 import { countHits, download, fmtDate, Head, Hl, SuggestionRow, usePoll } from "./kit";
 
-type Saved = { id: number; text: string }; // id = epoch s (meetings_list en meeting.rs)
+// id = epoch s; title/attendees: evento del calendario, si lo había (meetings_list en meeting.rs)
+type Saved = { id: number; text: string; title?: string; attendees?: string[] };
 type Live = { active: boolean; status: string; lines: { who: string; text: string }[] };
 
 const parse = (text: string) =>
@@ -18,6 +19,19 @@ const parse = (text: string) =>
     .map((m) => ({ who: m[1], text: m[2] }));
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 const llms = () => ({ llms: useSettings.getState().prefs.llms }); // en la web Rust usa los de Ajustes
+const titleOf = (m: Saved) => m.title || fmtDate(m.id * 1000);
+/** El .md para copiar o descargar: título, fecha, asistentes, resumen y decisiones arriba de la transcripción. */
+const toMd = (m: Saved, n?: db.Notes) =>
+  [
+    `# ${titleOf(m)}`,
+    m.title ? fmtDate(m.id * 1000) : "",
+    m.attendees?.length ? `Participantes: ${m.attendees.join(", ")}` : "",
+    n?.summary && `## Resumen\n\n${n.summary}`,
+    db.decisionsOf(n).length && `## Decisiones\n\n${db.decisionsOf(n).map((d) => `- ${d}`).join("\n")}`,
+    n ? `## Transcripción\n\n${m.text}` : m.text,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 /** Proyecto con el que se crean las tareas aceptadas (autocompleta con los existentes). */
 function ProjectInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -41,6 +55,58 @@ function ProjectInput({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
+type Answer = { answer: string; sources: { n: number; meeting: number; title: string | null; text: string }[] };
+
+/** Pregunta libre a todas las reuniones (meetings_ask: Ollama busca los bloques, el LLM responde con citas). */
+function AskCard() {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<Answer | null>(null);
+  const [err, setErr] = useState("");
+  const ask = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr("");
+    call<Answer>("meetings_ask", { q, ...llms() })
+      .then(setRes, (e) => (setRes(null), setErr(String(e))))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <form className="d-card" onSubmit={ask}>
+      <div className="d-row">
+        <input
+          className="d-in"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Pregúntale a tus reuniones: ¿qué dijimos del plazo de SIMBIO?"
+          style={{ flex: 1, minWidth: 0 }}
+        />
+        <button className="d-b pri" disabled={busy || !q.trim()}>
+          <Icon name="zap" size="1em" /> {busy ? "Buscando…" : "Preguntar"}
+        </button>
+      </div>
+      {err && <span style={{ color: "var(--err)" }}>{err}</span>}
+      {res && (
+        <>
+          <span style={{ whiteSpace: "pre-line", maxWidth: "80ch" }}>{res.answer}</span>
+          {res.sources.map((s) => (
+            <details key={s.n}>
+              <summary>
+                <a href={`#meetings/${s.meeting}`} className="d-more" style={{ marginLeft: 0 }}>
+                  [{s.n}] {s.title || fmtDate(s.meeting * 1000)}
+                </a>
+              </summary>
+              <div className="d-dim" style={{ whiteSpace: "pre-line", fontSize: 13 }}>
+                {s.text}
+              </div>
+            </details>
+          ))}
+        </>
+      )}
+    </form>
+  );
+}
+
 /** Reunión en curso (o estado de la última búsqueda de tareas), con empezar/terminar. */
 function LiveCard({ live, onErr }: { live: Live | undefined; onErr: (e: string) => void }) {
   if (!live) return null;
@@ -57,9 +123,10 @@ function LiveCard({ live, onErr }: { live: Live | undefined; onErr: (e: string) 
         <button
           className={live.active ? "d-b" : "d-b pri"}
           style={{ marginLeft: "auto" }}
-          onClick={() =>
-            call(live.active ? "meeting_stop" : "meeting_start", llms()).catch((e) => onErr(String(e)))
-          }
+          onClick={async () => {
+            const args = live.active ? {} : { ...llms(), ctx: await meetingCtx("") };
+            call(live.active ? "meeting_stop" : "meeting_start", args).catch((e) => onErr(String(e)));
+          }}
         >
           <Icon name={live.active ? "stop" : "mic"} size="1em" /> {live.active ? "Terminar" : "Empezar"}
         </button>
@@ -84,6 +151,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
   const [list, setList] = useState<Saved[]>([]);
   useEffect(() => void call<Saved[]>("meetings_list").then(setList, () => {}), [live?.active]);
   const sugs = useLive(() => db.listSuggestions()) ?? [];
+  const notes = useLive(() => db.listNotes()) ?? [];
   const [q, setQ] = useState("");
   const [who, setWho] = useState<"" | "Yo" | "Otros">("");
   const [project, setProject] = useState("");
@@ -96,6 +164,8 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
 
   if (cur) {
     const mine = of(cur.id);
+    const note = notes.find((n) => n.meeting === cur.id);
+    const decisions = db.decisionsOf(note);
     const lines = parse(cur.text).filter((l) => !who || l.who === who);
     const tasks = tab === "tareas";
     return (
@@ -104,8 +174,14 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           ← Reuniones
         </a>
         <Head
-          title={fmtDate(cur.id * 1000)}
-          sub={`${words(cur.text)} palabras · ${parse(cur.text).length} intervenciones`}
+          title={titleOf(cur)}
+          sub={[
+            cur.title && fmtDate(cur.id * 1000),
+            cur.attendees?.length && cur.attendees.join(", "),
+            `${words(cur.text)} palabras · ${parse(cur.text).length} intervenciones`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         >
           <button
             className="d-b sm"
@@ -115,7 +191,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           >
             <Icon name="zap" size="1em" /> {busy ? "Buscando…" : "Buscar tareas de nuevo"}
           </button>
-          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(cur.text)}>
+          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(toMd(cur, note))}>
             <Icon name="copy" size="1em" /> Copiar
           </button>
           {db.IS_WEB && (
@@ -124,7 +200,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
               onClick={() =>
                 download(
                   `reunion-${new Date(cur.id * 1000).toISOString().slice(0, 16).replace(":", "")}.md`,
-                  cur.text,
+                  toMd(cur, note),
                   "text/markdown",
                 )
               }
@@ -139,6 +215,29 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
             No se grabó tu micrófono en esta reunión: todo quedó como “Otros”. Revisa el permiso de micrófono
             de Desktop Pet en Ajustes del Sistema → Privacidad.
           </span>
+        )}
+        {(note?.summary || decisions.length > 0) && (
+          <div className="d-card" style={{ maxWidth: "80ch" }}>
+            {note?.summary && (
+              <>
+                <b>Resumen</b>
+                <span style={{ whiteSpace: "pre-line" }}>{note.summary}</span>
+              </>
+            )}
+            {decisions.length > 0 && (
+              <>
+                <b>Decisiones</b>
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {decisions.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <span className="d-dim" style={{ fontSize: 12 }}>
+              {note!.model}
+            </span>
+          </div>
         )}
         <div className="d-row">
           <div className="d-seg">
@@ -208,6 +307,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
         />
       </Head>
       <LiveCard live={live} onErr={setErr} />
+      <AskCard />
       {err && <span style={{ color: "var(--err)" }}>{err}</span>}
       <div className="d-card" style={{ padding: 8 }}>
         {shown.map((m) => {
@@ -216,8 +316,9 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           return (
             <div key={m.id} className="d-lrow">
               <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 2 }}>
-                <b>{fmtDate(m.id * 1000)}</b>
+                <b>{titleOf(m)}</b>
                 <span className="d-dim" style={{ fontSize: 13 }}>
+                  {m.title && `${fmtDate(m.id * 1000)} · `}
                   {words(m.text)} palabras · {parse(m.text).length} intervenciones
                   {q && ` · ${countHits(m.text, q)} coincidencias`}
                 </span>

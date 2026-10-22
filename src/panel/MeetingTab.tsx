@@ -5,6 +5,7 @@ import * as db from "../lib/db";
 import { useSettings } from "../store/useSettings";
 import { useLive, useTasks } from "../store/useTasks";
 import { describeAction, parseAction } from "../lib/suggestions";
+import { meetingCtx } from "../lib/ipc";
 import { Icon } from "./icons";
 
 interface Snapshot {
@@ -12,6 +13,8 @@ interface Snapshot {
   manage: boolean;
   status: string;
   lines: { who: "Yo" | "Otros"; text: string }[];
+  summary: string; // de la última reunión revisada
+  decisions: string[];
 }
 
 const HELP = {
@@ -38,10 +41,12 @@ export function MeetingTab() {
   }, []);
   useEffect(() => void log.current?.scrollTo(0, log.current.scrollHeight), [s?.lines.length]);
 
-  const call = (cmd: string) =>
-    invoke(cmd, { llms: prefs.llms, manage })
+  const call = async (cmd: string) => {
+    const ctx = cmd === "meeting_start" && !manage ? await meetingCtx(prefs.icalUrl) : null;
+    return invoke(cmd, { llms: prefs.llms, manage, ctx })
       .then(() => setErr(""))
       .catch((e) => setErr(String(e)));
+  };
   const busy = s?.status.startsWith("Buscando tareas") || s?.status.startsWith("Ordenando");
 
   if (!s) return null;
@@ -157,6 +162,20 @@ export function MeetingTab() {
               </div>
             );
           })}
+        </section>
+      )}
+
+      {(s.summary || s.decisions.length > 0) && (
+        <section className="stack" style={{ gap: ".4em" }}>
+          <span className="label">Resumen</span>
+          <div className="card stack" style={{ gap: ".45em", fontSize: ".9em", lineHeight: 1.4 }}>
+            {s.summary && <span style={{ whiteSpace: "pre-line" }}>{s.summary}</span>}
+            {s.decisions.map((d, i) => (
+              <span key={i}>
+                <b style={{ color: "var(--accent)" }}>✓</b> {d}
+              </span>
+            ))}
+          </div>
         </section>
       )}
 

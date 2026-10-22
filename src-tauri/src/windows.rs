@@ -70,6 +70,13 @@ pub fn show_panel(app: &AppHandle) -> Option<()> {
     Some(())
 }
 
+/// Abre el panel en una pestaña (`panel://tab`): el aviso de reunión lo deja en "Reunión", a un clic de escuchar.
+#[tauri::command]
+pub fn open_panel_tab(app: AppHandle, tab: String) {
+    show_panel(&app);
+    let _ = app.emit_to("panel", "panel://tab", tab);
+}
+
 /// Ventanas normales (ajustes, gestor de tareas): se ocultan al cerrar (no se destruyen).
 pub fn hide_on_close(app: &AppHandle, label: &str) {
     let Some(w) = app.get_webview_window(label) else { return };

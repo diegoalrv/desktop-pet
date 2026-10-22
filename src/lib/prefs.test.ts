@@ -24,6 +24,7 @@ describe("prefs", () => {
       focusShortcut: "CommandOrControl+Shift+F",
       distractions: [],
       icalUrl: "",
+      userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",
       dayEndHour: 18,

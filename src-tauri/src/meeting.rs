@@ -1,7 +1,7 @@
 //! Reuniones: durante la reunión escucha el micrófono ("Yo") y el audio del sistema ("Otros") por separado y
 //! transcribe en local con whisper por fragmentos. Al terminar guarda la transcripción, la limpia (`condense`)
 //! y la manda completa, en una sola llamada, a un LLM compatible con OpenAI (Gemini, Claude, Ollama) que
-//! devuelve las tareas sugeridas.
+//! devuelve las tareas sugeridas, un resumen y las decisiones.
 //!
 //! Modo gestión (`manage`): solo el micrófono, para dictar cómo ordenar las tareas. Al terminar el LLM recibe
 //! además las tareas pendientes y devuelve acciones (crear, editar, completar) que el usuario aprueba una a una.
@@ -57,6 +57,8 @@ pub struct Snapshot {
     manage: bool, // modo gestión: solo micrófono, el LLM devuelve acciones sobre las tareas
     status: String,
     lines: Vec<Line>,
+    summary: String, // de la última reunión revisada (meeting_notes)
+    decisions: Vec<String>,
 }
 
 #[derive(Default)]
@@ -81,10 +83,21 @@ pub fn meeting_state(state: State<MeetingState>) -> Snapshot {
     state.0.lock().unwrap().snap.clone()
 }
 
+/// Evento del calendario que estaba ocurriendo al empezar (lo manda el panel o la web). Se guarda como cabecera
+/// YAML del .md y el LLM lo recibe para saber de qué era la reunión y quién estaba.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Ctx {
+    pub title: String,
+    #[serde(default)]
+    pub attendees: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct Saved {
     id: u64, // epoch s = nombre del .md
-    text: String,
+    text: String, // sin la cabecera
+    #[serde(flatten)]
+    ctx: Option<Ctx>, // title, attendees
 }
 
 /// Transcripciones guardadas, la más reciente primero.
@@ -98,7 +111,9 @@ pub fn meetings_list(app: AppHandle) -> Vec<Saved> {
         .filter_map(|e| {
             let p = e.ok()?.path();
             let id = p.file_name()?.to_str()?.strip_suffix(".md")?.parse().ok()?;
-            Some(Saved { id, text: std::fs::read_to_string(&p).ok()? })
+            let raw = std::fs::read_to_string(&p).ok()?;
+            let (ctx, text) = parse_head(&raw);
+            Some(Saved { id, text: text.to_string(), ctx })
         })
         .collect();
     v.sort_by(|a, b| b.id.cmp(&a.id));
@@ -123,7 +138,7 @@ pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
 }
 
 #[tauri::command]
-pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool) -> Result<(), String> {
+pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool, ctx: Option<Ctx>) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("Escuchar reuniones solo funciona en macOS".into());
     }
@@ -135,12 +150,13 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         }
         g.stop = Some(stop.clone());
     }
+    let ctx = ctx.filter(|_| !manage); // el dictado de gestión no es una reunión del calendario
     update(&app, |g| {
         g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
     });
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
-        let res = mac::run(&app, &stop, &llms, manage);
+        let res = mac::run(&app, &stop, &llms, manage, ctx);
         #[cfg(not(target_os = "macos"))]
         let res: Result<(), String> = Ok(());
         update(&app, |g| {
@@ -169,17 +185,18 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         None => saved.into_iter().next(),
     }
     .ok_or("No hay reuniones guardadas")?;
-    let (id, lines, manage) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER));
+    let (id, lines, manage, ctx) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER), m.ctx);
     if lines.is_empty() {
         return Err("La transcripción está vacía".into());
     }
     update(&app, |g| {
         g.snap.lines = lines.clone();
         g.snap.manage = manage;
+        (g.snap.summary, g.snap.decisions) = Default::default();
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llms, id, &lines, manage);
+        let res = finalize(&app, &llms, id, &lines, manage, ctx.as_ref());
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(m) => m,
@@ -195,6 +212,22 @@ const MANAGE_HEADER: &str = "# gestión\n";
 
 fn meetings_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("meetings"))
+}
+
+/// Cabecera YAML del .md (los valores van en JSON, que también es YAML válido: títulos con ":" no la rompen).
+fn fmt_head(c: &Ctx) -> String {
+    format!("---\ntitle: {}\nattendees: {}\n---\n", json!(c.title), json!(c.attendees))
+}
+
+/// Inverso de `fmt_head`: (contexto, resto del .md). Sin cabecera devuelve el texto tal cual.
+pub fn parse_head(s: &str) -> (Option<Ctx>, &str) {
+    let Some((head, body)) = s.strip_prefix("---\n").and_then(|r| r.split_once("\n---\n")) else { return (None, s) };
+    let field = |k: &str| head.lines().find_map(|l| l.strip_prefix(k)?.strip_prefix(": ")).and_then(|v| serde_json::from_str::<Value>(v).ok());
+    let ctx = Ctx {
+        title: field("title").and_then(|v| v.as_str().map(String::from)).unwrap_or_default(),
+        attendees: field("attendees").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+    };
+    (Some(ctx), body)
 }
 
 /// Inverso de `fmt_lines`: "Yo: …" / "Otros: …" por línea.
@@ -231,9 +264,10 @@ pub fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
 }
 
-/// Saca un fragmento listo para transcribir: con al menos MIN_S s, cortado en la ventana más silenciosa
-/// (si es silencio de verdad o ya se llegó a MAX_S). `flush` entrega lo que quede.
-pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
+/// Saca un fragmento listo para transcribir: con al menos MIN_S s, cortado donde `cut` encuentre una pausa (recibe
+/// hasta MAX_S s del búfer y devuelve la posición) o, si no la hay y ya se llegó a MAX_S, en la ventana más
+/// silenciosa. `flush` entrega lo que quede.
+pub fn take_chunk_with(buf: &mut Vec<f32>, flush: bool, cut: impl FnOnce(&[f32]) -> Option<usize>) -> Option<Vec<f32>> {
     if flush {
         return (!buf.is_empty()).then(|| std::mem::take(buf));
     }
@@ -241,16 +275,43 @@ pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
     if buf.len() < min + WIN {
         return None;
     }
-    let end = buf.len().min(max);
-    let (i, r) = (min..=end - WIN)
-        .step_by(WIN / 2)
-        .map(|i| (i, rms(&buf[i..i + WIN])))
-        .min_by(|a, b| a.1.total_cmp(&b.1))?;
-    if r >= SILENCE && buf.len() < max {
-        return None;
-    }
-    let rest = buf.split_off(i + WIN / 2);
+    let x = &buf[..buf.len().min(max)];
+    let at = cut(x).filter(|i| (min..=x.len()).contains(i)).or_else(|| (buf.len() >= max).then(|| quietest(x).0))?;
+    let rest = buf.split_off(at);
     Some(std::mem::replace(buf, rest))
+}
+
+/// Con el umbral de RMS, como corta la app si no hay modelo de VAD.
+#[cfg(test)]
+pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
+    take_chunk_with(buf, flush, rms_cut)
+}
+
+/// Centro de la ventana más silenciosa después de MIN_S, con su RMS.
+fn quietest(x: &[f32]) -> (usize, f32) {
+    (MIN_S * RATE..=x.len() - WIN)
+        .step_by(WIN / 2)
+        .map(|i| (i + WIN / 2, rms(&x[i..i + WIN])))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((x.len(), 0.0))
+}
+
+/// Corte por RMS: la ventana más silenciosa, si de verdad es silencio. Con ruido de fondo sobre SILENCE no
+/// encuentra nada y el fragmento espera hasta MAX_S.
+fn rms_cut(x: &[f32]) -> Option<usize> {
+    let (i, r) = quietest(x);
+    (r < SILENCE).then_some(i)
+}
+
+/// Corte con VAD (segmentos con voz `(ini, fin)` en muestras): el centro de la última pausa que deje al menos MIN_S
+/// antes y no quede pegada al final (ahí la voz puede seguir). Sin voz en todo el búfer, se corta ya (y se descarta).
+pub fn last_pause(speech: &[(usize, usize)], len: usize) -> Option<usize> {
+    if speech.is_empty() {
+        return Some(len - WIN / 2);
+    }
+    let mut gaps: Vec<(usize, usize)> = speech.windows(2).map(|w| (w[0].1, w[1].0)).collect();
+    gaps.push((speech[speech.len() - 1].1, len));
+    gaps.iter().rev().map(|(a, b)| (a + b) / 2).find(|c| *c >= MIN_S * RATE && c + WIN / 2 <= len)
 }
 
 /// Texto de whisper limpio; None si es una alucinación típica (whisper inventa subtítulos con ruido o música).
@@ -268,19 +329,38 @@ resto de participantes).\n\
 Extrae SOLO las tareas accionables que le tocan al usuario: compromisos que asumió, cosas que le pidieron y seguimientos \
 que debe hacer a otros. Si otra persona dice \"yo lo hago\" o \"yo lo reviso\", esa tarea es de ella, no del usuario. \
 No inventes ni incluyas ideas o temas solo conversados. Une las tareas repetidas.\n\
-Responde únicamente JSON: {\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
-\"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Si no hay tareas: {\"tareas\":[]}.";
+Además resume la reunión en 3 a 5 frases cortas (de qué se habló y en qué quedó; máximo 80 palabras) y lista las decisiones: acuerdos que se \
+tomaron explícitamente, no temas que quedaron abiertos.\n\
+Responde únicamente JSON: {\"resumen\":\"3 a 5 frases\",\"decisiones\":[\"qué se decidió, una frase\"],\
+\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
+\"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Sin tareas: \"tareas\":[]; sin decisiones: \"decisiones\":[].";
 
+/// Con el evento del calendario y el nombre del usuario el modelo acierta mejor quién pidió qué.
 /// Sin micrófono (ninguna línea "Yo") el prompt normal casi nunca encuentra tareas: no hay compromisos del usuario.
-fn prompt(lines: &[Line]) -> String {
-    if lines.iter().any(|l| l.who == "Yo") {
-        return PROMPT.into();
+fn prompt(lines: &[Line], ctx: Option<&Ctx>, me: &str) -> String {
+    let mut p = PROMPT.to_string();
+    if let Some(c) = ctx {
+        p += &format!("\nReunión: {}.", c.title);
+        if !c.attendees.is_empty() {
+            p += &format!(" Participantes: {}.", c.attendees.join(", "));
+        }
     }
-    format!(
-        "{PROMPT}\nOJO: en esta reunión no se grabó el micrófono del usuario; todas las líneas son \"Otros\". Incluye \
-         también lo que le piden o asignan a quien escucha y los acuerdos o pendientes de la reunión que no tengan \
-         un responsable claro; el usuario revisará cada una."
-    )
+    if !me.is_empty() {
+        p += &format!(" \"Yo\" es {me}.");
+    }
+    if !lines.iter().any(|l| l.who == "Yo") {
+        p += "\nOJO: en esta reunión no se grabó el micrófono del usuario; todas las líneas son \"Otros\". Incluye \
+              también lo que le piden o asignan a quien escucha y los acuerdos o pendientes de la reunión que no tengan \
+              un responsable claro; el usuario revisará cada una.";
+    }
+    p
+}
+
+/// Nombre del usuario (Ajustes → Reuniones), leído de settings.json: sirve igual si la reunión empezó en la web.
+fn user_name(app: &AppHandle) -> String {
+    use tauri_plugin_store::StoreExt;
+    let prefs = app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default();
+    prefs["userName"].as_str().unwrap_or("").trim().to_string()
 }
 
 const MANAGE_PROMPT: &str = "Eres el asistente personal del usuario. Recibes su lista de tareas pendientes (cada una con su id) \
@@ -352,10 +432,10 @@ pub fn manage_input(today: &str, pending: &[Pending], lines: &[Line]) -> String 
 /// con algo que cambiar, prioridad en 0..=2 y fecha AAAA-MM-DD (otra cosa se descarta). Sin `{"acciones":[…]}` = error.
 pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> {
     let v = json_of(content, "acciones")?;
+    let v = v["acciones"].as_array().into_iter().flatten();
     let date_ok = |d: &str| d.len() == 10 && d.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() });
     let clean = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.chars().take(120).collect::<String>());
     Ok(v
-        .iter()
         .filter_map(|a| {
             let mut act = Action {
                 op: a["op"].as_str()?.trim().to_lowercase(),
@@ -380,13 +460,13 @@ pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> 
         .collect())
 }
 
-/// El array `key` del JSON que venga en la respuesta; tolera texto o `<think>…</think>` alrededor.
-fn json_of(content: &str, key: &str) -> Result<Vec<Value>, String> {
+/// El JSON que venga en la respuesta, que debe traer el array `key`; tolera texto o `<think>…</think>` alrededor.
+fn json_of(content: &str, key: &str) -> Result<Value, String> {
     let c = content.rsplit("</think>").next().unwrap_or(content);
     let bad = || format!("respuesta sin JSON de {key}: {}", c.trim().chars().take(120).collect::<String>());
     let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
     let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
-    v[key].as_array().cloned().ok_or_else(bad)
+    if v[key].is_array() { Ok(v) } else { Err(bad()) }
 }
 
 fn fmt_lines(lines: &[Line]) -> String {
@@ -428,17 +508,30 @@ pub fn condense(lines: &[Line]) -> Vec<Line> {
     out
 }
 
-/// (título, detalle) del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
-/// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas".
-pub fn parse_tasks(content: &str) -> Result<Vec<(String, String)>, String> {
-    Ok(json_of(content, "tareas")?
-        .iter()
-        .filter_map(|t| {
-            let title = t["titulo"].as_str()?.trim();
-            let detail = t["detalle"].as_str().unwrap_or("").trim();
-            (!title.is_empty()).then(|| (title.chars().take(120).collect(), detail.to_string()))
-        })
-        .collect())
+/// Lo que el LLM devuelve de una reunión normal.
+#[derive(Debug, Default, PartialEq)]
+pub struct Outcome {
+    pub tareas: Vec<(String, String)>, // (título, detalle)
+    pub resumen: String,
+    pub decisiones: Vec<String>,
+}
+
+/// Tareas, resumen y decisiones del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
+/// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas"; resumen y decisiones que
+/// falten quedan vacíos (un resumen en array de líneas se une).
+pub fn parse_result(content: &str) -> Result<Outcome, String> {
+    let v = json_of(content, "tareas")?;
+    let strs = |k: &str| -> Vec<String> {
+        let items = v[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).map(str::trim);
+        items.filter(|s| !s.is_empty()).map(String::from).collect()
+    };
+    let tareas = v["tareas"].as_array().into_iter().flatten().filter_map(|t| {
+        let title = t["titulo"].as_str()?.trim();
+        let detail = t["detalle"].as_str().unwrap_or("").trim();
+        (!title.is_empty()).then(|| (title.chars().take(120).collect(), detail.to_string()))
+    });
+    let resumen = v["resumen"].as_str().map(|s| s.trim().to_string()).unwrap_or_else(|| strs("resumen").join("\n"));
+    Ok(Outcome { tareas: tareas.collect(), resumen, decisiones: strs("decisiones") })
 }
 
 /// Prueba cada proveedor y, dentro de él, cada modelo en orden hasta que uno responda (sobrecarga, cuota, key
@@ -544,7 +637,7 @@ fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, Strin
 
 /// Postproceso: transcripción limpia → LLM → tareas sugeridas (tabla meeting_tasks), con notificación.
 /// Reintentar reemplaza las pendientes de esa reunión; las aceptadas o descartadas se quedan.
-fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool) -> Result<String, String> {
+fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool, ctx: Option<&Ctx>) -> Result<String, String> {
     let pool = &app.state::<crate::db::Db>().0;
     let lines = condense(lines);
     let mut model = String::new();
@@ -554,6 +647,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
         update(app, |g| g.snap.status = format!("{what} ({m})…"));
     };
     // (título, detalle, acción JSON): en reunión solo tareas nuevas; en gestión acciones sobre las tareas.
+    let mut notes = None; // (resumen, decisiones): solo reuniones
     let rows: Vec<(String, String, Option<String>)> = if manage {
         let pending = pending_tasks(pool)?;
         let ids: Vec<i64> = pending.iter().map(|t| t.id).collect();
@@ -567,7 +661,9 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
             .collect()
     } else {
         let user = format!("Transcripción:\n{}", fmt_lines(&lines));
-        ask_any(llms, &prompt(&lines), &user, parse_tasks, on_try)?.into_iter().map(|(t, d)| (t, d, None)).collect()
+        let r = ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
+        notes = Some((r.resumen, r.decisiones));
+        r.tareas.into_iter().map(|(t, d)| (t, d, None)).collect()
     };
     let n = rows.len();
     let id = json!(id);
@@ -575,6 +671,14 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
     run("DELETE FROM meeting_tasks WHERE meeting = $1 AND status = 'pending'", &[id.clone()])?;
     for (title, detail, action) in rows {
         run("INSERT INTO meeting_tasks (meeting, title, detail, action) VALUES ($1, $2, $3, $4)", &[id.clone(), json!(title), json!(detail), json!(action)])?;
+    }
+    if let Some((summary, decisions)) = notes {
+        let at = chrono::Utc::now().timestamp_millis();
+        run(
+            "INSERT OR REPLACE INTO meeting_notes (meeting, summary, decisions, model, at) VALUES ($1, $2, $3, $4, $5)",
+            &[id.clone(), json!(summary), json!(json!(decisions).to_string()), json!(model), json!(at)],
+        )?;
+        update(app, |g| (g.snap.summary, g.snap.decisions) = (summary, decisions));
     }
     let _ = app.emit("db://changed", ());
     let (noun, head) = if manage { ("cambio", "Gestión revisada") } else { ("tarea sugerida", "Reunión revisada") };
@@ -614,14 +718,169 @@ fn today() -> String {
     format!("{} {}", DAYS[now.weekday().num_days_from_monday() as usize], now.format("%Y-%m-%d"))
 }
 
+// Preguntarle a las reuniones: embeddings locales (Ollama) por bloque, coseno contra la pregunta y el LLM responde
+// con citas. ponytail: todos los vectores en memoria sin índice; alcanza para unos miles de bloques.
+const OLLAMA: &str = "http://127.0.0.1:11434";
+const EMBED_MODEL: &str = "nomic-embed-text";
+const CHUNK_LINES: usize = 10;
+const TOP_K: usize = 8;
+
+const ASK_PROMPT: &str = "Eres el asistente personal del usuario. Respondes una pregunta sobre sus reuniones usando SOLO \
+los fragmentos de transcripción que se te dan, numerados [1], [2]… (\"Yo\" es el usuario, \"Otros\" el resto; la \
+transcripción es automática y puede tener errores de reconocimiento). Responde breve y directo, citando con [n] el \
+fragmento de cada afirmación. Si los fragmentos no lo dicen, dilo; no inventes.\n\
+Responde únicamente JSON: {\"respuesta\":\"texto con citas [n]\",\"fuentes\":[1,3]}.";
+
+/// Lo que se indexa: bloques de CHUNK_LINES líneas "Yo: …" / "Otros: …".
+pub fn chunks(lines: &[Line]) -> Vec<String> {
+    lines.chunks(CHUNK_LINES).map(fmt_lines).collect()
+}
+
+pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let (dot, na, nb) = a.iter().zip(b).fold((0.0, 0.0, 0.0), |(d, x, y), (p, q)| (d + p * q, x + p * p, y + q * q));
+    if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb).sqrt() }
+}
+
+fn to_blob(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn from_blob(b: &[u8]) -> Vec<f32> {
+    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+}
+
+/// (respuesta, números de fragmento citados) del JSON del modelo.
+pub fn parse_answer(content: &str) -> Result<(String, Vec<usize>), String> {
+    let v = json_of(content, "fuentes")?;
+    let answer = v["respuesta"].as_str().map(str::trim).filter(|a| !a.is_empty()).ok_or("respuesta vacía")?;
+    let refs = v["fuentes"].as_array().into_iter().flatten().filter_map(|n| n.as_u64()).map(|n| n as usize);
+    Ok((answer.to_string(), refs.collect()))
+}
+
+/// Embeddings con Ollama (`/api/embed`, todos los textos en una llamada).
+fn embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+    let mut res = ureq::post(format!("{OLLAMA}/api/embed"))
+        .config()
+        .timeout_global(Some(Duration::from_secs(300)))
+        .http_status_as_error(false)
+        .build()
+        .header("Content-Type", "application/json")
+        .send(json!({"model": EMBED_MODEL, "input": texts}).to_string())
+        .map_err(|_| format!("Ollama no está corriendo: instálalo (ollama.com) y baja el modelo con `ollama pull {EMBED_MODEL}`"))?;
+    let v: Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).unwrap_or_default();
+    if !res.status().is_success() {
+        return Err(format!("Ollama: {} (`ollama pull {EMBED_MODEL}`)", v["error"].as_str().unwrap_or("error")));
+    }
+    serde_json::from_value(v["embeddings"].clone()).map_err(|_| "Ollama: respuesta sin embeddings".into())
+}
+
+/// Indexa las reuniones guardadas que aún no tienen bloques (no las sesiones de gestión). Devuelve cuántas.
+pub fn index_missing(app: &AppHandle) -> Result<usize, String> {
+    let pool = &app.state::<crate::db::Db>().0;
+    let db = |e: sqlx::Error| e.to_string();
+    let done: Vec<i64> = block_on(sqlx::query_scalar("SELECT DISTINCT meeting FROM meeting_chunks").fetch_all(pool)).map_err(db)?;
+    let mut n = 0;
+    for m in meetings_list(app.clone()) {
+        let parts = chunks(&parse_lines(&m.text));
+        if done.contains(&(m.id as i64)) || m.text.starts_with(MANAGE_HEADER) || parts.is_empty() {
+            continue;
+        }
+        // nomic-embed-text pide el prefijo de la tarea: search_document / search_query
+        let vecs = embed(&parts.iter().map(|t| format!("search_document: {t}")).collect::<Vec<_>>())?;
+        for (i, (text, v)) in parts.iter().zip(vecs).enumerate() {
+            let q = sqlx::query("INSERT OR REPLACE INTO meeting_chunks (meeting, idx, text, vec) VALUES (?, ?, ?, ?)");
+            block_on(q.bind(m.id as i64).bind(i as i64).bind(text).bind(to_blob(&v)).execute(pool)).map_err(db)?;
+        }
+        n += 1;
+    }
+    Ok(n)
+}
+
+#[derive(Serialize)]
+pub struct Source {
+    n: usize, // el [n] de la respuesta
+    meeting: u64,
+    title: Option<String>,
+    text: String,
+}
+
+#[derive(Serialize)]
+pub struct Answer {
+    answer: String,
+    sources: Vec<Source>, // solo las citadas
+}
+
+/// Pregunta → embedding → los TOP_K bloques más parecidos → el LLM responde citándolos.
+pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, String> {
+    if q.trim().is_empty() {
+        return Err("Escribe una pregunta".into());
+    }
+    index_missing(app)?;
+    let pool = &app.state::<crate::db::Db>().0;
+    let rows: Vec<(i64, String, Vec<u8>)> =
+        block_on(sqlx::query_as("SELECT meeting, text, vec FROM meeting_chunks").fetch_all(pool)).map_err(|e| e.to_string())?;
+    let saved = meetings_list(app.clone());
+    let blocks = rows
+        .into_iter()
+        .filter_map(|(m, text, vec)| {
+            let s = saved.iter().find(|s| s.id as i64 == m)?; // .md borrado: fuera
+            Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
+        })
+        .collect();
+    answer(llms, q.trim(), blocks)
+}
+
+/// Un bloque indexado de una reunión.
+pub struct Block {
+    meeting: u64,
+    title: Option<String>,
+    text: String,
+    vec: Vec<f32>,
+}
+
+fn answer(llms: &[Llm], q: &str, mut blocks: Vec<Block>) -> Result<Answer, String> {
+    use chrono::{Local, TimeZone};
+    if blocks.is_empty() {
+        return Err("Todavía no hay reuniones guardadas".into());
+    }
+    let qv = embed(&[format!("search_query: {q}")])?.pop().ok_or("Ollama: respuesta sin embeddings")?;
+    blocks.sort_by(|a, b| cosine(&qv, &b.vec).total_cmp(&cosine(&qv, &a.vec)));
+    blocks.truncate(TOP_K);
+    let when = |id: u64| Local.timestamp_opt(id as i64, 0).single().map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
+    let frags: Vec<String> = blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| format!("[{}] Reunión «{}» del {}:\n{}", i + 1, b.title.as_deref().unwrap_or(""), when(b.meeting), b.text))
+        .collect();
+    let user = format!("Pregunta: {q}\n\nFragmentos:\n{}", frags.join("\n\n"));
+    let (answer, refs) = ask_any(llms, ASK_PROMPT, &user, parse_answer, |_| {})?;
+    let sources = blocks
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| refs.contains(&(i + 1)))
+        .map(|(i, b)| Source { n: i + 1, meeting: b.meeting, title: b.title, text: b.text })
+        .collect();
+    Ok(Answer { answer, sources })
+}
+
+/// El LLM tarda: fuera del hilo principal.
+#[tauri::command]
+pub async fn meetings_ask(app: AppHandle, llms: Vec<Llm>, q: String) -> Result<Answer, String> {
+    tauri::async_runtime::spawn_blocking(move || ask_meetings(&app, &llms, &q)).await.map_err(|e| e.to_string())?
+}
+
 #[cfg(target_os = "macos")]
 mod mac {
     use super::*;
     use screencapturekit::prelude::*;
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+    use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
     const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
     const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin";
+    /// Silero VAD de whisper.cpp (~1 MB): dónde hay voz, para cortar en pausas reales y no transcribir ruido.
+    const VAD_MODEL: &str = "ggml-silero-v5.1.2.bin";
+    const VAD_URL: &str = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin";
     /// ponytail: idioma fijo; "auto" en fragmentos de 15 s confunde idiomas a veces. Pref si hay reuniones en inglés.
     const LANG: &str = "es";
     const WHO: [&str; 2] = ["Yo", "Otros"];
@@ -681,24 +940,25 @@ mod mac {
             .collect()
     }
 
-    fn model_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    /// Ruta del modelo en $APPDATA/models; lo descarga la primera vez (`what` va al estado mientras baja).
+    fn model_path(app: &AppHandle, name: &str, url: &str, what: &str) -> Result<std::path::PathBuf, String> {
         let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
-        let path = dir.join(MODEL);
+        let path = dir.join(name);
         if path.exists() {
             return Ok(path);
         }
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        update(app, |g| g.snap.status = "Descargando el modelo de voz (~550 MB, solo la primera vez)…".into());
-        let tmp = dir.join(format!("{MODEL}.part"));
+        update(app, |g| g.snap.status = format!("Descargando {what} (solo la primera vez)…"));
+        let tmp = dir.join(format!("{name}.part"));
         let ok = std::process::Command::new("curl")
             .args(["-fsSL", "--retry", "3", "-o"])
             .arg(&tmp)
-            .arg(MODEL_URL)
+            .arg(url)
             .status()
             .map_err(|e| e.to_string())?
             .success();
         if !ok {
-            return Err("no se pudo descargar el modelo de voz".into());
+            return Err(format!("no se pudo descargar {what}"));
         }
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         Ok(path)
@@ -766,6 +1026,14 @@ mod mac {
         Ok(stream)
     }
 
+    /// Segmentos con voz `(ini, fin)` en muestras. Pausas de 200 ms o más separan segmentos.
+    fn speech(vad: &mut WhisperVadContext, x: &[f32]) -> Vec<(usize, usize)> {
+        let mut p = WhisperVadParams::default();
+        p.set_min_silence_duration(200);
+        let cs = RATE / 100; // los tiempos vienen en centésimas de segundo
+        vad.segments_from_samples(p, x).map(|s| s.map(|g| (g.start as usize * cs, g.end as usize * cs)).collect()).unwrap_or_default()
+    }
+
     pub fn transcribe(ws: &mut whisper_rs::WhisperState, audio: &[f32]) -> String {
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         p.set_language(Some(LANG));
@@ -800,15 +1068,88 @@ mod mac {
         println!("{:.2}s para {:.1}s de audio", t.elapsed().as_secs_f32(), audio.len() as f32 / RATE as f32);
     }
 
-    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool) -> Result<(), String> {
+    /// Compara los cortes por RMS (`take_chunk`) con los del VAD simulando la captura (bloques de 300 ms):
+    /// `VAD_MODEL=…/ggml-silero-v5.1.2.bin AUDIO_F32=voz.f32 GAPS=pausas.json [CLEAN_F32=…] [WHISPER_MODEL=…] cargo test --lib probar_vad -- --ignored --nocapture`
+    /// GAPS: `[[ini, fin], …]` en muestras sin voz (verdad de terreno); CLEAN_F32: el mismo audio sin ruido, para ver
+    /// si el corte cae en silencio (aunque sea una coma); con WHISPER_MODEL además transcribe cada fragmento.
+    #[test]
+    #[ignore]
+    fn probar_vad() {
+        let env = |k: &str| std::env::var(k).ok();
+        let f32s = |p: String| -> Vec<f32> { std::fs::read(p).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect() };
+        let audio = f32s(env("AUDIO_F32").unwrap());
+        let clean = env("CLEAN_F32").map(f32s).unwrap_or_default();
+        let gaps: Vec<[usize; 2]> = serde_json::from_str(&std::fs::read_to_string(env("GAPS").unwrap()).unwrap()).unwrap();
+        let in_gap = |i: usize| gaps.iter().any(|g| g[0] <= i && i < g[1]);
+        let mute = |a: usize, b: usize| (a..b).step_by(160).filter(|i| !in_gap(*i)).count() * 160 < RATE / 4; // < 250 ms de voz
+        let quiet = |i: usize| clean.get(i.saturating_sub(400)..(i + 400).min(clean.len())).is_some_and(|w| rms(w) < 0.003);
+        let mut vad = WhisperVadContext::new(&env("VAD_MODEL").unwrap(), WhisperVadContextParams::default()).unwrap();
+        let whisper = env("WHISPER_MODEL").map(|m| WhisperContext::new_with_params(&m, WhisperContextParameters::default()).unwrap());
+        let mut ws = whisper.as_ref().map(|c| c.create_state().unwrap());
+        for use_vad in [false, true] {
+            let t = std::time::Instant::now();
+            let (mut buf, mut base, mut fed) = (vec![], 0, 0);
+            let [mut cuts, mut in_pause, mut silent, mut forced, mut sent, mut mute_sent, mut mute_skipped, mut lost] = [0usize; 8];
+            loop {
+                let flush = fed >= audio.len();
+                let n = (RATE * 3 / 10).min(audio.len() - fed);
+                buf.extend_from_slice(&audio[fed..fed + n]);
+                fed += n;
+                loop {
+                    let full = buf.len() >= MAX_S * RATE;
+                    let mut found = false;
+                    let chunk = take_chunk_with(&mut buf, flush, |x| {
+                        let c = if use_vad { last_pause(&speech(&mut vad, x), x.len()) } else { rms_cut(x) };
+                        found = c.is_some();
+                        c
+                    });
+                    let Some(chunk) = chunk else { break };
+                    let (a, b) = (base, base + chunk.len());
+                    base = b;
+                    if !flush {
+                        cuts += 1;
+                        in_pause += in_gap(b) as usize;
+                        silent += quiet(b) as usize;
+                        forced += (full && !found) as usize;
+                    }
+                    let m = mute(a, b);
+                    if if use_vad { speech(&mut vad, &chunk).is_empty() } else { rms(&chunk) < SILENCE / 2.0 } {
+                        mute_skipped += m as usize;
+                        lost += !m as usize;
+                        continue;
+                    }
+                    sent += 1;
+                    mute_sent += m as usize;
+                    if let Some(ws) = ws.as_mut() {
+                        println!("  [{:5.1}–{:5.1}s{}] {}", a as f32 / RATE as f32, b as f32 / RATE as f32, if m { " SIN VOZ" } else { "" }, transcribe(ws, &chunk));
+                    }
+                }
+                if flush {
+                    break;
+                }
+            }
+            println!(
+                "{}: {cuts} cortes · {in_pause} entre frases · {silent} en silencio · {forced} forzados a {MAX_S} s · {sent} a whisper ({mute_sent} sin voz) · descartados sin voz {mute_skipped}, con voz {lost} · {} ms",
+                if use_vad { "vad" } else { "rms" },
+                t.elapsed().as_millis()
+            );
+        }
+    }
+
+    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool, cal: Option<Ctx>) -> Result<(), String> {
         let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
-        let path = model_path(app)?;
+        let path = model_path(app, MODEL, MODEL_URL, "el modelo de voz (~550 MB)")?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
         whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
         let ctx = WhisperContext::new_with_params(&path, WhisperContextParameters::default())
             .map_err(|e| format!("whisper: {e}"))?;
         let mut ws = ctx.create_state().map_err(|e| format!("whisper: {e}"))?;
         let mut transcribe = |audio: &[f32]| transcribe(&mut ws, audio);
+        // Sin el VAD (no bajó o no carga) se sigue con el umbral de RMS: peor con ruido de fondo, pero funciona.
+        let mut vad = model_path(app, VAD_MODEL, VAD_URL, "el detector de voz (~1 MB)")
+            .ok()
+            .and_then(|p| WhisperVadContext::new(p.to_str()?, WhisperVadContextParams::default()).ok());
+        let mut voice = |x: &[f32]| vad.as_mut().map(|v| speech(v, x));
 
         let bufs: Bufs = Arc::default();
         let meter: Arc<Meter> = Arc::default();
@@ -832,10 +1173,14 @@ mod mac {
                 loop {
                     // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de ScreenCaptureKit
                     // no puede esperar tanto para guardar el audio que va llegando.
-                    let chunk = { let mut b = bufs.lock().unwrap(); take_chunk(&mut b[src], flush) };
+                    // ponytail: el VAD corre con el candado tomado (~ms por 20 s de audio, no los ~2 s de whisper).
+                    let chunk = {
+                        let mut b = bufs.lock().unwrap();
+                        take_chunk_with(&mut b[src], flush, |x| voice(x).map_or_else(|| rms_cut(x), |s| last_pause(&s, x.len())))
+                    };
                     let Some(chunk) = chunk else { break };
-                    if rms(&chunk) < SILENCE / 2.0 {
-                        continue; // todo silencio: whisper alucinaría
+                    if voice(&chunk).map_or(rms(&chunk) < SILENCE / 2.0, |s| s.is_empty()) {
+                        continue; // sin voz: whisper alucinaría ("Gracias.", "Gracias por ver el video")
                     }
                     let secs = chunk.len() / RATE;
                     update(app, |g| g.snap.status = format!("Transcribiendo {secs} s de {}…", WHO[src]));
@@ -859,20 +1204,22 @@ mod mac {
         update(app, |g| g.snap.status = "Transcribiendo lo último…".into());
         push(app, &mut lines, true);
         if !lines.is_empty() {
-            let id = save(app, &lines, manage);
+            let id = save(app, &lines, manage, cal.as_ref());
+            let a = app.clone();
+            std::thread::spawn(move || index_missing(&a)); // para preguntarle; sin Ollama no pasa nada
             update(app, |g| g.snap.status = if manage { "Ordenando las tareas…" } else { "Buscando tareas en la reunión…" }.into());
-            let msg = finalize(app, llms, id, &lines, manage)?;
+            let msg = finalize(app, llms, id, &lines, manage, cal.as_ref())?;
             update(app, |g| g.snap.status = msg);
         }
         Ok(())
     }
 
     /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md y devuelve el epoch (id de la reunión).
-    fn save(app: &AppHandle, lines: &[Line], manage: bool) -> u64 {
+    fn save(app: &AppHandle, lines: &[Line], manage: bool, ctx: Option<&Ctx>) -> u64 {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         if let Some(dir) = meetings_dir(app) {
             let _ = std::fs::create_dir_all(&dir);
-            let head = if manage { MANAGE_HEADER } else { "" };
+            let head = if manage { MANAGE_HEADER.to_string() } else { ctx.map(fmt_head).unwrap_or_default() };
             let _ = std::fs::write(dir.join(format!("{secs}.md")), format!("{head}{}", fmt_lines(lines)));
         }
         secs
@@ -906,6 +1253,47 @@ mod tests {
         let mut buf = tone(2.0, 0.3);
         assert_eq!(take_chunk(&mut buf, true).unwrap().len(), 2 * RATE);
         assert!(take_chunk(&mut buf, true).is_none());
+    }
+
+    #[test]
+    fn corta_en_la_ultima_pausa_del_vad() {
+        let s = |a: f32, b: f32| ((a * RATE as f32) as usize, (b * RATE as f32) as usize);
+        let at = |x: Option<usize>| x.map(|i| i as f32 / RATE as f32);
+        // voz 0–9 s, pausa, voz 9,5–12 s: con 12,2 s de búfer la cola (200 ms) es muy corta → la pausa de 9,25 s
+        assert_eq!(at(last_pause(&[s(0.0, 9.0), s(9.5, 12.0)], 12 * RATE + RATE / 5)), Some(9.25));
+        // con 1 s de silencio al final, corta ahí
+        assert_eq!(at(last_pause(&[s(0.0, 9.0), s(9.5, 12.0)], 13 * RATE)), Some(12.5));
+        // la única pausa queda antes de MIN_S y la voz sigue hasta el final: espera
+        assert_eq!(last_pause(&[s(0.0, 3.0), s(4.0, 12.0)], 12 * RATE), None);
+        // sin voz: corta ya, para descartarlo
+        assert_eq!(last_pause(&[], 9 * RATE), Some(9 * RATE - WIN / 2));
+        // take_chunk_with respeta el corte inyectado y, sin corte, espera a MAX_S
+        let mut buf = tone(9.0, 0.3);
+        assert_eq!(take_chunk_with(&mut buf, false, |_| Some(8 * RATE + 7)).map(|c| c.len()), Some(8 * RATE + 7));
+        assert_eq!(buf.len(), RATE - 7);
+        let mut buf = tone(12.0, 0.3);
+        assert!(take_chunk_with(&mut buf, false, |_| None).is_none());
+        let mut buf = tone(21.0, 0.3);
+        assert!(take_chunk_with(&mut buf, false, |_| Some(RATE)).unwrap().len() <= MAX_S * RATE); // corte inválido: el de RMS
+    }
+
+    #[test]
+    fn bloques_y_coseno_para_preguntar() {
+        let lines: Vec<Line> = (0..23).map(|i| Line { who: if i % 2 == 0 { "Yo" } else { "Otros" }, text: format!("frase {i}") }).collect();
+        let c = chunks(&lines);
+        assert_eq!(c.len(), 3);
+        assert!(c[0].starts_with("Yo: frase 0\nOtros: frase 1\n") && c[0].ends_with("Otros: frase 9"));
+        assert_eq!(c[2], "Yo: frase 20\nOtros: frase 21\nYo: frase 22");
+        assert!(chunks(&[]).is_empty());
+        assert!((cosine(&[1.0, 0.0], &[2.0, 0.0]) - 1.0).abs() < 1e-6);
+        assert!(cosine(&[1.0, 0.0], &[0.0, 3.0]).abs() < 1e-6);
+        assert!((cosine(&[1.0, 1.0], &[-1.0, -1.0]) + 1.0).abs() < 1e-6);
+        assert_eq!(cosine(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+        let v = vec![0.25, -1.5, 3.0e-7];
+        assert_eq!(from_blob(&to_blob(&v)), v);
+        assert_eq!(parse_answer(r#"Ok: {"respuesta":" El plazo es el viernes [2]. ","fuentes":[2,"x"]}"#), Ok(("El plazo es el viernes [2].".into(), vec![2])));
+        assert!(parse_answer(r#"{"respuesta":"","fuentes":[]}"#).is_err());
+        assert!(parse_answer(r#"{"respuesta":"sin fuentes"}"#).is_err());
     }
 
     #[test]
@@ -954,11 +1342,16 @@ mod tests {
     #[test]
     fn lee_el_json_del_modelo() {
         let out = "<think>{no}</think>Claro: {\"tareas\":[{\"titulo\":\"Enviar informe\",\"detalle\":\"Ana, lunes\"},{\"titulo\":\" \"}]}";
-        assert_eq!(parse_tasks(out), Ok(vec![("Enviar informe".into(), "Ana, lunes".into())]));
-        assert_eq!(parse_tasks("{\"tareas\":[]}"), Ok(vec![]));
-        assert!(parse_tasks("sin json").is_err());
-        assert!(parse_tasks("} {").is_err());
-        assert!(parse_tasks("{\"tasks\":[]}").is_err()); // clave equivocada ≠ cero tareas
+        let tareas = vec![("Enviar informe".to_string(), "Ana, lunes".to_string())];
+        assert_eq!(parse_result(out), Ok(Outcome { tareas: tareas.clone(), ..Default::default() })); // sin resumen ni decisiones
+        let full = r#"{"resumen":" Se revisó el plan. ","decisiones":["Lanzar el lunes"," ",3],"tareas":[{"titulo":"Enviar informe","detalle":"Ana, lunes"}]}"#;
+        let r = parse_result(full).unwrap();
+        assert_eq!((r.resumen.as_str(), r.decisiones, r.tareas), ("Se revisó el plan.", vec!["Lanzar el lunes".to_string()], tareas));
+        assert_eq!(parse_result(r#"{"resumen":["Uno.","Dos."],"tareas":[]}"#).unwrap().resumen, "Uno.\nDos.");
+        assert_eq!(parse_result("{\"tareas\":[]}"), Ok(Outcome::default()));
+        assert!(parse_result("sin json").is_err());
+        assert!(parse_result("} {").is_err());
+        assert!(parse_result("{\"tasks\":[],\"resumen\":\"x\"}").is_err()); // clave equivocada ≠ cero tareas
     }
 
     #[test]
@@ -966,10 +1359,10 @@ mod tests {
         // Sin key ninguno llega a la red: cada uno falla y pasa al siguiente.
         let llm = |p: &str, m: &[&str]| Llm { provider: p.into(), apikey: "".into(), models: m.iter().map(|s| s.to_string()).collect() };
         let mut tried = vec![];
-        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], "", "", parse_tasks, |m| tried.push(m.to_string()));
+        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], "", "", parse_result, |m| tried.push(m.to_string()));
         assert_eq!(tried, ["a", "b", "c"]);
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
-        assert!(ask_any(&[], "", "", parse_tasks, |_| {}).is_err());
+        assert!(ask_any(&[], "", "", parse_result, |_| {}).is_err());
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
     }
 
@@ -1008,6 +1401,22 @@ mod tests {
     }
 
     #[test]
+    fn cabecera_del_calendario_ida_y_vuelta() {
+        let ctx = Ctx { title: "Daily: equipo \"pet\"".into(), attendees: vec!["Ana Pérez".into(), "bob@x.dev".into()] };
+        let md = format!("{}Yo: hola\nOtros: chao", fmt_head(&ctx));
+        assert!(md.starts_with("---\ntitle: \"Daily: equipo \\\"pet\\\"\"\nattendees: [\"Ana Pérez\",\"bob@x.dev\"]\n---\n"));
+        let (back, body) = parse_head(&md);
+        assert_eq!(back, Some(ctx.clone()));
+        assert_eq!(body, "Yo: hola\nOtros: chao");
+        assert_eq!(parse_lines(&md).len(), 2); // la cabecera no son líneas de la reunión
+        assert_eq!(parse_head("Yo: sin cabecera"), (None, "Yo: sin cabecera"));
+        let p = prompt(&parse_lines(body), Some(&ctx), "Diego");
+        assert!(p.contains("Reunión: Daily: equipo \"pet\". Participantes: Ana Pérez, bob@x.dev. \"Yo\" es Diego."));
+        assert!(!p.contains("OJO"));
+        assert!(prompt(&[], None, "").ends_with("revisará cada una."));
+    }
+
+    #[test]
     fn relee_la_transcripcion_guardada() {
         let lines = vec![Line { who: "Yo", text: "Hora: 10:30".into() }, Line { who: "Otros", text: "ok".into() }];
         let back = parse_lines(&format!("{MANAGE_HEADER}{}\nbasura sin hablante", fmt_lines(&lines)));
@@ -1035,9 +1444,43 @@ fn probar_llm() {
     println!("{} líneas → {} tras limpiar", lines.len(), clean.len());
     let t = std::time::Instant::now();
     let user = format!("Transcripción:\n{}", fmt_lines(&clean));
-    let tasks = ask_any(&[llm], &prompt(&clean), &user, parse_tasks, |m| println!("probando {m}")).unwrap();
-    println!("{:.1}s", t.elapsed().as_secs_f32());
-    for (title, detail) in tasks {
+    let r = ask_any(&[llm], &prompt(&clean, None, ""), &user, parse_result, |m| println!("probando {m}")).unwrap();
+    println!("{:.1}s\nResumen:\n{}\nDecisiones:", t.elapsed().as_secs_f32(), r.resumen);
+    for d in r.decisiones {
+        println!("  · {d}");
+    }
+    println!("Tareas:");
+    for (title, detail) in r.tareas {
         println!("  + {title} — {detail}");
+    }
+}
+
+/// Pregunta a las reuniones guardadas con Ollama de verdad (sin la app ni la BD):
+/// `PREGUNTA="¿qué quedó del formulario de reclamos?" MEETINGS_DIR=… cargo test --lib probar_preguntar -- --ignored --nocapture`
+/// (LLM_PROVIDER / LLM_MODEL / LLM_KEY como en `probar_llm`).
+#[cfg(test)]
+#[test]
+#[ignore]
+fn probar_preguntar() {
+    let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.into());
+    let llm = Llm { provider: env("LLM_PROVIDER", "ollama"), apikey: env("LLM_KEY", ""), models: vec![env("LLM_MODEL", "qwen3.5:9b")] };
+    let t = std::time::Instant::now();
+    let mut blocks = vec![];
+    for e in std::fs::read_dir(env("MEETINGS_DIR", ".")).unwrap().flatten() {
+        let Some(id) = e.file_name().to_str().and_then(|n| n.strip_suffix(".md")?.parse().ok()) else { continue };
+        let raw = std::fs::read_to_string(e.path()).unwrap();
+        let (ctx, text) = parse_head(&raw);
+        let parts = chunks(&parse_lines(text));
+        if raw.starts_with(MANAGE_HEADER) || parts.is_empty() {
+            continue;
+        }
+        let vecs = embed(&parts.iter().map(|t| format!("search_document: {t}")).collect::<Vec<_>>()).unwrap();
+        blocks.extend(parts.into_iter().zip(vecs).map(|(text, vec)| Block { meeting: id, title: ctx.as_ref().map(|c| c.title.clone()), text, vec }));
+    }
+    println!("{} bloques indexados en {:.1}s", blocks.len(), t.elapsed().as_secs_f32());
+    let r = answer(&[llm], &env("PREGUNTA", "¿Qué se decidió?"), blocks).unwrap();
+    println!("{:.1}s\n{}", t.elapsed().as_secs_f32(), r.answer);
+    for s in r.sources {
+        println!("  [{}] #meetings/{} · {}", s.n, s.meeting, s.text.lines().next().unwrap_or(""));
     }
 }
