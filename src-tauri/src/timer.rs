@@ -173,6 +173,14 @@ impl Timer {
         }
     }
 
+    /// Si venció con la app cerrada: lo completa a su hora real (no ahora) y queda en reposo.
+    pub fn catch_up(&mut self, now: u64) -> Option<(Done, u64)> {
+        let end = self.end.filter(|&e| self.status == Status::Running && e <= now)?;
+        let done = self.complete(end, false)?;
+        self.reset(now);
+        Some((done, end))
+    }
+
     /// Duración configurada de cada modo (s).
     pub fn secs_for(&self, mode: Mode) -> u64 {
         match mode {
@@ -224,10 +232,8 @@ pub fn restore(app: &AppHandle) {
     let mut t = state.lock().unwrap();
     let cfg = std::mem::take(&mut t.cfg);
     *t = Timer { cfg, ..saved };
-    let now = now_ms();
-    if let Some(done) = t.due(now) {
-        crate::db::record_session(app, &done, now);
-        t.reset(now);
+    if let Some((done, end)) = t.catch_up(now_ms()) {
+        crate::db::record_session(app, &done, end);
     }
     changed(app, &t);
 }
@@ -405,6 +411,20 @@ mod tests {
         assert_eq!(t.status, Status::Idle);
         t.start(Mode::Short, 300, None, 0);
         assert!(t.reset(1000).is_none()); // las pausas no son tiempo de trabajo
+    }
+
+    #[test]
+    fn vencido_con_la_app_cerrada_se_registra_a_su_hora() {
+        let t0 = 1_000_000;
+        let mut t = Timer::new();
+        t.start(Mode::Focus, 1500, Some(2), t0);
+        assert!(t.catch_up(t0 + 100).is_none());
+        assert_eq!(t.status, Status::Running);
+        let (d, end) = t.catch_up(t0 + 36_000_000).unwrap(); // 10 h después
+        assert_eq!((end, d.elapsed, d.task_id, t.status), (t0 + 1_500_000, 1500, Some(2), Status::Idle));
+        t.start(Mode::Focus, 1500, None, t0);
+        t.pause(t0 + 1000);
+        assert!(t.catch_up(t0 + 36_000_000).is_none());
     }
 
     #[test]
