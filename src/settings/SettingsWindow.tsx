@@ -7,6 +7,7 @@ import {
   DEFAULT_FOCUS_SHORTCUT,
   DEFAULT_SHORTCUT,
   DEFAULT_VOICE_SHORTCUT,
+  DEFAULT_CENTER_SHORTCUT,
   PET_SIZE,
   type Prefs,
 } from "../lib/prefs";
@@ -69,7 +70,7 @@ export function SettingsWindow() {
     </label>
   );
 
-  type ShortcutKey = "shortcut" | "focusShortcut" | "voiceShortcut";
+  type ShortcutKey = "shortcut" | "focusShortcut" | "voiceShortcut" | "centerShortcut";
   const setShortcut = async (kind: string, key: ShortcutKey, accel: string) => {
     try {
       await invoke("set_quick_shortcut", { kind, accel });
@@ -318,6 +319,7 @@ export function SettingsWindow() {
       {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}
       {shortcutField("focus", "focusShortcut", "Iniciar/pausar foco", DEFAULT_FOCUS_SHORTCUT)}
       {shortcutField("voice", "voiceShortcut", "Hablarle a la Candola", DEFAULT_VOICE_SHORTCUT)}
+      {shortcutField("center", "centerShortcut", "Traer a Candolita al centro", DEFAULT_CENTER_SHORTCUT)}
       <small style={{ opacity: 0.7 }}>
         Mantén el atajo de la Candola mientras hablas (hasta 10 s) y suéltalo: la orden entra al chat. Usa el
         micrófono y el modelo de voz de las reuniones (macOS).

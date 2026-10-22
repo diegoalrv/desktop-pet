@@ -175,6 +175,7 @@ pub fn run() {
                         // Mantener para hablarle a la Candola; al soltar se transcribe.
                         Some("voice") if pressed => voice::start(app),
                         Some("voice") => voice::stop(app),
+                        Some("center") if pressed => windows::center_pet(app),
                         _ => {}
                     }
                 })

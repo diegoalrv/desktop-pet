@@ -23,6 +23,7 @@ describe("prefs", () => {
       shortcut: "CommandOrControl+Shift+Space",
       focusShortcut: "CommandOrControl+Shift+F",
       voiceShortcut: "Alt+Space",
+      centerShortcut: "CommandOrControl+Alt+P",
       voice: false,
       distractions: [],
       focusCam: false,

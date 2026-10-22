@@ -27,6 +27,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         app,
         &[
             &item("toggle", "Mostrar/ocultar mascota")?,
+            &item("center", "Traer a Candolita al centro")?,
             &item("focus", "Iniciar foco")?,
             &item("tasks", "Abrir tareas")?,
             &item("manager", "Gestor de tareas…")?,
@@ -46,6 +47,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                     if w.is_visible().unwrap_or(true) { let _ = w.hide(); } else { let _ = w.show(); }
                 }
             }
+            "center" => windows::center_pet(app),
             "focus" => timer::start_focus(app),
             "tasks" => {
                 windows::show_panel(app);

@@ -96,12 +96,21 @@ pub fn open_window(app: AppHandle, label: String) -> Option<()> {
     w.set_focus().ok()
 }
 
+/// Muestra a la mascota y la trae al centro de la pantalla principal (atajo o menú de la barra): para cuando quedó
+/// fuera de la vista. La posición la maneja el loop de `PetWindow`, así que solo se le avisa.
+pub fn center_pet(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("pet") {
+        let _ = w.show();
+    }
+    let _ = app.emit_to("pet", "pet://center", ());
+}
+
 /// Atajos globales registrados, por tipo ("panel", "focus"…): para reemplazar el de un tipo sin tocar los demás.
 #[derive(Default)]
 pub struct Shortcuts(pub Mutex<HashMap<&'static str, String>>);
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 /// Tipos de atajo conocidos (el handler de `lib.rs` los despacha con `shortcut_kind`).
-const KINDS: [&str; 3] = ["panel", "focus", "voice"];
+const KINDS: [&str; 4] = ["panel", "focus", "voice", "center"];
 
 /// Tipo del atajo que se acaba de pulsar.
 pub fn shortcut_kind(app: &AppHandle, pressed: &tauri_plugin_global_shortcut::Shortcut) -> Option<&'static str> {
@@ -120,7 +129,13 @@ pub fn set_quick_shortcut(kind: String, accel: String, app: AppHandle, cur: Stat
     let gs = app.global_shortcut();
     let mut map = cur.0.lock().unwrap();
     if let Some((other, _)) = map.iter().find(|(k, a)| **k != kind && a.parse::<Shortcut>().is_ok_and(|s| s == new)) {
-        return Err(format!("Ese atajo ya está asignado a {}", if *other == "focus" { "iniciar/pausar el foco" } else { "abrir el panel" }));
+        let what = match *other {
+            "focus" => "iniciar/pausar el foco",
+            "voice" => "hablarle a la Candola",
+            "center" => "traer a Candolita al centro",
+            _ => "abrir el panel",
+        };
+        return Err(format!("Ese atajo ya está asignado a {what}"));
     }
     let old = map.get(kind).and_then(|a| a.parse::<Shortcut>().ok());
     if old == Some(new) && gs.is_registered(new) {

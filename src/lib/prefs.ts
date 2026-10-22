@@ -3,6 +3,7 @@ import { z } from "zod";
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export const DEFAULT_FOCUS_SHORTCUT = "CommandOrControl+Shift+F";
 export const DEFAULT_VOICE_SHORTCUT = "Alt+Space";
+export const DEFAULT_CENTER_SHORTCUT = "CommandOrControl+Alt+P";
 export const PET_SIZE = { min: 64, max: 320, def: 128 };
 
 /** Un proveedor con sus modelos en orden: si uno falla (sobrecarga, cuota…) se prueba el siguiente.
@@ -40,6 +41,7 @@ export const prefsSchema = z.object({
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
   focusShortcut: z.string().min(1).catch(DEFAULT_FOCUS_SHORTCUT), // iniciar/pausar/reanudar el foco
   voiceShortcut: z.string().min(1).catch(DEFAULT_VOICE_SHORTCUT), // mantener para hablarle a la Candola (voice.rs)
+  centerShortcut: z.string().min(1).catch(DEFAULT_CENTER_SHORTCUT), // trae a la mascota al centro si se perdió
   voice: z.boolean().catch(false), // leer en voz alta (say) las respuestas a lo dictado
   distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
   // Cámara durante el foco (F17, lib/camera.ts): gruñe/ladra si miras el teléfono, pausa si te vas

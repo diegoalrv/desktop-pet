@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, primaryMonitor } from "@tauri-apps/api/window";
 import { headroom, Sprite, spriteSize } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -72,6 +72,7 @@ export function PetWindow() {
     invoke("set_quick_shortcut", { kind: "panel", accel: prefs.shortcut }).catch(() => {});
     invoke("set_quick_shortcut", { kind: "focus", accel: prefs.focusShortcut }).catch(() => {});
     invoke("set_quick_shortcut", { kind: "voice", accel: prefs.voiceShortcut }).catch(() => {});
+    invoke("set_quick_shortcut", { kind: "center", accel: prefs.centerShortcut }).catch(() => {});
   }, [prefs]);
 
   // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
@@ -253,6 +254,22 @@ export function PetWindow() {
     const unPanel = listen<boolean>("panel://visible", (e) =>
       send({ type: e.payload ? "panelOpen" : "panelClose" }),
     );
+    // Atajo / menú "Traer a Candolita al centro": al centro de la pantalla principal, en el suelo.
+    const unCenter = listen("pet://center", async () => {
+      const [m, s] = await Promise.all([primaryMonitor(), win.outerSize()]);
+      if (!m) return;
+      const wa = m.workArea;
+      area = { x: wa.position.x, y: wa.position.y, w: wa.size.width, h: wa.size.height };
+      size = { w: s.width, h: s.height };
+      scale = m.scaleFactor;
+      x = area.x + (area.w - size.w) / 2;
+      y = groundY(area, size.h, cfg.current.groundOffset * scale);
+      vy = 0;
+      move();
+      if (ctx.state === "dragged") send({ type: "drop" });
+      if (ctx.state === "fall") send({ type: "land" });
+      if (ctx.state === "walk") pickTarget();
+    });
     const stopCam = watchFocusCam(send); // F17: solo abre la cámara con la pref y un foco corriendo
 
     // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
@@ -348,6 +365,7 @@ export function PetWindow() {
       unClaudeEnd.then((f) => f());
       unPanel.then((f) => f());
       stopCam();
+      unCenter.then((f) => f());
       clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
     };
