@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     sync::Mutex,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
@@ -32,7 +33,31 @@ pub struct Cfg {
     pub long_every: u32,
     /// Al terminar una pausa, arranca el siguiente foco solo.
     pub auto_cycle: bool,
+    /// Muestra el tiempo restante junto al ícono del tray (macOS).
+    pub tray_timer: bool,
+    /// Bundle ids de las apps que cuentan como distracción durante un foco.
+    pub distractions: Vec<String>,
 }
+
+/// Tiempo y distracciones de una app durante un foco (se vuelca en `session_apps`).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct AppUse {
+    pub bundle: String,
+    pub name: String,
+    pub ms: u64,
+    pub hits: u32,
+}
+
+/// Lo que pasó al mirar la app al frente.
+#[derive(Debug, PartialEq)]
+pub enum Watch {
+    /// Acaba de abrir una app de la lista de distracciones.
+    Distracted(String, String), // bundle, nombre
+    /// Lleva más de 1 min seguido en una (se avisa una sola vez por visita).
+    Lingering(String),
+}
+
+const LINGER_MS: u64 = 60_000;
 
 /// Tiempos en ms de reloj (epoch), no `Instant`: así el estado se puede guardar en disco
 /// y retomarse tras cerrar la app (y el día de mañana sincronizarse con otro dispositivo).
@@ -48,6 +73,15 @@ pub struct Timer {
     last_task: Option<i64>, // tarea del último foco, para continuar el ciclo
     #[serde(skip)]
     cfg: Cfg,
+    // Apps al frente durante el foco en curso (F11); se pierde si la app se cierra a mitad de foco.
+    #[serde(skip)]
+    apps: HashMap<String, AppUse>,
+    #[serde(skip)]
+    front: Option<String>, // bundle al frente en la última mirada
+    #[serde(skip)]
+    away_ms: u64, // tiempo seguido en la distracción actual
+    #[serde(skip)]
+    away_warned: bool,
 }
 
 pub fn now_ms() -> u64 {
@@ -61,6 +95,8 @@ pub struct Done {
     pub task_id: Option<i64>,
     pub elapsed: u64, // s realmente transcurridos
     pub skipped: bool,
+    #[serde(skip)]
+    pub apps: Vec<AppUse>,
 }
 
 #[derive(Serialize, Clone)]
@@ -84,7 +120,11 @@ impl Timer {
             count: 0,
             task_id: None,
             last_task: None,
-            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false },
+            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false, tray_timer: true, distractions: vec![] },
+            apps: HashMap::new(),
+            front: None,
+            away_ms: 0,
+            away_warned: false,
         }
     }
 
@@ -99,6 +139,8 @@ impl Timer {
     pub fn start(&mut self, mode: Mode, secs: u64, task_id: Option<i64>, now: u64) {
         self.mode = mode;
         self.task_id = task_id;
+        self.apps.clear();
+        self.front = None;
         self.total = secs * 1000;
         self.status = Status::Running;
         self.end = Some(now + self.total);
@@ -127,11 +169,57 @@ impl Timer {
             task_id: self.task_id,
             elapsed: self.elapsed(now),
             skipped: true,
+            apps: self.take_apps(),
         });
         self.status = Status::Idle;
         self.end = None;
         self.left = 0;
         partial
+    }
+
+    /// Entrega las apps del foco que termina, de más a menos tiempo.
+    fn take_apps(&mut self) -> Vec<AppUse> {
+        self.front = None;
+        let mut v: Vec<AppUse> = self.apps.drain().map(|(_, a)| a).collect();
+        v.sort_by(|a, b| b.ms.cmp(&a.ms).then_with(|| a.bundle.cmp(&b.bundle)));
+        v
+    }
+
+    /// ¿Hay que mirar la app al frente? Solo con un foco corriendo.
+    pub fn watching(&self) -> bool {
+        self.status == Status::Running && self.mode == Mode::Focus
+    }
+
+    /// Registra la app al frente durante los últimos `dt_ms` y detecta distracciones.
+    pub fn watch(&mut self, front: Option<(String, String)>, dt_ms: u64) -> Option<Watch> {
+        let front = front.filter(|_| self.watching()); // el foco pudo terminar entre la mirada y el candado
+        let Some((bundle, name)) = front else {
+            self.front = None;
+            self.away_ms = 0;
+            return None;
+        };
+        let a = self.apps.entry(bundle.clone()).or_insert_with(|| AppUse { bundle: bundle.clone(), ..Default::default() });
+        a.name = name.clone();
+        a.ms += dt_ms;
+        let arrived = self.front.as_deref() != Some(bundle.as_str());
+        self.front = Some(bundle.clone());
+        if !self.cfg.distractions.contains(&bundle) {
+            self.away_ms = 0;
+            self.away_warned = false;
+            return None;
+        }
+        if arrived {
+            self.apps.get_mut(&bundle).unwrap().hits += 1;
+            self.away_ms = 0;
+            self.away_warned = false;
+            return Some(Watch::Distracted(bundle, name));
+        }
+        self.away_ms += dt_ms;
+        if self.away_ms > LINGER_MS && !self.away_warned {
+            self.away_warned = true;
+            return Some(Watch::Lingering(name));
+        }
+        None
     }
 
     fn elapsed(&self, now: u64) -> u64 {
@@ -146,6 +234,7 @@ impl Timer {
         let mode = self.mode;
         let task_id = self.task_id;
         let elapsed = self.elapsed(now);
+        let apps = self.take_apps();
         if mode == Mode::Focus {
             self.count += 1;
             self.last_task = task_id;
@@ -155,13 +244,13 @@ impl Timer {
                 (Mode::Short, self.cfg.short_s)
             };
             self.start(next, secs, None, now);
-            Some(Done { mode, next: Some(next), task_id, elapsed, skipped })
+            Some(Done { mode, next: Some(next), task_id, elapsed, skipped, apps })
         } else if self.cfg.auto_cycle {
             self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now);
-            Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped })
+            Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped, apps })
         } else {
             self.reset(now);
-            Some(Done { mode, next: None, task_id, elapsed, skipped })
+            Some(Done { mode, next: None, task_id, elapsed, skipped, apps })
         }
     }
 
@@ -179,6 +268,15 @@ impl Timer {
         let done = self.complete(end, false)?;
         self.reset(now);
         Some((done, end))
+    }
+
+    /// Botón principal: reposo → foco con la duración de Ajustes y la última tarea; corriendo → pausa; pausa → reanuda.
+    pub fn toggle(&mut self, now: u64) {
+        match self.status {
+            Status::Idle => self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now),
+            Status::Running => self.pause(now),
+            Status::Paused => self.resume(now),
+        }
     }
 
     /// Duración configurada de cada modo (s).
@@ -203,6 +301,17 @@ impl Timer {
 }
 
 pub type TimerState = Mutex<Timer>;
+
+/// Texto junto al ícono del tray: `🍅 12:34` en foco, `☕ 04:10` en pausa, `⏸ 12:34` en pausa manual; nada en reposo.
+fn tray_label(mode: Mode, status: Status, remaining_s: u64) -> Option<String> {
+    let icon = match (status, mode) {
+        (Status::Idle, _) => return None,
+        (Status::Paused, _) => "⏸",
+        (Status::Running, Mode::Focus) => "🍅",
+        (Status::Running, _) => "☕",
+    };
+    Some(format!("{icon} {:02}:{:02}", remaining_s / 60, remaining_s % 60))
+}
 
 fn emit_tick(app: &AppHandle, t: &Timer) {
     let _ = app.emit("timer://tick", t.snap(now_ms()));
@@ -256,25 +365,61 @@ fn finish(app: &AppHandle, t: &Timer, done: Done) {
 }
 
 /// Hilo del timer: vive en Rust, no depende del webview (sobrevive a throttling y ventana oculta).
+///
+/// Es el ÚNICO que toca el título del tray, y siempre sin el candado del timer: `set_title` espera al hilo
+/// principal, y los comandos síncronos (que corren ahí) piden ese candado → llamarlo con el guard tomado
+/// (o desde un comando) cuelga la app. Los comandos solo cambian el estado; el cambio llega a la barra
+/// en el siguiente ciclo (250 ms).
 pub fn spawn(app: AppHandle) {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(250));
-        let state = app.state::<TimerState>();
-        let mut t = state.lock().unwrap();
-        if t.status == Status::Idle {
-            continue;
-        }
-        match t.due(now_ms()) {
-            Some(done) => finish(&app, &t, done),
-            None => emit_tick(&app, &t),
+    thread::spawn(move || {
+        let mut last = String::new(); // lo último escrito en la barra; solo lo usa este hilo
+        let mut polled = Instant::now(); // última mirada a la app al frente (F11)
+        let own = app.config().identifier.clone();
+        loop {
+            thread::sleep(Duration::from_millis(250));
+            let (label, watching) = {
+                let state = app.state::<TimerState>();
+                let mut t = state.lock().unwrap();
+                if t.status != Status::Idle {
+                    match t.due(now_ms()) {
+                        Some(done) => finish(&app, &t, done),
+                        None => emit_tick(&app, &t),
+                    }
+                }
+                let s = t.snap(now_ms());
+                let label = t.cfg.tray_timer.then(|| tray_label(s.mode, s.status, s.remaining)).flatten();
+                (label.unwrap_or_default(), t.watching())
+            }; // guard soltado aquí
+            if label != last && crate::tray::set_title(&app, (!label.is_empty()).then(|| label.clone())) {
+                last = label;
+            }
+            // App al frente, 1 vez por segundo y solo en foco. También sin el candado puesto: la consulta a
+            // NSWorkspace no debe retener el candado del timer (el hilo principal lo pide en cada comando).
+            if !watching {
+                polled = Instant::now();
+            } else if polled.elapsed() >= Duration::from_secs(1) {
+                let dt = polled.elapsed().as_millis().min(2000) as u64;
+                polled = Instant::now();
+                let front = crate::apps::frontmost().filter(|a| a.bundle != own).map(|a| (a.bundle, a.name));
+                let ev = app.state::<TimerState>().lock().unwrap().watch(front, dt); // guard temporal: se suelta al final de la línea
+                match ev {
+                    Some(Watch::Distracted(bundle, name)) => {
+                        let _ = app.emit("focus://distraction", serde_json::json!({ "bundle": bundle, "name": name }));
+                    }
+                    Some(Watch::Lingering(name)) => {
+                        let _ = app.notification().builder().title("Sigues distraído").body(format!("Llevas más de 1 min en {name}.")).show();
+                    }
+                    None => {}
+                }
+            }
         }
     });
 }
 
 #[tauri::command]
-pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, s: State<TimerState>) {
+pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, tray_timer: bool, distractions: Vec<String>, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle };
+    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer, distractions };
 }
 
 /// Inicia un foco con la duración configurada (menú del tray).
@@ -284,6 +429,14 @@ pub fn start_focus(app: &AppHandle) {
     let secs = t.cfg.focus_s;
     let task = t.last_task;
     t.start(Mode::Focus, secs, task, now_ms());
+    changed(app, &t);
+}
+
+/// Botón principal del panel: en reposo inicia un foco, corriendo pausa, en pausa reanuda (atajo global).
+pub fn toggle_focus(app: &AppHandle) {
+    let state = app.state::<TimerState>();
+    let mut t = state.lock().unwrap();
+    t.toggle(now_ms());
     changed(app, &t);
 }
 
@@ -398,7 +551,7 @@ mod tests {
             assert_eq!(t.status, Status::Running);
         }
         now += 901000;
-        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false }));
+        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false, apps: vec![] }));
         assert_eq!(t.status, Status::Idle);
     }
 
@@ -425,6 +578,68 @@ mod tests {
         t.start(Mode::Focus, 1500, None, t0);
         t.pause(t0 + 1000);
         assert!(t.catch_up(t0 + 36_000_000).is_none());
+    }
+
+    #[test]
+    fn toggle_inicia_pausa_y_reanuda() {
+        let mut t = Timer::new();
+        t.cfg.focus_s = 60;
+        t.last_task = Some(4);
+        t.toggle(0);
+        let s = t.snap(0);
+        assert_eq!((s.mode, s.status, s.total, s.task_id), (Mode::Focus, Status::Running, 60, Some(4)));
+        t.toggle(20_000);
+        assert_eq!((t.status, t.remaining(99_000)), (Status::Paused, 40_000));
+        t.toggle(100_000);
+        assert_eq!((t.status, t.remaining(110_000)), (Status::Running, 30_000));
+    }
+
+    fn front(b: &str) -> Option<(String, String)> {
+        Some((b.into(), b.to_uppercase()))
+    }
+
+    #[test]
+    fn distracciones_y_tiempo_por_app() {
+        let mut t = Timer::new();
+        t.cfg.distractions = vec!["red".into()];
+        t.start(Mode::Focus, 600, None, 0);
+        assert_eq!(t.watch(front("ide"), 1000), None);
+        assert_eq!(t.watch(front("ide"), 1000), None);
+        assert_eq!(t.watch(front("red"), 1000), Some(Watch::Distracted("red".into(), "RED".into())));
+        assert_eq!(t.watch(front("red"), 30_000), None); // sigue ahí: no cuenta otra distracción
+        assert_eq!(t.watch(front("red"), 31_000), Some(Watch::Lingering("RED".into())));
+        assert_eq!(t.watch(front("red"), 1000), None); // se avisa una sola vez
+        assert_eq!(t.watch(front("ide"), 1000), None);
+        assert_eq!(t.watch(front("red"), 1000), Some(Watch::Distracted("red".into(), "RED".into()))); // vuelve: otra
+        let d = t.reset(5000).unwrap();
+        let sum: Vec<_> = d.apps.iter().map(|a| (a.bundle.as_str(), a.ms, a.hits)).collect();
+        assert_eq!(sum, [("red", 64_000, 2), ("ide", 3000, 0)]);
+        assert!(t.apps.is_empty());
+    }
+
+    #[test]
+    fn no_mira_fuera_del_foco() {
+        let mut t = Timer::new();
+        t.cfg.distractions = vec!["red".into()];
+        assert_eq!(t.watch(front("red"), 1000), None); // reposo
+        t.start(Mode::Short, 300, None, 0);
+        assert_eq!(t.watch(front("red"), 1000), None); // pausa
+        t.start(Mode::Focus, 300, None, 0);
+        t.pause(1000);
+        assert_eq!(t.watch(front("red"), 1000), None); // foco en pausa
+        assert!(t.reset(2000).unwrap().apps.is_empty());
+    }
+
+    #[test]
+    fn texto_del_tray() {
+        let l = |m, s, r| tray_label(m, s, r);
+        assert_eq!(l(Mode::Focus, Status::Running, 754), Some("🍅 12:34".into()));
+        assert_eq!(l(Mode::Short, Status::Running, 250), Some("☕ 04:10".into()));
+        assert_eq!(l(Mode::Long, Status::Running, 5), Some("☕ 00:05".into()));
+        assert_eq!(l(Mode::Focus, Status::Paused, 754), Some("⏸ 12:34".into()));
+        assert_eq!(l(Mode::Short, Status::Paused, 60), Some("⏸ 01:00".into()));
+        assert_eq!(l(Mode::Focus, Status::Idle, 0), None);
+        assert_eq!(l(Mode::Focus, Status::Running, 180 * 60), Some("🍅 180:00".into()));
     }
 
     #[test]

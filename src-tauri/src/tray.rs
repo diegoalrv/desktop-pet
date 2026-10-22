@@ -6,6 +6,21 @@ use tauri::{
 
 use crate::{timer, web, windows};
 
+const ID: &str = "tray";
+
+/// Texto junto al ícono (solo macOS; en otros SO no hace nada). Devuelve false si el tray aún no existe.
+/// NO llamar con el candado del timer tomado ni desde un comando síncrono: espera al hilo principal (ver `timer::spawn`).
+pub fn set_title(app: &AppHandle, title: Option<String>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(tray) = app.tray_by_id(ID) else { return false };
+        let _ = tray.set_title(title);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, title);
+    true
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let item = |id: &str, label: &str| MenuItem::with_id(app, id, label, true, None::<&str>);
     let menu = Menu::with_items(
@@ -21,7 +36,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &item("quit", "Salir")?,
         ],
     )?;
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id(ID)
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("Desktop Pet")
         .menu(&menu)

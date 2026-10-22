@@ -18,8 +18,11 @@ describe("prefs", () => {
       longMin: 15,
       longEvery: 4,
       autoCycle: true,
+      trayTimer: true,
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
+      focusShortcut: "CommandOrControl+Shift+F",
+      distractions: [],
       icalUrl: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",
@@ -40,6 +43,12 @@ describe("prefs", () => {
     const bad = normalizePrefs({ dayEndHour: 24, dailyGoalMin: 0 });
     expect([bad.dayEndHour, bad.dailyGoalMin]).toEqual([18, 120]);
     expect(normalizePrefs({ dayEndHour: "x", dailyGoalMin: 5000 }).dayEndHour).toBe(18);
+  });
+  it("distractions: lista de bundle ids, inválida -> vacía", () => {
+    expect(normalizePrefs({ distractions: [" com.tinyspeck.slackmacgap "] }).distractions).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+    expect(normalizePrefs({ distractions: "x" }).distractions).toEqual([]);
   });
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };

@@ -1,4 +1,4 @@
-use std::{sync::Mutex, time::{Duration, Instant}};
+use std::{collections::HashMap, sync::Mutex, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent};
 
 pub const PANEL_W: f64 = 360.0;
@@ -89,26 +89,40 @@ pub fn open_window(app: AppHandle, label: String) -> Option<()> {
     w.set_focus().ok()
 }
 
-/// Atajo global de captura rápida actual (para poder reemplazarlo).
-pub struct QuickShortcut(pub Mutex<String>);
+/// Atajos globales registrados, por tipo ("panel", "focus"…): para reemplazar el de un tipo sin tocar los demás.
+#[derive(Default)]
+pub struct Shortcuts(pub Mutex<HashMap<&'static str, String>>);
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+/// Tipos de atajo conocidos (el handler de `lib.rs` los despacha con `shortcut_kind`).
+const KINDS: [&str; 2] = ["panel", "focus"];
 
-/// Registra `accel` como atajo de captura rápida, reemplazando el anterior. Devuelve error legible si es inválido.
+/// Tipo del atajo que se acaba de pulsar.
+pub fn shortcut_kind(app: &AppHandle, pressed: &tauri_plugin_global_shortcut::Shortcut) -> Option<&'static str> {
+    let map = app.state::<Shortcuts>();
+    let map = map.0.lock().unwrap();
+    map.iter().find(|(_, accel)| accel.parse().is_ok_and(|s: tauri_plugin_global_shortcut::Shortcut| &s == pressed)).map(|(k, _)| *k)
+}
+
+/// Registra `accel` como atajo de `kind`, reemplazando el anterior de ese tipo. Rechaza uno ya usado por otro tipo
+/// (si no, al reemplazar se desregistraría el atajo del otro). Devuelve error legible si es inválido.
 #[tauri::command]
-pub fn set_quick_shortcut(accel: String, app: AppHandle, cur: State<QuickShortcut>) -> Result<(), String> {
+pub fn set_quick_shortcut(kind: String, accel: String, app: AppHandle, cur: State<Shortcuts>) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let kind = KINDS.into_iter().find(|k| *k == kind).ok_or("Tipo de atajo desconocido")?;
     let new: Shortcut = accel.parse().map_err(|e| format!("Atajo inválido: {e}"))?;
     let gs = app.global_shortcut();
-    let mut cur = cur.0.lock().unwrap();
-    if *cur == accel && gs.is_registered(new) {
+    let mut map = cur.0.lock().unwrap();
+    if let Some((other, _)) = map.iter().find(|(k, a)| **k != kind && a.parse::<Shortcut>().is_ok_and(|s| s == new)) {
+        return Err(format!("Ese atajo ya está asignado a {}", if *other == "focus" { "iniciar/pausar el foco" } else { "abrir el panel" }));
+    }
+    let old = map.get(kind).and_then(|a| a.parse::<Shortcut>().ok());
+    if old == Some(new) && gs.is_registered(new) {
         return Ok(());
     }
     gs.register(new).map_err(|e| format!("No se pudo registrar (¿en uso?): {e}"))?;
-    if let Ok(old) = cur.parse::<Shortcut>() {
-        if old != new {
-            let _ = gs.unregister(old);
-        }
+    if let Some(old) = old.filter(|o| *o != new) {
+        let _ = gs.unregister(old);
     }
-    *cur = accel;
+    map.insert(kind, accel);
     Ok(())
 }

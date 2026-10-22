@@ -47,7 +47,7 @@ strip = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSWindow", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSWindow", "NSResponder", "NSWorkspace", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 block2 = "0.6" # bloque de AVCaptureDevice.requestAccess (permiso de Micrófono); ya venía con objc2
 # Reuniones: audio del sistema + micrófono (macOS 15+) y whisper.cpp local con Metal

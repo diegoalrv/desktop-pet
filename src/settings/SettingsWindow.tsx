@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { accelFromEvent, DEFAULT_SHORTCUT, PET_SIZE } from "../lib/prefs";
+import { accelFromEvent, DEFAULT_FOCUS_SHORTCUT, DEFAULT_SHORTCUT, PET_SIZE, type Prefs } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -22,7 +22,8 @@ export function SettingsWindow() {
   const [skins, setSkins] = useState<{ id: string; name: string }[]>([]);
   const [msg, setMsg] = useState("");
   const [auto, setAuto] = useState(false);
-  const [shortcutErr, setShortcutErr] = useState("");
+  const [shortcutErr, setShortcutErr] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState<{ bundle: string; name: string }[]>([]);
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => {
     refresh();
@@ -58,18 +59,38 @@ export function SettingsWindow() {
     </label>
   );
 
-  const captureShortcut = async (e: React.KeyboardEvent) => {
-    e.preventDefault();
-    const accel = accelFromEvent(e.nativeEvent);
-    if (!accel) return;
+  const setShortcut = async (kind: string, key: "shortcut" | "focusShortcut", accel: string) => {
     try {
-      await invoke("set_quick_shortcut", { accel });
-      setShortcutErr("");
-      await setPrefs({ shortcut: accel });
+      await invoke("set_quick_shortcut", { kind, accel });
+      setShortcutErr((m) => ({ ...m, [kind]: "" }));
+      await setPrefs({ [key]: accel } as Partial<Prefs>);
     } catch (err) {
-      setShortcutErr(String(err));
+      setShortcutErr((m) => ({ ...m, [kind]: String(err) }));
     }
   };
+
+  const shortcutField = (kind: string, key: "shortcut" | "focusShortcut", label: string, def: string) => (
+    <>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ width: 130 }}>{label}</span>
+        <input
+          readOnly
+          value={prefs[key]}
+          onKeyDown={(e) => {
+            e.preventDefault();
+            const accel = accelFromEvent(e.nativeEvent);
+            if (accel) setShortcut(kind, key, accel);
+          }}
+          title="Haz clic y pulsa la combinación"
+          style={{ ...btn, flex: 1, cursor: "text" }}
+        />
+        <button style={btn} onClick={() => setShortcut(kind, key, def)}>
+          Restablecer
+        </button>
+      </div>
+      {shortcutErr[kind] && <small style={{ color: "#ff6b6b" }}>{shortcutErr[kind]}</small>}
+    </>
+  );
 
   return (
     <div
@@ -169,6 +190,51 @@ export function SettingsWindow() {
         />{" "}
         Ciclo automático (al terminar una pausa arranca el siguiente foco)
       </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={prefs.trayTimer}
+          onChange={(e) => setPrefs({ trayTimer: e.target.checked })}
+        />{" "}
+        Mostrar el tiempo en la barra de menú
+      </label>
+
+      <h2 style={h}>Distracciones durante el foco</h2>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {prefs.distractions.map((id) => (
+          <button
+            key={id}
+            style={{ ...btn, padding: "2px 8px" }}
+            title="Quitar"
+            onClick={() => setPrefs({ distractions: prefs.distractions.filter((d) => d !== id) })}
+          >
+            {running.find((a) => a.bundle === id)?.name ?? id} ✕
+          </button>
+        ))}
+        {!prefs.distractions.length && <small style={{ color: T.dim }}>Ninguna.</small>}
+      </div>
+      <select
+        style={{ ...btn, padding: 4 }}
+        value=""
+        onFocus={() => invoke<typeof running>("running_apps").then(setRunning).catch(() => {})}
+        onChange={(e) =>
+          e.target.value &&
+          setPrefs({ distractions: [...new Set([...prefs.distractions, e.target.value])] })
+        }
+      >
+        <option value="">Agregar una app abierta…</option>
+        {running
+          .filter((a) => !prefs.distractions.includes(a.bundle))
+          .map((a) => (
+            <option key={a.bundle} value={a.bundle}>
+              {a.name}
+            </option>
+          ))}
+      </select>
+      <small style={{ opacity: 0.7 }}>
+        Solo macOS. Si abres una de estas apps en pleno foco, Candolita se queja; si te quedas más de 1 min,
+        avisa. El tiempo por app de cada foco se ve en la web (Foco).
+      </small>
 
       <h2 style={h}>Cierre del día</h2>
       <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -214,27 +280,9 @@ export function SettingsWindow() {
         </span>
       </div>
 
-      <h2 style={h}>Atajo del panel</h2>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          readOnly
-          value={prefs.shortcut}
-          onKeyDown={captureShortcut}
-          title="Haz clic y pulsa la combinación"
-          style={{ ...btn, flex: 1, cursor: "text" }}
-        />
-        <button
-          style={btn}
-          onClick={() =>
-            invoke("set_quick_shortcut", { accel: DEFAULT_SHORTCUT }).then(() =>
-              setPrefs({ shortcut: DEFAULT_SHORTCUT }),
-            )
-          }
-        >
-          Restablecer
-        </button>
-      </div>
-      {shortcutErr && <small style={{ color: "#ff6b6b" }}>{shortcutErr}</small>}
+      <h2 style={h}>Atajos globales</h2>
+      {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}
+      {shortcutField("focus", "focusShortcut", "Iniciar/pausar foco", DEFAULT_FOCUS_SHORTCUT)}
 
       <h2 style={h}>Calendario</h2>
       <input

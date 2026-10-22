@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
+export const DEFAULT_FOCUS_SHORTCUT = "CommandOrControl+Shift+F";
 export const PET_SIZE = { min: 64, max: 320, def: 128 };
 
 /** Un proveedor con sus modelos en orden: si uno falla (sobrecarga, cuota…) se prueba el siguiente.
@@ -33,8 +34,11 @@ export const prefsSchema = z.object({
   longMin: mins(15),
   longEvery: mins(4, 12),
   autoCycle: z.boolean().catch(true),
+  trayTimer: z.boolean().catch(true), // tiempo restante junto al ícono de la barra de menú
   sound: z.boolean().catch(true),
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
+  focusShortcut: z.string().min(1).catch(DEFAULT_FOCUS_SHORTCUT), // iniciar/pausar/reanudar el foco
+  distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar
   // LLMs que sacan las tareas de la reunión al terminar, en orden de fallback (meeting.rs: ask_any)
   llms: z.array(llmSchema).catch(DEFAULT_LLMS),

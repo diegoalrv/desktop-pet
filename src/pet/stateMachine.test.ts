@@ -42,6 +42,22 @@ describe("stateMachine", () => {
     expect(c.state).toBe("sleep");
     expect(run(c, { type: "input" }).state).toBe("idle");
   });
+  it("distracción en foco: oops 3 s y vuelve a focus; fuera del foco no hace nada", () => {
+    let c = run(initial(), { type: "timerStart" }, { type: "distracted" });
+    expect(c.state).toBe("oops");
+    expect(run(c, tick(2.9)).state).toBe("oops");
+    expect(run(c, tick(3.1)).state).toBe("focus");
+    expect(run(initial(), { type: "distracted" }).state).not.toBe("oops");
+    // el foco termina durante el oops: sigue a la pausa; reset durante el oops: idle
+    c = run(c, { type: "timerEnd" });
+    expect(run(c, tick(3.1)).state).toBe("break");
+    c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "timerStop" });
+    expect(run(c, tick(3.1)).state).toBe("idle");
+  });
+  it("arrastrarla durante el oops de distracción no pierde el foco", () => {
+    const c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "drag" }, { type: "drop" }, { type: "land" });
+    expect(c.state).toBe("focus");
+  });
   it("drag mientras focus: tras land vuelve a focus", () => {
     const c = run(initial(), { type: "timerStart" }, { type: "drag" }, { type: "drop" }, { type: "land" });
     expect(c.state).toBe("focus");

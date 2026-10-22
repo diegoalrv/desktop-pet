@@ -1,3 +1,4 @@
+mod apps;
 mod claude;
 mod db;
 mod meeting;
@@ -126,16 +127,29 @@ pub fn run() {
                             sql: include_str!("../migrations/007_task_repeat.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 8,
+                            description: "session_apps",
+                            sql: include_str!("../migrations/008_session_apps.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _, ev| {
-                    // Atajo global: abre/cierra el panel tal como quedó (sin forzar una pestaña).
-                    if ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = windows::toggle_panel(app.clone(), app.state());
+                .with_handler(|app, shortcut, ev| {
+                    if ev.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        return;
+                    }
+                    match windows::shortcut_kind(app, shortcut) {
+                        // Abre/cierra el panel tal como quedó (sin forzar una pestaña).
+                        Some("panel") => {
+                            let _ = windows::toggle_panel(app.clone(), app.state());
+                        }
+                        Some("focus") => timer::toggle_focus(app),
+                        _ => {}
                     }
                 })
                 .build(),
@@ -144,7 +158,7 @@ pub fn run() {
         .manage(claude::ClaudeChild::default())
         .manage(meeting::MeetingState::default())
         .manage(windows::LastBlur::default())
-        .manage(windows::QuickShortcut(Mutex::new(String::new())))
+        .manage(windows::Shortcuts::default())
         .manage(timer::TimerState::new(timer::Timer::new()))
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
@@ -175,7 +189,8 @@ pub fn run() {
             timer::timer_restart,
             timer::timer_skip,
             timer::timer_set_task,
-            timer::send_notification
+            timer::send_notification,
+            apps::running_apps
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -189,9 +204,10 @@ pub fn run() {
             timer::spawn(app.handle().clone());
             web::spawn(app.handle().clone());
             let _ = windows::set_quick_shortcut(
+                "panel".into(),
                 windows::DEFAULT_SHORTCUT.into(),
                 app.handle().clone(),
-                app.state::<windows::QuickShortcut>(),
+                app.state::<windows::Shortcuts>(),
             );
             tray::build(app.handle())?;
             // YouTube Music listo desde el arranque (oculto, sin reproducir).

@@ -374,6 +374,15 @@ function Focus() {
   const [n, setN] = useState<keyof typeof PERIODS>(30);
   const rows = useLive(() => db.listSessions(dayStart(n - 1)), [n]) ?? [];
   const year = useLive(() => db.listSessions(dayStart(371))) ?? [];
+  const apps = useLive(() => db.listAppUse(dayStart(n - 1)), [n]) ?? [];
+  const appSecs = new Map<string, number>(); // por nombre de app, todo el período
+  const appsOf = new Map<number, db.AppUseRow[]>(); // por sesión
+  const hitsDay = new Map<number, number>(); // distracciones por día
+  apps.forEach((a) => {
+    appSecs.set(a.name, (appSecs.get(a.name) ?? 0) + a.secs);
+    appsOf.set(a.session_id, [...(appsOf.get(a.session_id) ?? []), a]);
+    if (a.hits) hitsDay.set(dayStart(0, a.start), (hitsDay.get(dayStart(0, a.start)) ?? 0) + a.hits);
+  });
   const focus = rows.filter((r) => r.mode === "focus");
   const secs = (r: db.SessionRow) => (r.end - r.start) / 1000;
   const total = focus.reduce((a, r) => a + secs(r), 0);
@@ -484,6 +493,25 @@ function Focus() {
           />
         </div>
       </div>
+      {!!apps.length && (
+        <div className="d-grid">
+          <div className="d-card">
+            <span className="d-label">Apps durante el foco</span>
+            <HBars fmt={fmtDur} data={[...appSecs].sort((a, b) => b[1] - a[1]).slice(0, 8)} />
+          </div>
+          <div className="d-card">
+            <span className="d-label">Distracciones por día</span>
+            <HBars
+              fmt={String}
+              data={days
+                .filter((d) => hitsDay.has(d.day))
+                .reverse()
+                .slice(0, 8)
+                .map((d) => [fmtDay(d.day), hitsDay.get(d.day)!])}
+            />
+          </div>
+        </div>
+      )}
       <div className="d-card">
         <span className="d-label">Sesiones</span>
         <table className="d-table">
@@ -500,6 +528,15 @@ function Focus() {
                 </td>
                 <td style={{ width: "100%" }}>
                   {task.get(r.task_id!)?.title ?? <span className="d-dim">—</span>}
+                  {!!appsOf.get(r.id)?.length && (
+                    <small className="d-dim" style={{ display: "block" }}>
+                      {[...appsOf.get(r.id)!]
+                        .sort((a, b) => b.secs - a.secs)
+                        .slice(0, 3)
+                        .map((a) => `${a.name} ${fmtDur(a.secs)}`)
+                        .join(" · ")}
+                    </small>
+                  )}
                 </td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                   {fmtDur(secs(r))}
