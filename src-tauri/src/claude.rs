@@ -4,7 +4,9 @@
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::db::Db;
@@ -17,6 +19,29 @@ const READ_ONLY: &[&str] = &[
     "Bash(docker system df:*)", "Bash(docker compose ls:*)", "Bash(docker logs:*)",
     "Bash(ps:*)", "Bash(top -l:*)", "Bash(vm_stat:*)", "Bash(memory_pressure:*)", "Bash(df:*)",
 ];
+
+/// El `claude` en curso (uno a la vez): para cancelarlo desde el panel y matarlo al salir de la app.
+/// Con `exec` en zsh el pid del hijo es el de `claude` mismo, así que `kill()` le llega directo.
+#[derive(Default)]
+pub struct ClaudeChild {
+    child: Mutex<Option<Child>>,
+    cancelled: AtomicBool,
+}
+
+impl ClaudeChild {
+    pub fn kill(&self) {
+        if let Some(c) = self.child.lock().unwrap().as_mut() {
+            self.cancelled.store(true, Ordering::Relaxed);
+            let _ = c.kill();
+        }
+    }
+}
+
+/// Cancela la orden en curso: el hilo lector ve EOF y emite `claude://exit` con "cancelado".
+#[tauri::command]
+pub fn claude_cancel(state: tauri::State<ClaudeChild>) {
+    state.kill();
+}
 
 /// Personalidad y forma de trabajar de la Candola (editable en candola.md).
 const SYSTEM: &str = include_str!("candola.md");
@@ -75,6 +100,9 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
     child.stdin.take().unwrap().write_all(prompt.as_bytes()).map_err(|e| e.to_string())?;
     let out = child.stdout.take().unwrap();
     let mut err = child.stderr.take().unwrap();
+    let state = app.state::<ClaudeChild>();
+    state.cancelled.store(false, Ordering::Relaxed);
+    *state.child.lock().unwrap() = Some(child);
     let _ = app.emit("claude://start", ());
     std::thread::spawn(move || {
         let (mut result, mut tools) = (None, Vec::new());
@@ -91,7 +119,11 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
         }
         let mut stderr = String::new();
         let _ = err.read_to_string(&mut stderr);
-        let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+        let state = app.state::<ClaudeChild>();
+        let ok = state.child.lock().unwrap().take().and_then(|mut c| c.wait().ok()).is_some_and(|s| s.success());
+        if state.cancelled.load(Ordering::Relaxed) {
+            stderr = "cancelado".into();
+        }
         let mut outcome = outcome(result.as_ref());
         if !ok && outcome != "ask" {
             outcome = "oops";

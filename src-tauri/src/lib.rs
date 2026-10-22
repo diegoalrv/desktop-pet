@@ -135,6 +135,7 @@ pub fn run() {
                 .build(),
         )
         .manage(HitRect::default())
+        .manage(claude::ClaudeChild::default())
         .manage(meeting::MeetingState::default())
         .manage(windows::LastBlur::default())
         .manage(windows::QuickShortcut(Mutex::new(String::new())))
@@ -143,6 +144,7 @@ pub fn run() {
             set_hit_rect,
             fetch_ical,
             claude::claude_ask,
+            claude::claude_cancel,
             music::music_open,
             music::music_cmd,
             music::music_state,
@@ -189,6 +191,12 @@ pub fn run() {
             let _ = music::ensure(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, ev| {
+            // Que `claude` no quede huérfano trabajando con la app cerrada.
+            if let tauri::RunEvent::Exit = ev {
+                app.state::<claude::ClaudeChild>().kill();
+            }
+        });
 }

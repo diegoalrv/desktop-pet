@@ -161,7 +161,14 @@ export function ChatTab() {
             </div>
           ),
         )}
-        {busy && <span className="muted" style={{ animation: "pn-pulse 1.4s infinite" }}>Candola está pensando…</span>}
+        {busy && (
+          <span className="muted" style={{ animation: "pn-pulse 1.4s infinite" }}>
+            Candola está pensando…{" "}
+            <button className="b b-ghost b-sm" onClick={() => invoke("claude_cancel")}>
+              Cancelar
+            </button>
+          </span>
+        )}
         {pending.length > 0 && !busy && (
           <div className="stack" style={{ gap: ".5em", padding: ".7em", borderRadius: "var(--r-sm)", border: "1px solid var(--accent)", background: "var(--accent-soft)", fontFamily: "system-ui", whiteSpace: "normal" }}>
             <b>Quiere ejecutar</b>
