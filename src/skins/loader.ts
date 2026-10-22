@@ -21,7 +21,11 @@ export const BUILTIN = "zorro-default";
 export const DEFAULT = "candolita";
 const candolitaUrls = Object.fromEntries(
   Object.entries(
-    import.meta.glob<string>("../../examples/candolita/*.png", { eager: true, query: "?url", import: "default" }),
+    import.meta.glob<string>("../../examples/candolita/*.png", {
+      eager: true,
+      query: "?url",
+      import: "default",
+    }),
   ).map(([path, url]) => [path.split("/").pop()!, url]),
 );
 export type Skin = { kind: "builtin" } | { kind: "pack"; manifest: Manifest; urls: Record<string, string> };
@@ -49,7 +53,8 @@ const readManifest = async (id: string) =>
 /** Carga un skin; las imágenes pasan a blob URLs (sin configurar asset protocol/CSP). */
 export async function loadSkin(id: string): Promise<Skin> {
   if (id === BUILTIN) return { kind: "builtin" };
-  if (id === DEFAULT) return { kind: "pack", manifest: parseManifest(candolitaManifest), urls: candolitaUrls };
+  if (id === DEFAULT)
+    return { kind: "pack", manifest: parseManifest(candolitaManifest), urls: candolitaUrls };
   const manifest = await readManifest(id);
   const urls: Record<string, string> = {};
   for (const f of new Set(Object.values(manifest.animations).map((a) => a.file))) {

@@ -50,12 +50,28 @@ export async function headroom(skin: Skin, size: number) {
   return topInset(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height) * size;
 }
 
-export function Sprite({ skin, state, dir = 1, mood, size }: { skin: Skin; state: PetState; dir?: number; mood: Mood; size: number }) {
+export function Sprite({
+  skin,
+  state,
+  dir = 1,
+  mood,
+  size,
+}: {
+  skin: Skin;
+  state: PetState;
+  dir?: number;
+  mood: Mood;
+  size: number;
+}) {
   const { w, h } = spriteSize(skin, size);
   return (
     <div style={{ transform: `scaleX(${dir})`, width: w, height: h }}>
       <style>{CSS}</style>
-      {skin.kind === "builtin" ? <Builtin state={state} size={size} /> : <Pack skin={skin} state={state} w={w} h={h} mood={mood} />}
+      {skin.kind === "builtin" ? (
+        <Builtin state={state} size={size} />
+      ) : (
+        <Pack skin={skin} state={state} w={w} h={h} mood={mood} />
+      )}
     </div>
   );
 }

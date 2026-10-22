@@ -33,7 +33,8 @@ const fmtDay = (ms: number) => new Date(ms).toLocaleDateString("es", { day: "num
 /** Qué cambia, para la lista de aprobación: "fecha 20 oct → 23 oct", "prioridad media → alta", "✓ completar". */
 export function describeAction(a: Action, tasks: Task[]): string[] {
   const t = tasks.find((x) => x.id === a.id);
-  const arrow = (before: string | null | undefined, after: string) => (before ? `${before} → ${after}` : after);
+  const arrow = (before: string | null | undefined, after: string) =>
+    before ? `${before} → ${after}` : after;
   if (a.op === "completar") return ["✓ completar"];
   const out: string[] = [];
   if (a.op === "editar" && a.titulo) out.push(`título ${arrow(t?.title, a.titulo)}`);
@@ -42,8 +43,14 @@ export function describeAction(a: Action, tasks: Task[]): string[] {
     const after = PRIORITIES[a.prioridad] ?? String(a.prioridad);
     out.push(`prioridad ${a.op === "editar" ? arrow(t && PRIORITIES[t.priority], after) : after}`);
   }
-  if (a.fecha) out.push(`fecha ${a.op === "editar" ? arrow(t?.due_at ? fmtDay(t.due_at) : null, fmtDay(dueFromDate(a.fecha))) : fmtDay(dueFromDate(a.fecha))}`);
-  if (a.pomodoros != null) out.push(`🍅 ${a.op === "editar" ? arrow(t && String(t.est_pomodoros), String(a.pomodoros)) : a.pomodoros}`);
+  if (a.fecha)
+    out.push(
+      `fecha ${a.op === "editar" ? arrow(t?.due_at ? fmtDay(t.due_at) : null, fmtDay(dueFromDate(a.fecha))) : fmtDay(dueFromDate(a.fecha))}`,
+    );
+  if (a.pomodoros != null)
+    out.push(
+      `🍅 ${a.op === "editar" ? arrow(t && String(t.est_pomodoros), String(a.pomodoros)) : a.pomodoros}`,
+    );
   if (a.op === "crear") out.unshift("+ nueva");
   return out;
 }

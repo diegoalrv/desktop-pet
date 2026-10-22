@@ -46,7 +46,9 @@ export function TasksWindow() {
   const [period, setPeriod] = useState<Period>("week");
   const [secs, setSecs] = useState(new Map<number | null, number>());
   useEffect(() => {
-    db.focusByTask(PERIODS[period].since()).then((rows) => setSecs(new Map(rows.map((r) => [r.task_id, r.secs]))));
+    db.focusByTask(PERIODS[period].since()).then((rows) =>
+      setSecs(new Map(rows.map((r) => [r.task_id, r.secs]))),
+    );
   }, [tasks, period]);
   const projectOf = new Map(tasks.map((t) => [t.id, t.project || null]));
   const byProject = new Map<string, number>();
@@ -85,8 +87,13 @@ export function TasksWindow() {
     .filter((g) => g.ts.length);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: T.text, display: "grid", gap: 14 }}>
-      <style>{PANEL_CSS + `body{margin:0} input,select{min-width:0;font-size:13px} th{font-weight:600;text-align:left;color:${T.dim};font-size:12px;padding:4px 6px}`}</style>
+    <div
+      style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: T.text, display: "grid", gap: 14 }}
+    >
+      <style>
+        {PANEL_CSS +
+          `body{margin:0} input,select{min-width:0;font-size:13px} th{font-weight:600;text-align:left;color:${T.dim};font-size:12px;padding:4px 6px}`}
+      </style>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <b style={{ fontSize: 15 }}>⏱ {fmtDur(total)}</b>
@@ -94,19 +101,36 @@ export function TasksWindow() {
           <button
             key={k}
             onClick={() => setPeriod(k)}
-            style={{ ...btn, padding: "4px 10px", background: period === k ? T.accent : T.card, border: period === k ? "1px solid transparent" : btn.border }}
+            style={{
+              ...btn,
+              padding: "4px 10px",
+              background: period === k ? T.accent : T.card,
+              border: period === k ? "1px solid transparent" : btn.border,
+            }}
           >
             {PERIODS[k].label}
           </button>
         ))}
-        {[...byProject].sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-          <span key={p} style={{ padding: "4px 10px", borderRadius: 999, background: T.card, color: T.dim }}>
-            {p} · <b style={{ color: T.text }}>{fmtDur(v)}</b>
-          </span>
-        ))}
+        {[...byProject]
+          .sort((a, b) => b[1] - a[1])
+          .map(([p, v]) => (
+            <span
+              key={p}
+              style={{ padding: "4px 10px", borderRadius: 999, background: T.card, color: T.dim }}
+            >
+              {p} · <b style={{ color: T.text }}>{fmtDur(v)}</b>
+            </span>
+          ))}
       </div>
 
-      <form onSubmit={add} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 140px 150px 84px 52px 180px auto", gap: 8 }}>
+      <form
+        onSubmit={add}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(160px,1fr) 140px 150px 84px 52px 180px auto",
+          gap: 8,
+        }}
+      >
         <input
           ref={titleRef}
           autoFocus
@@ -115,7 +139,13 @@ export function TasksWindow() {
           placeholder="Nueva tarea… (Enter para añadir)"
           style={btn}
         />
-        <input list="tm-projects" value={project} onChange={(e) => setProject(e.target.value)} placeholder="Proyecto" style={btn} />
+        <input
+          list="tm-projects"
+          value={project}
+          onChange={(e) => setProject(e.target.value)}
+          placeholder="Proyecto"
+          style={btn}
+        />
         <select value={catId ?? ""} onChange={(e) => setCat(Number(e.target.value))} style={btn}>
           {cats.map((c) => (
             <option key={c.id} value={c.id}>
@@ -140,7 +170,9 @@ export function TasksWindow() {
           style={btn}
         />
         <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} style={btn} />
-        <button style={{ ...btn, background: T.accent, border: 0, color: "#fff", fontWeight: 600 }}>Añadir</button>
+        <button style={{ ...btn, background: T.accent, border: 0, color: "#fff", fontWeight: 600 }}>
+          Añadir
+        </button>
       </form>
       <datalist id="tm-projects">
         {projects.map((p) => (
@@ -149,7 +181,12 @@ export function TasksWindow() {
       </datalist>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…" style={{ ...btn, width: 220 }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar…"
+          style={{ ...btn, width: 220 }}
+        />
         <select value={fProject} onChange={(e) => setFProject(e.target.value)} style={btn}>
           <option value="">Todos los proyectos</option>
           {projects.map((p) => (
@@ -163,7 +200,11 @@ export function TasksWindow() {
           <button
             key={s}
             onClick={() => setStatus(s)}
-            style={{ ...btn, background: status === s ? T.accent : T.card, border: status === s ? "1px solid transparent" : btn.border }}
+            style={{
+              ...btn,
+              background: status === s ? T.accent : T.card,
+              border: status === s ? "1px solid transparent" : btn.border,
+            }}
           >
             {{ open: "Pendientes", all: "Todas", done: "Hechas" }[s]}
           </button>
@@ -237,9 +278,16 @@ function Row({ t, secs }: { t: Task; secs: number }) {
         <input
           key={t.title}
           defaultValue={t.title}
-          onBlur={(e) => e.target.value.trim() && e.target.value !== t.title && db.renameTask(t.id, e.target.value.trim())}
+          onBlur={(e) =>
+            e.target.value.trim() && e.target.value !== t.title && db.renameTask(t.id, e.target.value.trim())
+          }
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          style={{ ...cell, border: 0, background: "transparent", textDecoration: t.done ? "line-through" : "none" }}
+          style={{
+            ...cell,
+            border: 0,
+            background: "transparent",
+            textDecoration: t.done ? "line-through" : "none",
+          }}
         />
       </td>
       <td style={{ padding: 4 }}>
@@ -247,13 +295,19 @@ function Row({ t, secs }: { t: Task; secs: number }) {
           key={t.project ?? ""}
           list="tm-projects"
           defaultValue={t.project ?? ""}
-          onBlur={(e) => e.target.value.trim() !== (t.project ?? "") && up("project", e.target.value.trim() || null)}
+          onBlur={(e) =>
+            e.target.value.trim() !== (t.project ?? "") && up("project", e.target.value.trim() || null)
+          }
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           style={cell}
         />
       </td>
       <td style={{ padding: 4 }}>
-        <select value={t.category_id ?? ""} onChange={(e) => up("category_id", Number(e.target.value))} style={cell}>
+        <select
+          value={t.category_id ?? ""}
+          onChange={(e) => up("category_id", Number(e.target.value))}
+          style={cell}
+        >
           {cats.map((c) => (
             <option key={c.id} value={c.id}>
               {c.icon} {c.name}
@@ -278,7 +332,10 @@ function Row({ t, secs }: { t: Task; secs: number }) {
           min={1}
           max={20}
           defaultValue={t.est_pomodoros}
-          onBlur={(e) => Number(e.target.value) !== t.est_pomodoros && up("est_pomodoros", Math.max(1, Number(e.target.value)))}
+          onBlur={(e) =>
+            Number(e.target.value) !== t.est_pomodoros &&
+            up("est_pomodoros", Math.max(1, Number(e.target.value)))
+          }
           style={{ ...cell, width: 44 }}
         />
       </td>
@@ -291,7 +348,9 @@ function Row({ t, secs }: { t: Task; secs: number }) {
           style={cell}
         />
       </td>
-      <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>{secs ? fmtDur(secs) : "—"}</td>
+      <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>
+        {secs ? fmtDur(secs) : "—"}
+      </td>
       <td style={{ padding: 4 }}>
         <button
           title="Eliminar"

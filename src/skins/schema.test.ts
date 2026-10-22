@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { normalizeZipPaths, parseManifest, pickAnim, resolveAnim, singleImageManifest, slug, topInset } from "./schema";
+import {
+  normalizeZipPaths,
+  parseManifest,
+  pickAnim,
+  resolveAnim,
+  singleImageManifest,
+  slug,
+  topInset,
+} from "./schema";
 
 const a = (file: string, frames = 4) => ({ file, frames, fps: 8, loop: true });
 const base = {
@@ -66,7 +74,10 @@ describe("skins de ejemplo", () => {
 describe("ánimos", () => {
   const one = { file: "x.png", frames: 1, fps: 8, loop: true };
   const m = parseManifest({
-    id: "t", name: "t", frameWidth: 8, frameHeight: 8,
+    id: "t",
+    name: "t",
+    frameWidth: 8,
+    frameHeight: 8,
     animations: { idle: one, focus: one, read: one, guitar: one, maracas: one },
   });
   it("alterna variantes que el skin trae y omite las que no", () => {

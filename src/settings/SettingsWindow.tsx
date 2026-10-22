@@ -9,7 +9,13 @@ import { useSettings } from "../store/useSettings";
 import { LlmEditor } from "./LlmEditor";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 
-const h = { margin: "8px 0 0", fontSize: 13, letterSpacing: ".06em", textTransform: "uppercase", color: T.accent } as const;
+const h = {
+  margin: "8px 0 0",
+  fontSize: 13,
+  letterSpacing: ".06em",
+  textTransform: "uppercase",
+  color: T.accent,
+} as const;
 
 export function SettingsWindow() {
   const { skin, setSkin, reloadSkin, prefs, setPrefs } = useSettings();
@@ -215,15 +221,15 @@ export function SettingsWindow() {
         style={{ ...btn, padding: 4 }}
       />
       <small style={{ opacity: 0.7 }}>
-        Google Calendar → Configuración → tu calendario → “Dirección secreta en formato iCal”. Avisa 2 min antes de
-        cada reunión.
+        Google Calendar → Configuración → tu calendario → “Dirección secreta en formato iCal”. Avisa 2 min
+        antes de cada reunión.
       </small>
 
       <h2 style={h}>Reuniones (sugerir tareas)</h2>
       <LlmEditor value={prefs.llms} onSave={(llms) => setPrefs({ llms })} />
       <small style={{ opacity: 0.7 }}>
-        Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al siguiente. En el nivel
-        gratis de Gemini, Google puede usar el texto para mejorar sus productos.
+        Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al siguiente. En
+        el nivel gratis de Gemini, Google puede usar el texto para mejorar sus productos.
       </small>
 
       <h2 style={h}>Chat con Claude Code</h2>
@@ -234,7 +240,8 @@ export function SettingsWindow() {
         style={{ ...btn, padding: 4 }}
       />
       <small style={{ opacity: 0.7 }}>
-        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (docs del VPS, Coolify, etc.). Vacía = tu home.
+        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (docs del VPS, Coolify, etc.). Vacía = tu
+        home.
       </small>
 
       <h2 style={h}>Sistema</h2>

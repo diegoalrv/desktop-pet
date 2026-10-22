@@ -8,7 +8,8 @@ import { post } from "./ipc";
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
 
-const api = <T>(op: "select" | "execute", sql: string, args: unknown[]) => post<T>(`/api/${op}`, { sql, args });
+const api = <T>(op: "select" | "execute", sql: string, args: unknown[]) =>
+  post<T>(`/api/${op}`, { sql, args });
 
 // Las migraciones corren en Rust (src-tauri/migrations) al primer load.
 let db: Promise<Database> | undefined;
@@ -76,10 +77,22 @@ export const focusByTask = (since: number) =>
     [since],
   );
 
-export type ChatRow = { id: number; at: number; session: string | null; prompt: string; reply: string | null; tools: string | null; outcome: string; god: number };
+export type ChatRow = {
+  id: number;
+  at: number;
+  session: string | null;
+  prompt: string;
+  reply: string | null;
+  tools: string | null;
+  outcome: string;
+  god: number;
+};
 /** Últimas órdenes desde `since` (epoch ms: cuándo se empezó el chat actual). */
 export const chatHistory = (since = 0, limit = 30) =>
-  select<ChatRow>("SELECT * FROM (SELECT * FROM chat_log WHERE at > $1 ORDER BY id DESC LIMIT $2) ORDER BY id", [since, limit]);
+  select<ChatRow>(
+    "SELECT * FROM (SELECT * FROM chat_log WHERE at > $1 ORDER BY id DESC LIMIT $2) ORDER BY id",
+    [since, limit],
+  );
 
 export type Suggestion = {
   id: number;

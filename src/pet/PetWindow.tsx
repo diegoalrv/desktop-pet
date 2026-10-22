@@ -73,7 +73,9 @@ export function PetWindow() {
     if (!prefs.icalUrl) return void (meetings.current = []);
     const load = () =>
       invoke<string>("fetch_ical", { url: prefs.icalUrl })
-        .then((ics) => (meetings.current = meetingsBetween(ics, Date.now() - 60_000, Date.now() + 86_400_000)))
+        .then(
+          (ics) => (meetings.current = meetingsBetween(ics, Date.now() - 60_000, Date.now() + 86_400_000)),
+        )
         .catch((e) => console.warn("calendario:", e));
     load();
     const id = setInterval(load, 5 * 60_000);
@@ -216,26 +218,32 @@ export function PetWindow() {
       if (a.status !== "idle" && b.status === "idle" && a.remaining >= a.total - 1 && sound.current.sound)
         chime(a.mode === "focus" ? "work" : "rest");
       // Pre-aviso: un tick a los 10 s y uno por segundo en los últimos 5.
-      if (a.status === "running" && a.remaining !== b.remaining && [10, 5, 4, 3, 2, 1].includes(a.remaining) && sound.current.sound)
+      if (
+        a.status === "running" &&
+        a.remaining !== b.remaining &&
+        [10, 5, 4, 3, 2, 1].includes(a.remaining) &&
+        sound.current.sound
+      )
         chime("tick");
     });
     // El timer pudo llegar antes de suscribirse (p. ej. retomado de disco al abrir la app).
     const s0 = useTimer.getState().snap;
     if (s0.status !== "idle") send({ type: s0.mode === "focus" ? "timerStart" : "breakStart" });
-    const unDone = listen<{ mode: string; skipped: boolean; next: string | null }>(
-      "timer://done",
-      (e) => {
-        const d = e.payload;
-        if (d.mode === "focus") send({ type: "timerEnd" });
-        // Saltar también suena si arranca otro bloque; saltar a la nada (fin del ciclo) no.
-        if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
-      },
-    );
+    const unDone = listen<{ mode: string; skipped: boolean; next: string | null }>("timer://done", (e) => {
+      const d = e.payload;
+      if (d.mode === "focus") send({ type: "timerEnd" });
+      // Saltar también suena si arranca otro bloque; saltar a la nada (fin del ciclo) no.
+      if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
+    });
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
     const unClaude = listen("claude://start", () => send({ type: "claudeStart" }));
-    const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) => send({ type: "claudeEnd", outcome: e.payload.outcome }));
+    const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) =>
+      send({ type: "claudeEnd", outcome: e.payload.outcome }),
+    );
     // Panel abierto: la mascota se queda quieta y atenta; al cerrarlo sigue.
-    const unPanel = listen<boolean>("panel://visible", (e) => send({ type: e.payload ? "panelOpen" : "panelClose" }));
+    const unPanel = listen<boolean>("panel://visible", (e) =>
+      send({ type: e.payload ? "panelOpen" : "panelClose" }),
+    );
 
     // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
     const warned = new Set<string>();
@@ -244,7 +252,10 @@ export function PetWindow() {
       for (const m of dueMeetings(meetings.current, now, warned)) {
         warned.add(m.key);
         const min = Math.round((m.start - now) / 60_000);
-        notify(min > 0 ? `Reunión en ${min} min` : "Reunión ahora", `${m.title} · Panel → Reunión para escucharla`);
+        notify(
+          min > 0 ? `Reunión en ${min} min` : "Reunión ahora",
+          `${m.title} · Panel → Reunión para escucharla`,
+        );
         if (sound.current.sound) chime("work");
       }
       for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {

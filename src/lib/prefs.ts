@@ -49,7 +49,9 @@ export const normalizePrefs = (raw: unknown): Prefs => {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   // ponytail: migración de llmUrl/llmModel/llmKey (un solo modelo); borrar cuando nadie tenga prefs viejas.
   const old = !("llms" in r) && typeof r.llmKey === "string" && r.llmKey;
-  const p = prefsSchema.parse(old ? { ...r, llms: [{ provider: r.llmUrl, apikey: r.llmKey, models: [r.llmModel] }] } : r);
+  const p = prefsSchema.parse(
+    old ? { ...r, llms: [{ provider: r.llmUrl, apikey: r.llmKey, models: [r.llmModel] }] } : r,
+  );
   // claude-code va siempre primero (sin key ni API): prefs guardadas antes de que existiera lo heredan.
   if (!p.llms.some((l) => l.provider === "claude-code")) p.llms = [...DEFAULT_LLMS, ...p.llms];
   return p;

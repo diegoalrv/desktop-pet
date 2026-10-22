@@ -55,4 +55,6 @@ export function groupByCategory(tasks: Task[], cats: Category[]) {
 
 /** Proyectos distintos en uso, ordenados (para autocompletar y filtrar). */
 export const projectsOf = (tasks: Task[]) =>
-  [...new Set(tasks.map((t) => t.project).filter((p): p is string => !!p))].sort((a, b) => a.localeCompare(b));
+  [...new Set(tasks.map((t) => t.project).filter((p): p is string => !!p))].sort((a, b) =>
+    a.localeCompare(b),
+  );

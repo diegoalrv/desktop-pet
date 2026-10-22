@@ -53,12 +53,17 @@ export function LlmEditor({ value, onSave }: { value: Llm[]; onSave: (v: Llm[]) 
     setErr("");
     dlg.current?.showModal();
   };
-  const set = (i: number, patch: Partial<Llm>) => setDraft((d) => d.map((p, k) => (k === i ? { ...p, ...patch } : p)));
+  const set = (i: number, patch: Partial<Llm>) =>
+    setDraft((d) => d.map((p, k) => (k === i ? { ...p, ...patch } : p)));
   const save = async () => {
     const clean = draft.map((p) => ({ ...p, models: p.models.map((m) => m.trim()).filter(Boolean) }));
     const r = z.array(llmSchema).min(1).safeParse(clean);
     if (!r.success) {
-      setErr(clean.length ? "Cada proveedor necesita un proveedor/URL y al menos un modelo." : "Agrega al menos un proveedor.");
+      setErr(
+        clean.length
+          ? "Cada proveedor necesita un proveedor/URL y al menos un modelo."
+          : "Agrega al menos un proveedor.",
+      );
       return;
     }
     await onSave(r.data);
@@ -67,7 +72,8 @@ export function LlmEditor({ value, onSave }: { value: Llm[]; onSave: (v: Llm[]) 
 
   const first = value.find((p) => p.models.length);
   const backups = value.reduce((n, p) => n + p.models.length, 0) - 1;
-  const host = (p: Llm) => KNOWN[p.provider]?.name.split(" ")[0] ?? p.provider.replace(/^https?:\/\//, "").split("/")[0];
+  const host = (p: Llm) =>
+    KNOWN[p.provider]?.name.split(" ")[0] ?? p.provider.replace(/^https?:\/\//, "").split("/")[0];
 
   return (
     <>
@@ -97,8 +103,8 @@ export function LlmEditor({ value, onSave }: { value: Llm[]; onSave: (v: Llm[]) 
         </header>
         <div className="llm-body">
           <small style={{ color: T.dim }}>
-            Se prueba de arriba hacia abajo: si un modelo falla (sobrecarga, cuota, key inválida) pasa al siguiente, y al
-            acabar los modelos de un proveedor, al siguiente proveedor.
+            Se prueba de arriba hacia abajo: si un modelo falla (sobrecarga, cuota, key inválida) pasa al
+            siguiente, y al acabar los modelos de un proveedor, al siguiente proveedor.
           </small>
           {draft.map((p, i) => (
             <Provider
@@ -123,7 +129,16 @@ export function LlmEditor({ value, onSave }: { value: Llm[]; onSave: (v: Llm[]) 
           <button style={btn} onClick={() => dlg.current?.close()}>
             Cancelar
           </button>
-          <button style={{ ...btn, background: T.accent, borderColor: "transparent", color: "#fff", fontWeight: 600 }} onClick={save}>
+          <button
+            style={{
+              ...btn,
+              background: T.accent,
+              borderColor: "transparent",
+              color: "#fff",
+              fontWeight: 600,
+            }}
+            onClick={save}
+          >
             Guardar
           </button>
         </footer>
@@ -166,7 +181,12 @@ function Provider(props: {
           ))}
           <option value={CUSTOM}>Otra API compatible con OpenAI…</option>
         </select>
-        <button className="llm-ico" aria-label="Subir proveedor" disabled={i === 0} onClick={() => onMove(-1)}>
+        <button
+          className="llm-ico"
+          aria-label="Subir proveedor"
+          disabled={i === 0}
+          onClick={() => onMove(-1)}
+        >
           ↑
         </button>
         <button className="llm-ico" aria-label="Bajar proveedor" disabled={last} onClick={() => onMove(1)}>
@@ -204,7 +224,12 @@ function Provider(props: {
               value={m}
               onChange={(e) => onChange({ models: p.models.map((x, j) => (j === k ? e.target.value : x)) })}
             />
-            <button className="llm-ico" aria-label="Subir modelo" disabled={k === 0} onClick={() => onChange({ models: move(p.models, k, -1) })}>
+            <button
+              className="llm-ico"
+              aria-label="Subir modelo"
+              disabled={k === 0}
+              onClick={() => onChange({ models: move(p.models, k, -1) })}
+            >
               ↑
             </button>
             <button
@@ -215,7 +240,11 @@ function Provider(props: {
             >
               ↓
             </button>
-            <button className="llm-ico" aria-label="Quitar modelo" onClick={() => onChange({ models: p.models.filter((_, j) => j !== k) })}>
+            <button
+              className="llm-ico"
+              aria-label="Quitar modelo"
+              onClick={() => onChange({ models: p.models.filter((_, j) => j !== k) })}
+            >
               <Icon name="x" size="1em" />
             </button>
           </div>
@@ -224,7 +253,13 @@ function Provider(props: {
           <span className="llm-n" />
           <input
             className="llm-in"
-            placeholder={p.provider === "ollama" ? "Agregar modelo (ej. qwen3.5:9b)" : p.provider === "claude-code" ? "Agregar modelo (ej. sonnet)" : "Agregar modelo"}
+            placeholder={
+              p.provider === "ollama"
+                ? "Agregar modelo (ej. qwen3.5:9b)"
+                : p.provider === "claude-code"
+                  ? "Agregar modelo (ej. sonnet)"
+                  : "Agregar modelo"
+            }
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}

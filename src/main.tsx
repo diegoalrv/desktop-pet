@@ -20,7 +20,8 @@ if (!IS_WEB) {
 }
 const Root = IS_WEB
   ? Dashboard
-  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard }[getCurrentWindow().label] ?? PetWindow);
+  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard }[getCurrentWindow().label] ??
+    PetWindow);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

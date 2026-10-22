@@ -15,11 +15,19 @@ type ClaudeEvent = {
   is_error?: boolean;
   result?: string;
   permission_denials?: Denial[];
-  message?: { content?: { type: string; text?: string; name?: string; input?: { command?: string; file_path?: string; pattern?: string } }[] };
+  message?: {
+    content?: {
+      type: string;
+      text?: string;
+      name?: string;
+      input?: { command?: string; file_path?: string; pattern?: string };
+    }[];
+  };
 };
 
 /** Regla de --allowedTools para aprobar exactamente lo que Claude intentó. */
-export const ruleFor = (d: Denial) => (d.tool_name === "Bash" && d.tool_input.command ? `Bash(${d.tool_input.command})` : d.tool_name);
+export const ruleFor = (d: Denial) =>
+  d.tool_name === "Bash" && d.tool_input.command ? `Bash(${d.tool_input.command})` : d.tool_name;
 const label = (d: Denial) => d.tool_input.command ?? d.tool_name;
 // "Nuevo chat" se recuerda entre aperturas del panel: el historial solo trae lo posterior.
 // ponytail: localStorage del webview del panel; el chat_log completo sigue en la DB como traza.
@@ -70,7 +78,11 @@ export function ChatTab() {
       if (e.type === "assistant")
         for (const c of e.message?.content ?? []) {
           if (c.type === "text" && c.text?.trim()) add({ kind: "text", text: c.text.trim() });
-          if (c.type === "tool_use") add({ kind: "tool", text: c.input?.command ?? c.input?.file_path ?? c.input?.pattern ?? c.name ?? "?" });
+          if (c.type === "tool_use")
+            add({
+              kind: "tool",
+              text: c.input?.command ?? c.input?.file_path ?? c.input?.pattern ?? c.name ?? "?",
+            });
         }
       if (e.type === "result") {
         if (e.is_error) add({ kind: "err", text: e.result ?? "error" });
@@ -137,18 +149,34 @@ export function ChatTab() {
         }}
       >
         {lines.length === 0 && (
-          <div className="stack center" style={{ paddingTop: "1.5em", fontFamily: "system-ui", whiteSpace: "normal", gap: ".8em" }}>
+          <div
+            className="stack center"
+            style={{ paddingTop: "1.5em", fontFamily: "system-ui", whiteSpace: "normal", gap: ".8em" }}
+          >
             <div
               className="pn-avatar"
-              style={{ width: "3.6em", height: "3.6em", backgroundImage: `url(${idleSprite})`, backgroundSize: "14.4em 3.6em", animation: "pn-sprite-lg 1s steps(4) infinite" }}
+              style={{
+                width: "3.6em",
+                height: "3.6em",
+                backgroundImage: `url(${idleSprite})`,
+                backgroundSize: "14.4em 3.6em",
+                animation: "pn-sprite-lg 1s steps(4) infinite",
+              }}
             />
             <b>¡Guau! Soy la Candola</b>
             <span className="small muted" style={{ maxWidth: "22em" }}>
-              Tu mascota asistente. Reviso tu Mac, Docker y tus servidores; lo que cambie algo te lo pregunto antes.
+              Tu mascota asistente. Reviso tu Mac, Docker y tus servidores; lo que cambie algo te lo pregunto
+              antes.
             </span>
             <div className="stack" style={{ width: "100%", gap: ".4em", marginTop: ".3em" }}>
               {SUGGESTIONS.map((p) => (
-                <button key={p} className="b b-sm" style={{ justifyContent: "flex-start", whiteSpace: "normal", textAlign: "left" }} disabled={busy} onClick={() => run(p)}>
+                <button
+                  key={p}
+                  className="b b-sm"
+                  style={{ justifyContent: "flex-start", whiteSpace: "normal", textAlign: "left" }}
+                  disabled={busy}
+                  onClick={() => run(p)}
+                >
                   {p}
                 </button>
               ))}
@@ -164,7 +192,14 @@ export function ChatTab() {
               <span className="grow">{l.text}</span>
             </div>
           ) : (
-            <div key={i} style={{ color: color[l.kind], marginTop: l.kind === "you" && i ? ".5em" : 0, fontWeight: l.kind === "you" ? 600 : 400 }}>
+            <div
+              key={i}
+              style={{
+                color: color[l.kind],
+                marginTop: l.kind === "you" && i ? ".5em" : 0,
+                fontWeight: l.kind === "you" ? 600 : 400,
+              }}
+            >
               {l.kind === "you" && "› "}
               {l.text}
             </div>
@@ -179,7 +214,18 @@ export function ChatTab() {
           </span>
         )}
         {pending.length > 0 && !busy && (
-          <div className="stack" style={{ gap: ".5em", padding: ".7em", borderRadius: "var(--r-sm)", border: "1px solid var(--accent)", background: "var(--accent-soft)", fontFamily: "system-ui", whiteSpace: "normal" }}>
+          <div
+            className="stack"
+            style={{
+              gap: ".5em",
+              padding: ".7em",
+              borderRadius: "var(--r-sm)",
+              border: "1px solid var(--accent)",
+              background: "var(--accent-soft)",
+              fontFamily: "system-ui",
+              whiteSpace: "normal",
+            }}
+          >
             <b>Quiere ejecutar</b>
             {pending.map((d, i) => (
               <code key={i} style={{ color: "#ffd479", fontFamily: mono, overflowWrap: "anywhere" }}>
@@ -206,7 +252,18 @@ export function ChatTab() {
         }}
       >
         <div className="field-wrap grow">
-          <span style={{ position: "absolute", left: ".8em", color: "var(--accent)", fontFamily: mono, fontWeight: 700, pointerEvents: "none" }}>›</span>
+          <span
+            style={{
+              position: "absolute",
+              left: ".8em",
+              color: "var(--accent)",
+              fontFamily: mono,
+              fontWeight: 700,
+              pointerEvents: "none",
+            }}
+          >
+            ›
+          </span>
           <input
             className="field"
             value={input}
@@ -221,8 +278,16 @@ export function ChatTab() {
       </form>
 
       <div className="row small" style={{ justifyContent: "space-between" }}>
-        <label className="row" style={{ gap: ".5em", cursor: "pointer", color: god ? "#ff6b6b" : "var(--muted)" }}>
-          <input type="checkbox" className="switch" checked={god} onChange={(e) => setGod(e.target.checked)} />
+        <label
+          className="row"
+          style={{ gap: ".5em", cursor: "pointer", color: god ? "#ff6b6b" : "var(--muted)" }}
+        >
+          <input
+            type="checkbox"
+            className="switch"
+            checked={god}
+            onChange={(e) => setGod(e.target.checked)}
+          />
           <Icon name="zap" size="1em" />
           {god ? "Modo dios: sin pedir permiso" : "Modo dios"}
         </label>

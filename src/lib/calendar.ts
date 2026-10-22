@@ -32,7 +32,12 @@ export function meetingsBetween(ics: string, from: number, to: number): Meeting[
     const s = start.toJSDate().getTime();
     if (start.isDate || s < from || s >= to) return;
     if (ev.component.getFirstPropertyValue("status") === "CANCELLED") return;
-    out.push({ key: `${ev.uid}@${s}`, title: ev.summary || "(sin título)", start: s, end: end.toJSDate().getTime() });
+    out.push({
+      key: `${ev.uid}@${s}`,
+      title: ev.summary || "(sin título)",
+      start: s,
+      end: end.toJSDate().getTime(),
+    });
   };
 
   for (const ev of masters.values()) {

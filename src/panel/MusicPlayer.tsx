@@ -13,7 +13,17 @@ export function MusicPlayer() {
   if (!s)
     return (
       <div className="card stack center" style={{ gap: ".8em", padding: "2em 1em", marginTop: "1em" }}>
-        <div style={{ display: "grid", placeItems: "center", width: "3.4em", height: "3.4em", borderRadius: "50%", background: "var(--accent-soft)", color: "var(--accent)" }}>
+        <div
+          style={{
+            display: "grid",
+            placeItems: "center",
+            width: "3.4em",
+            height: "3.4em",
+            borderRadius: "50%",
+            background: "var(--accent-soft)",
+            color: "var(--accent)",
+          }}
+        >
           <Icon name="music" size="1.6em" />
         </div>
         <b>YouTube Music no está abierto</b>
@@ -36,9 +46,30 @@ export function MusicPlayer() {
       <div className="card stack" style={{ gap: ".9em" }}>
         <div className="row" style={{ gap: ".8em" }}>
           {s.art ? (
-            <img src={s.art} style={{ width: "4.6em", height: "4.6em", borderRadius: "var(--r-sm)", objectFit: "cover", flex: "none", boxShadow: "0 6px 18px -6px #000" }} />
+            <img
+              src={s.art}
+              style={{
+                width: "4.6em",
+                height: "4.6em",
+                borderRadius: "var(--r-sm)",
+                objectFit: "cover",
+                flex: "none",
+                boxShadow: "0 6px 18px -6px #000",
+              }}
+            />
           ) : (
-            <div style={{ width: "4.6em", height: "4.6em", borderRadius: "var(--r-sm)", background: "var(--surface-2)", display: "grid", placeItems: "center", flex: "none", color: "var(--muted)" }}>
+            <div
+              style={{
+                width: "4.6em",
+                height: "4.6em",
+                borderRadius: "var(--r-sm)",
+                background: "var(--surface-2)",
+                display: "grid",
+                placeItems: "center",
+                flex: "none",
+                color: "var(--muted)",
+              }}
+            >
               <Icon name="music" size="1.8em" />
             </div>
           )}
@@ -60,7 +91,10 @@ export function MusicPlayer() {
             onPointerUp={() => seek !== null && (music("seek", seek), setSeek(null))}
             onKeyUp={() => seek !== null && (music("seek", seek), setSeek(null))}
           />
-          <div className="row small muted" style={{ justifyContent: "space-between", fontVariantNumeric: "tabular-nums" }}>
+          <div
+            className="row small muted"
+            style={{ justifyContent: "space-between", fontVariantNumeric: "tabular-nums" }}
+          >
             <span>{fmt(seek ?? s.t)}</span>
             <span>{fmt(s.d)}</span>
           </div>
@@ -70,7 +104,12 @@ export function MusicPlayer() {
           <button className="b b-ghost b-round" aria-label="Anterior" onClick={() => music("prev")}>
             <Icon name="prev" />
           </button>
-          <button className="b b-primary b-round" style={{ fontSize: "1.3em" }} aria-label={s.playing ? "Pausar" : "Reproducir"} onClick={() => music("toggle")}>
+          <button
+            className="b b-primary b-round"
+            style={{ fontSize: "1.3em" }}
+            aria-label={s.playing ? "Pausar" : "Reproducir"}
+            onClick={() => music("toggle")}
+          >
             <Icon name={s.playing ? "pause" : "play"} />
           </button>
           <button className="b b-ghost b-round" aria-label="Siguiente" onClick={() => music("next")}>
@@ -104,9 +143,20 @@ export function MusicPlayer() {
       >
         <div className="field-wrap grow">
           <Icon name="search" size="1em" />
-          <input className="field" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar canción, artista…" />
+          <input
+            className="field"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar canción, artista…"
+          />
         </div>
-        <button className="b b-ghost b-sq" title="Mostrar YouTube Music" aria-label="Mostrar YouTube Music" type="button" onClick={() => openMusic()}>
+        <button
+          className="b b-ghost b-sq"
+          title="Mostrar YouTube Music"
+          aria-label="Mostrar YouTube Music"
+          type="button"
+          onClick={() => openMusic()}
+        >
           <Icon name="external" />
         </button>
       </form>
@@ -114,17 +164,33 @@ export function MusicPlayer() {
       {!!s.q?.length && (
         <section className="stack" style={{ gap: ".4em" }}>
           <span className="label">A continuación</span>
-          <div className="card" style={{ padding: ".25em", maxHeight: "15em", overflowY: "auto", display: "grid" }}>
+          <div
+            className="card"
+            style={{ padding: ".25em", maxHeight: "15em", overflowY: "auto", display: "grid" }}
+          >
             {s.q.map((it) => (
               <button
                 key={it.i}
                 className="b b-ghost"
                 title={`${it.t} · ${it.a}`}
                 onClick={() => music("jump", it.i)}
-                style={{ display: "grid", justifyContent: "stretch", justifyItems: "start", gap: ".1em", padding: ".45em .6em", textAlign: "left", minWidth: 0, color: "var(--text)" }}
+                style={{
+                  display: "grid",
+                  justifyContent: "stretch",
+                  justifyItems: "start",
+                  gap: ".1em",
+                  padding: ".45em .6em",
+                  textAlign: "left",
+                  minWidth: 0,
+                  color: "var(--text)",
+                }}
               >
-                <span className="ellipsis" style={{ maxWidth: "100%" }}>{it.t}</span>
-                <span className="small muted ellipsis" style={{ maxWidth: "100%" }}>{it.a}</span>
+                <span className="ellipsis" style={{ maxWidth: "100%" }}>
+                  {it.t}
+                </span>
+                <span className="small muted ellipsis" style={{ maxWidth: "100%" }}>
+                  {it.a}
+                </span>
               </button>
             ))}
           </div>

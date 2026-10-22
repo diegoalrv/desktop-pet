@@ -35,7 +35,13 @@ function Status() {
     );
   return (
     <span className="pn-sub" style={{ color: MODE_COLOR[snap.mode] }}>
-      <span className="dot" style={{ background: "currentColor", animation: snap.status === "running" ? "pn-pulse 1.6s infinite" : undefined }} />
+      <span
+        className="dot"
+        style={{
+          background: "currentColor",
+          animation: snap.status === "running" ? "pn-pulse 1.6s infinite" : undefined,
+        }}
+      />
       {MODE_LABEL[snap.mode]} · {fmt(snap.remaining)}
       {snap.status === "paused" && " · en pausa"}
     </span>
@@ -52,19 +58,38 @@ export function PanelWindow() {
         {/* ponytail: avatar con el idle de Candolita (skin por defecto), aunque la mascota use otro skin */}
         <div
           className="pn-avatar"
-          style={{ backgroundImage: `url(${idleSprite})`, backgroundSize: "10.4em 2.6em", animation: "pn-sprite 1s steps(4) infinite" }}
+          style={{
+            backgroundImage: `url(${idleSprite})`,
+            backgroundSize: "10.4em 2.6em",
+            animation: "pn-sprite 1s steps(4) infinite",
+          }}
         />
         <div className="grow">
           <div className="pn-title">Candolita</div>
           <Status />
         </div>
-        <button className="b b-ghost b-sq" title="Abrir el panel web en el navegador" aria-label="Abrir el panel web" onClick={() => invoke("open_web")}>
+        <button
+          className="b b-ghost b-sq"
+          title="Abrir el panel web en el navegador"
+          aria-label="Abrir el panel web"
+          onClick={() => invoke("open_web")}
+        >
           <Icon name="external" />
         </button>
-        <button className="b b-ghost b-sq" title="Ajustes" aria-label="Ajustes" onClick={() => invoke("open_window", { label: "settings" })}>
+        <button
+          className="b b-ghost b-sq"
+          title="Ajustes"
+          aria-label="Ajustes"
+          onClick={() => invoke("open_window", { label: "settings" })}
+        >
           <Icon name="sliders" />
         </button>
-        <button className="b b-ghost b-sq" title="Cerrar" aria-label="Cerrar" onClick={() => invoke("hide_panel")}>
+        <button
+          className="b b-ghost b-sq"
+          title="Cerrar"
+          aria-label="Cerrar"
+          onClick={() => invoke("hide_panel")}
+        >
           <Icon name="x" />
         </button>
       </header>
@@ -79,7 +104,12 @@ export function PanelWindow() {
 
       <nav className="pn-nav">
         {TABS.map((t) => (
-          <button key={t.id} className="pn-tab" aria-current={tab === t.id ? "page" : undefined} onClick={() => setTab(t.id)}>
+          <button
+            key={t.id}
+            className="pn-tab"
+            aria-current={tab === t.id ? "page" : undefined}
+            onClick={() => setTab(t.id)}
+          >
             <span className="pn-tab-ico">
               <Icon name={t.icon} />
             </span>

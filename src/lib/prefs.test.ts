@@ -27,7 +27,9 @@ describe("prefs", () => {
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });
     expect([p.focusMin, p.shortMin, p.longMin, p.sound]).toEqual([50, 5, 15, true]);
-    expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([200, 128]);
+    expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([
+      200, 128,
+    ]);
   });
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };
@@ -37,9 +39,14 @@ describe("prefs", () => {
     ]);
     const gemini = { ...viejo, llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai/" };
     expect(normalizePrefs(gemini).llms[1].provider).toBe("gemini");
-    expect(normalizePrefs({ llms: [{ provider: "gemini", models: [] }] }).llms).toEqual([{ provider: "claude-code", apikey: "", models: ["sonnet"] }]);
+    expect(normalizePrefs({ llms: [{ provider: "gemini", models: [] }] }).llms).toEqual([
+      { provider: "claude-code", apikey: "", models: ["sonnet"] },
+    ]);
     // ya lo tiene: no se duplica ni se reordena
-    const mio = [{ provider: "gemini", apikey: "k", models: ["g"] }, { provider: "claude-code", apikey: "", models: ["opus"] }];
+    const mio = [
+      { provider: "gemini", apikey: "k", models: ["g"] },
+      { provider: "claude-code", apikey: "", models: ["opus"] },
+    ];
     expect(normalizePrefs({ llms: mio }).llms).toEqual(mio);
   });
   it("accelFromEvent", () => {

@@ -1,6 +1,17 @@
 export type PetState =
-  | "idle" | "walk" | "focus" | "celebrate" | "break" | "sleep" | "dragged" | "fall" | "attention"
-  | "work" | "mission" | "oops" | "ask"; // Claude Code: trabajando, misión cumplida, falló, espera tu ok
+  | "idle"
+  | "walk"
+  | "focus"
+  | "celebrate"
+  | "break"
+  | "sleep"
+  | "dragged"
+  | "fall"
+  | "attention"
+  | "work"
+  | "mission"
+  | "oops"
+  | "ask"; // Claude Code: trabajando, misión cumplida, falló, espera tu ok
 
 /** Cómo terminó una orden a Claude Code. */
 export type ClaudeOutcome = "mission" | "oops" | "ask";
@@ -57,7 +68,10 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     case "drag":
       return c.state === "dragged"
         ? c
-        : { ...to(c, "dragged", Infinity, c.state === "fall" || c.state === "celebrate" ? c.after : c.state), quiet: 0 };
+        : {
+            ...to(c, "dragged", Infinity, c.state === "fall" || c.state === "celebrate" ? c.after : c.state),
+            quiet: 0,
+          };
     case "drop":
       return c.state === "dragged" ? to(c, "fall") : c;
     case "land":
@@ -95,7 +109,8 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       return w.state === "attention" ? goIdle(w, r) : w;
     }
     case "claudeStart":
-      if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate") return { ...c, after: "work" };
+      if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate")
+        return { ...c, after: "work" };
       return FREE.includes(c.state) ? { ...to(c, "work"), quiet: 0 } : c;
     case "claudeEnd":
       if (c.state === "work") return to(c, ev.outcome, ev.outcome === "ask" ? ASK_S : OUTCOME_S, "attention");

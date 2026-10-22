@@ -40,7 +40,10 @@ export async function chime(kind: Kind = "rest") {
     const t0 = ctx.currentTime + 0.05;
     for (const [at, f, dur, vol] of SONGS[kind]) {
       // Fundamental senoidal + 4º parcial que se apaga rápido: "plink" de marimba, sin aspereza.
-      for (const [mult, v, d] of [[1, vol, dur], [4, vol * 0.15, dur * 0.25]]) {
+      for (const [mult, v, d] of [
+        [1, vol, dur],
+        [4, vol * 0.15, dur * 0.25],
+      ]) {
         const o = ctx.createOscillator();
         const g = ctx.createGain();
         const t = t0 + at;

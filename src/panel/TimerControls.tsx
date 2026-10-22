@@ -19,7 +19,17 @@ const R = 52;
 const C = 2 * Math.PI * R;
 
 /** Anillo de progreso con el tiempo al centro. */
-function Ring({ frac, color, time, caption }: { frac: number; color: string; time: string; caption: string }) {
+function Ring({
+  frac,
+  color,
+  time,
+  caption,
+}: {
+  frac: number;
+  color: string;
+  time: string;
+  caption: string;
+}) {
   return (
     <div style={{ position: "relative", width: "min(62vw, 15em)", aspectRatio: "1", margin: "0 auto" }}>
       <svg viewBox="0 0 120 120" style={{ width: "100%", height: "100%", transform: "rotate(-90deg)" }}>
@@ -37,8 +47,25 @@ function Ring({ frac, color, time, caption }: { frac: number; color: string; tim
           style={{ transition: "stroke-dashoffset 1s linear, stroke .3s" }}
         />
       </svg>
-      <div style={{ position: "absolute", inset: 0, display: "grid", placeContent: "center", justifyItems: "center", gap: ".1em" }}>
-        <div style={{ font: "700 3.1em ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: "-.03em", color }}>{time}</div>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "grid",
+          placeContent: "center",
+          justifyItems: "center",
+          gap: ".1em",
+        }}
+      >
+        <div
+          style={{
+            font: "700 3.1em ui-monospace, SFMono-Regular, Menlo, monospace",
+            letterSpacing: "-.03em",
+            color,
+          }}
+        >
+          {time}
+        </div>
         <div className="small muted">{caption}</div>
       </div>
     </div>
@@ -83,7 +110,12 @@ export function TimerControls() {
     <div className="stack" style={{ gap: "1.1em" }}>
       <div className="seg" role="group" aria-label="Modo">
         {LABELS.map((m) => (
-          <button key={m.mode} aria-pressed={shown === m.mode} disabled={active} onClick={() => setMode(m.mode)}>
+          <button
+            key={m.mode}
+            aria-pressed={shown === m.mode}
+            disabled={active}
+            onClick={() => setMode(m.mode)}
+          >
             {m.label}
           </button>
         ))}
@@ -101,7 +133,12 @@ export function TimerControls() {
           <span style={{ color }}>
             <Icon name="target" />
           </span>
-          <select className="field field-sm grow" aria-label="Tarea" value={sel ?? ""} onChange={(e) => pick(e.target.value ? Number(e.target.value) : null)}>
+          <select
+            className="field field-sm grow"
+            aria-label="Tarea"
+            value={sel ?? ""}
+            onChange={(e) => pick(e.target.value ? Number(e.target.value) : null)}
+          >
             <option value="">Sin tarea</option>
             {pending.map((t) => (
               <option key={t.id} value={t.id}>
@@ -142,7 +179,10 @@ export function TimerControls() {
             <button className="b b-sm" onClick={() => finish(task)}>
               <Icon name="check" size="1em" /> Terminar
             </button>
-            <button className="b b-sm" onClick={() => db.updateTask(task.id, "est_pomodoros", task.est_pomodoros + 1)}>
+            <button
+              className="b b-sm"
+              onClick={() => db.updateTask(task.id, "est_pomodoros", task.est_pomodoros + 1)}
+            >
               <Icon name="plus" size="1em" /> 1 foco
             </button>
           </div>
@@ -151,7 +191,11 @@ export function TimerControls() {
 
       {!active ? (
         <div className="stack">
-          <button className="b b-primary b-block" style={{ background: color, boxShadow: `0 6px 20px -8px ${color}`, padding: ".75em" }} onClick={() => start(defMin)}>
+          <button
+            className="b b-primary b-block"
+            style={{ background: color, boxShadow: `0 6px 20px -8px ${color}`, padding: ".75em" }}
+            onClick={() => start(defMin)}
+          >
             <Icon name="play" /> Iniciar {defMin} min
           </button>
           <form
@@ -189,11 +233,21 @@ export function TimerControls() {
               <Icon name="restart" />
             </button>
             {snap.status === "running" ? (
-              <button className="b b-primary b-round" style={{ background: color, fontSize: "1.35em" }} aria-label="Pausar" onClick={timer.pause}>
+              <button
+                className="b b-primary b-round"
+                style={{ background: color, fontSize: "1.35em" }}
+                aria-label="Pausar"
+                onClick={timer.pause}
+              >
                 <Icon name="pause" />
               </button>
             ) : (
-              <button className="b b-primary b-round" style={{ background: color, fontSize: "1.35em" }} aria-label="Reanudar" onClick={timer.resume}>
+              <button
+                className="b b-primary b-round"
+                style={{ background: color, fontSize: "1.35em" }}
+                aria-label="Reanudar"
+                onClick={timer.resume}
+              >
                 <Icon name="play" />
               </button>
             )}
