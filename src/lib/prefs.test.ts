@@ -21,6 +21,7 @@ describe("prefs", () => {
       trayTimer: true,
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
+      focusShortcut: "CommandOrControl+Shift+F",
       icalUrl: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",

@@ -93,3 +93,4 @@
 
 ## Lote features — carril A
 - F1 Timer en la barra de menú — hecha (pendiente de verificación visual): `🍅 12:34` / `☕ 04:10` / `⏸ 12:34` junto al ícono del tray (macOS), pref `trayTimer`. Solo el hilo del timer llama a `TrayIcon::set_title`, siempre sin el candado del timer (espera al hilo principal; los comandos síncronos corren ahí y piden el candado); los comandos solo cambian el estado y la barra se actualiza en ≤ 250 ms.
+- F2 Atajo global del foco — hecha (pendiente de verificación visual): `CommandOrControl+Shift+F` (pref `focusShortcut`, Ajustes → Atajos globales) inicia un foco / pausa / reanuda (`Timer::toggle`). Los atajos viven en un `HashMap` por tipo (`windows::Shortcuts`, `set_quick_shortcut(kind, accel)`); uno ya asignado a otro tipo se rechaza.

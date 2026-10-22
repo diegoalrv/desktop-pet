@@ -183,6 +183,15 @@ impl Timer {
         Some((done, end))
     }
 
+    /// Botón principal: reposo → foco con la duración de Ajustes y la última tarea; corriendo → pausa; pausa → reanuda.
+    pub fn toggle(&mut self, now: u64) {
+        match self.status {
+            Status::Idle => self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now),
+            Status::Running => self.pause(now),
+            Status::Paused => self.resume(now),
+        }
+    }
+
     /// Duración configurada de cada modo (s).
     pub fn secs_for(&self, mode: Mode) -> u64 {
         match mode {
@@ -311,6 +320,14 @@ pub fn start_focus(app: &AppHandle) {
     let secs = t.cfg.focus_s;
     let task = t.last_task;
     t.start(Mode::Focus, secs, task, now_ms());
+    changed(app, &t);
+}
+
+/// Botón principal del panel: en reposo inicia un foco, corriendo pausa, en pausa reanuda (atajo global).
+pub fn toggle_focus(app: &AppHandle) {
+    let state = app.state::<TimerState>();
+    let mut t = state.lock().unwrap();
+    t.toggle(now_ms());
     changed(app, &t);
 }
 
@@ -452,6 +469,20 @@ mod tests {
         t.start(Mode::Focus, 1500, None, t0);
         t.pause(t0 + 1000);
         assert!(t.catch_up(t0 + 36_000_000).is_none());
+    }
+
+    #[test]
+    fn toggle_inicia_pausa_y_reanuda() {
+        let mut t = Timer::new();
+        t.cfg.focus_s = 60;
+        t.last_task = Some(4);
+        t.toggle(0);
+        let s = t.snap(0);
+        assert_eq!((s.mode, s.status, s.total, s.task_id), (Mode::Focus, Status::Running, 60, Some(4)));
+        t.toggle(20_000);
+        assert_eq!((t.status, t.remaining(99_000)), (Status::Paused, 40_000));
+        t.toggle(100_000);
+        assert_eq!((t.status, t.remaining(110_000)), (Status::Running, 30_000));
     }
 
     #[test]

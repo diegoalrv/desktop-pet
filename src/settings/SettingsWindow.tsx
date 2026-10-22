@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { accelFromEvent, DEFAULT_SHORTCUT, PET_SIZE } from "../lib/prefs";
+import { accelFromEvent, DEFAULT_FOCUS_SHORTCUT, DEFAULT_SHORTCUT, PET_SIZE, type Prefs } from "../lib/prefs";
 import { chime } from "../lib/sound";
 import { importFile, importFolder, listSkins, removeSkin, BUILTIN, DEFAULT } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
@@ -22,7 +22,7 @@ export function SettingsWindow() {
   const [skins, setSkins] = useState<{ id: string; name: string }[]>([]);
   const [msg, setMsg] = useState("");
   const [auto, setAuto] = useState(false);
-  const [shortcutErr, setShortcutErr] = useState("");
+  const [shortcutErr, setShortcutErr] = useState<Record<string, string>>({});
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => {
     refresh();
@@ -58,18 +58,38 @@ export function SettingsWindow() {
     </label>
   );
 
-  const captureShortcut = async (e: React.KeyboardEvent) => {
-    e.preventDefault();
-    const accel = accelFromEvent(e.nativeEvent);
-    if (!accel) return;
+  const setShortcut = async (kind: string, key: "shortcut" | "focusShortcut", accel: string) => {
     try {
-      await invoke("set_quick_shortcut", { accel });
-      setShortcutErr("");
-      await setPrefs({ shortcut: accel });
+      await invoke("set_quick_shortcut", { kind, accel });
+      setShortcutErr((m) => ({ ...m, [kind]: "" }));
+      await setPrefs({ [key]: accel } as Partial<Prefs>);
     } catch (err) {
-      setShortcutErr(String(err));
+      setShortcutErr((m) => ({ ...m, [kind]: String(err) }));
     }
   };
+
+  const shortcutField = (kind: string, key: "shortcut" | "focusShortcut", label: string, def: string) => (
+    <>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ width: 130 }}>{label}</span>
+        <input
+          readOnly
+          value={prefs[key]}
+          onKeyDown={(e) => {
+            e.preventDefault();
+            const accel = accelFromEvent(e.nativeEvent);
+            if (accel) setShortcut(kind, key, accel);
+          }}
+          title="Haz clic y pulsa la combinación"
+          style={{ ...btn, flex: 1, cursor: "text" }}
+        />
+        <button style={btn} onClick={() => setShortcut(kind, key, def)}>
+          Restablecer
+        </button>
+      </div>
+      {shortcutErr[kind] && <small style={{ color: "#ff6b6b" }}>{shortcutErr[kind]}</small>}
+    </>
+  );
 
   return (
     <div
@@ -198,27 +218,9 @@ export function SettingsWindow() {
         </span>
       </div>
 
-      <h2 style={h}>Atajo del panel</h2>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          readOnly
-          value={prefs.shortcut}
-          onKeyDown={captureShortcut}
-          title="Haz clic y pulsa la combinación"
-          style={{ ...btn, flex: 1, cursor: "text" }}
-        />
-        <button
-          style={btn}
-          onClick={() =>
-            invoke("set_quick_shortcut", { accel: DEFAULT_SHORTCUT }).then(() =>
-              setPrefs({ shortcut: DEFAULT_SHORTCUT }),
-            )
-          }
-        >
-          Restablecer
-        </button>
-      </div>
-      {shortcutErr && <small style={{ color: "#ff6b6b" }}>{shortcutErr}</small>}
+      <h2 style={h}>Atajos globales</h2>
+      {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}
+      {shortcutField("focus", "focusShortcut", "Iniciar/pausar foco", DEFAULT_FOCUS_SHORTCUT)}
 
       <h2 style={h}>Calendario</h2>
       <input

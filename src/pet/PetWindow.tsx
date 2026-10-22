@@ -65,7 +65,8 @@ export function PetWindow() {
       autoCycle: prefs.autoCycle,
       trayTimer: prefs.trayTimer,
     });
-    invoke("set_quick_shortcut", { accel: prefs.shortcut }).catch(() => {});
+    invoke("set_quick_shortcut", { kind: "panel", accel: prefs.shortcut }).catch(() => {});
+    invoke("set_quick_shortcut", { kind: "focus", accel: prefs.focusShortcut }).catch(() => {});
   }, [prefs]);
 
   // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
