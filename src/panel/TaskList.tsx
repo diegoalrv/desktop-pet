@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import * as db from "../lib/db";
-import { groupByCategory, isToday, PRIORITIES, projectsOf } from "../lib/tasks";
+import {
+  groupByCategory,
+  isToday,
+  PRIORITIES,
+  projectsOf,
+  REPEAT_LABEL,
+  REPEATS,
+  type Repeat,
+} from "../lib/tasks";
 import { useTasks } from "../store/useTasks";
 import { Icon } from "./icons";
 
@@ -17,6 +25,7 @@ export function TaskList({ onFocusTask }: { onFocusTask: () => void }) {
   const [prio, setPrio] = useState(1);
   const [est, setEst] = useState(1);
   const [due, setDue] = useState("");
+  const [repeat, setRepeat] = useState<Repeat>("none");
   const [onlyToday, setOnlyToday] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [editCats, setEditCats] = useState(false);
@@ -34,6 +43,7 @@ export function TaskList({ onFocusTask }: { onFocusTask: () => void }) {
       priority: prio,
       est_pomodoros: est,
       due_at: due ? new Date(due).getTime() : null,
+      repeat,
     });
     setTitle("");
     setDue("");
@@ -115,6 +125,18 @@ export function TaskList({ onFocusTask }: { onFocusTask: () => void }) {
                 style={{ width: "auto" }}
               />
             </div>
+            <select
+              className="field field-sm"
+              value={repeat}
+              onChange={(e) => setRepeat(e.target.value as Repeat)}
+              aria-label="Repetir"
+            >
+              {REPEATS.map((r) => (
+                <option key={r} value={r}>
+                  {r === "none" ? "↻ No se repite" : `↻ ${REPEAT_LABEL[r]}`}
+                </option>
+              ))}
+            </select>
           </div>
         )}
         <datalist id="pet-projects">
@@ -257,6 +279,11 @@ export function TaskList({ onFocusTask }: { onFocusTask: () => void }) {
                     <span className="row" style={{ gap: ".2em" }}>
                       {t.done_pomodoros}/{t.est_pomodoros} <Icon name="tomato" size="1em" />
                     </span>
+                    {t.repeat !== "none" && (
+                      <span className="row" title={REPEAT_LABEL[t.repeat]} style={{ gap: ".2em" }}>
+                        <Icon name="repeat" size="1em" />
+                      </span>
+                    )}
                     {t.project && <span className="chip">{t.project}</span>}
                     {t.due_at && (
                       <span>

@@ -104,6 +104,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "meeting_stop" => ok(meeting::meeting_stop(app.state())),
         "meeting_reset" => ok(meeting::meeting_reset(app.clone(), app.state())),
         "meeting_retry" => meeting::meeting_retry(app.clone(), app.state(), llms(app), a["id"].as_u64()).map(|_| Value::Null),
+        "task_set_done" => block_on(db::task_set_done(app.clone(), a["id"].as_i64().ok_or("id")?, a["done"].as_bool().unwrap_or(true))).map(|_| Value::Null),
         "music_state" => Ok(music::music_state()),
         "music_cmd" => ok(music::music_cmd(app.clone(), a["cmd"].as_str().unwrap_or_default().into(), a.get("arg").cloned())),
         _ => Err(format!("comando desconocido: {}", c.cmd)),

@@ -90,3 +90,6 @@
 - Sugerencias: las tareas del LLM ahora se guardan en `meeting_tasks` (migración 4) con estado pendiente/aceptada/descartada; título editable, proyecto al aceptar, aceptar/descartar todas, recuperar descartadas. El panel de la mascota lee de la misma tabla.
 - Foco: por día (7/30/90), por proyecto/categoría/tarea, por hora del día y lista de sesiones borrables. Chat: historial de `chat_log` con búsqueda. Respaldo JSON de todo (solo navegador).
 - La web llama comandos de la app por `POST /api/invoke` (`web.rs`, lista cerrada); los de reunión usan los LLMs de `settings.json`, así las API keys no pasan por el navegador.
+
+## Lote features — carril C
+- F8 Tareas recurrentes: migración 007 (`tasks.repeat`: none/daily/weekdays/weekly/monthly). Completar pasa por `db.rs::task_set_done` (panel, web y `acceptSuggestion`, vía `db.setDone` → `call`), que marca la tarea y crea la siguiente con `next_due` (misma hora, `notified = 0`; vencida hace días salta al primer vencimiento futuro; mensual recorta a fin de mes). Registrado en `generate_handler!` y en la lista de `web.rs::invoke`, para que el MCP (F9) tampoco se salte la recurrencia. Selector "Repetir" en el panel y el gestor, ícono ↻ en la lista. Tests: `next_due` y el flujo completo sobre SQLite en memoria. Pendiente de verificación visual (panel y gestor).

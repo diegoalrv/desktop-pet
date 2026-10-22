@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import * as db from "../lib/db";
-import { compareTasks, PRIORITIES, projectsOf, startOfDay, type Task } from "../lib/tasks";
+import {
+  compareTasks,
+  PRIORITIES,
+  projectsOf,
+  REPEAT_LABEL,
+  REPEATS,
+  startOfDay,
+  type Repeat,
+  type Task,
+} from "../lib/tasks";
 import { fmtDur } from "../lib/time";
 import { useTasks } from "../store/useTasks";
 import { btn, T, PANEL_CSS } from "../panel/ui";
@@ -38,6 +47,7 @@ export function TasksWindow() {
   const [prio, setPrio] = useState(1);
   const [est, setEst] = useState(1);
   const [due, setDue] = useState("");
+  const [repeat, setRepeat] = useState<Repeat>("none");
   // Filtros
   const [q, setQ] = useState("");
   const [fProject, setFProject] = useState("");
@@ -71,6 +81,7 @@ export function TasksWindow() {
       priority: prio,
       est_pomodoros: est,
       due_at: fromLocal(due),
+      repeat,
     });
     setTitle("");
     setDue("");
@@ -127,7 +138,7 @@ export function TasksWindow() {
         onSubmit={add}
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(160px,1fr) 140px 150px 84px 52px 180px auto",
+          gridTemplateColumns: "minmax(160px,1fr) 140px 150px 84px 52px 180px 130px auto",
           gap: 8,
         }}
       >
@@ -170,6 +181,13 @@ export function TasksWindow() {
           style={btn}
         />
         <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} style={btn} />
+        <select value={repeat} onChange={(e) => setRepeat(e.target.value as Repeat)} style={btn} title="Repetir">
+          {REPEATS.map((r) => (
+            <option key={r} value={r}>
+              {r === "none" ? "↻ —" : `↻ ${REPEAT_LABEL[r]}`}
+            </option>
+          ))}
+        </select>
         <button style={{ ...btn, background: T.accent, border: 0, color: "#fff", fontWeight: 600 }}>
           Añadir
         </button>
@@ -221,6 +239,7 @@ export function TasksWindow() {
           <col style={{ width: 84 }} />
           <col style={{ width: 76 }} />
           <col style={{ width: 180 }} />
+          <col style={{ width: 130 }} />
           <col style={{ width: 64 }} />
           <col style={{ width: 36 }} />
         </colgroup>
@@ -233,6 +252,7 @@ export function TasksWindow() {
             <th>Prioridad</th>
             <th title="Hechos / estimados">🍅</th>
             <th>Fecha</th>
+            <th>Repetir</th>
             <th title={`Tiempo de foco (${PERIODS[period].label})`}>⏱</th>
             <th />
           </tr>
@@ -240,7 +260,7 @@ export function TasksWindow() {
         {groups.map(({ p, ts }) => (
           <tbody key={p ?? NONE}>
             <tr>
-              <td colSpan={9} style={{ padding: "14px 6px 4px", fontWeight: 700, color: T.accent }}>
+              <td colSpan={10} style={{ padding: "14px 6px 4px", fontWeight: 700, color: T.accent }}>
                 {p ?? "Sin proyecto"}{" "}
                 <span style={{ color: T.dim, fontWeight: 400 }}>
                   · {ts.length} · ⏱ {fmtDur(byProject.get(p ?? "Sin proyecto") ?? 0)}
@@ -347,6 +367,15 @@ function Row({ t, secs }: { t: Task; secs: number }) {
           onBlur={(e) => fromLocal(e.target.value) !== t.due_at && up("due_at", fromLocal(e.target.value))}
           style={cell}
         />
+      </td>
+      <td style={{ padding: 4 }}>
+        <select value={t.repeat} onChange={(e) => up("repeat", e.target.value as Repeat)} style={cell}>
+          {REPEATS.map((r) => (
+            <option key={r} value={r}>
+              {r === "none" ? "—" : REPEAT_LABEL[r]}
+            </option>
+          ))}
+        </select>
       </td>
       <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>
         {secs ? fmtDur(secs) : "—"}

@@ -23,6 +23,7 @@ const mk = (o: Partial<Task>): Task => ({
   done_pomodoros: 0,
   notified: 0,
   created_at: 0,
+  repeat: "none",
   ...o,
 });
 

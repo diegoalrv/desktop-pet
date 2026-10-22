@@ -120,6 +120,12 @@ pub fn run() {
                             sql: include_str!("../migrations/005_meeting_actions.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 7,
+                            description: "task_repeat",
+                            sql: include_str!("../migrations/007_task_repeat.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -159,6 +165,7 @@ pub fn run() {
             meeting::meetings_list,
             meeting::meeting_retry,
             windows::set_quick_shortcut,
+            db::task_set_done,
             timer::timer_config,
             timer::timer_get,
             timer::timer_start,

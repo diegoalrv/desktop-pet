@@ -5,6 +5,16 @@ export interface Category {
   icon: string;
   sort: number;
 }
+export const REPEATS = ["none", "daily", "weekdays", "weekly", "monthly"] as const;
+export type Repeat = (typeof REPEATS)[number];
+export const REPEAT_LABEL: Record<Repeat, string> = {
+  none: "No se repite",
+  daily: "Cada día",
+  weekdays: "Lunes a viernes",
+  weekly: "Cada semana",
+  monthly: "Cada mes",
+};
+
 export interface Task {
   id: number;
   title: string;
@@ -17,6 +27,7 @@ export interface Task {
   done_pomodoros: number;
   notified: number;
   created_at: number;
+  repeat: Repeat; // al completarla, db.rs crea la siguiente (task_set_done)
 }
 
 export const PRIORITIES = ["Baja", "Media", "Alta"] as const;
