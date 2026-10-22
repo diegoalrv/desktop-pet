@@ -81,6 +81,14 @@ export const focusByTask = (since: number) =>
     [since],
   );
 
+/** Sesiones de foco que tocan [from, to) con el proyecto de su tarea ('' = sin proyecto). Se traen las que empiezan
+ *  antes del rango y terminan dentro (y al revés): `pivot` las recorta. */
+export const focusByProjectDay = (from: number, to: number) =>
+  select<{ project: string; start: number; end: number }>(
+    "SELECT COALESCE(t.project, '') AS project, s.start, s.end FROM sessions s LEFT JOIN tasks t ON t.id = s.task_id WHERE s.mode = 'focus' AND s.end > $1 AND s.start < $2",
+    [from, to],
+  );
+
 export type ChatRow = {
   id: number;
   at: number;

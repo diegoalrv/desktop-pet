@@ -14,6 +14,7 @@ import { TasksWindow } from "../tasks/TasksWindow";
 import type { MusicState } from "../store/useMusic";
 import { Bars, DASH_CSS, download, fmtDate, fmtDay, HBars, Head, Heatmap, Hl, usePoll } from "./kit";
 import { Meetings, Suggestions } from "./Meetings";
+import { Report } from "./Report";
 
 const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: "home", label: "Resumen", icon: "home" },
@@ -21,6 +22,7 @@ const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: "meetings", label: "Reuniones", icon: "mic" },
   { id: "suggestions", label: "Sugerencias", icon: "inbox" },
   { id: "focus", label: "Foco", icon: "chart" },
+  { id: "report", label: "Informe", icon: "chart" },
   { id: "chat", label: "Chat", icon: "terminal" },
 ];
 const MODE_LABEL = { focus: "Foco", short: "Pausa corta", long: "Pausa larga" } as const;
@@ -101,6 +103,7 @@ export function Dashboard() {
         {view === "meetings" && <Meetings id={param ? Number(param) : undefined} tab={sub} />}
         {view === "suggestions" && <Suggestions />}
         {view === "focus" && <Focus />}
+        {view === "report" && <Report />}
         {view === "chat" && <ChatLog id={param ? Number(param) : undefined} />}
       </main>
     </div>
