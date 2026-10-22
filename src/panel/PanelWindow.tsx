@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
+import { DayClose } from "./DayClose";
 import { MusicPlayer } from "./MusicPlayer";
 import { MeetingTab } from "./MeetingTab";
 import { ChatTab } from "./ChatTab";
@@ -95,7 +96,12 @@ export function PanelWindow() {
       </header>
 
       <main className="pn-body">
-        {tab === "timer" && <TimerControls />}
+        {tab === "timer" && (
+          <>
+            <TimerControls />
+            <DayClose />
+          </>
+        )}
         {tab === "tasks" && <TaskList onFocusTask={() => setTab("timer")} />}
         {tab === "meeting" && <MeetingTab />}
         {tab === "music" && <MusicPlayer />}

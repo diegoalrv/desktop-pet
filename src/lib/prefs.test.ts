@@ -23,6 +23,8 @@ describe("prefs", () => {
       icalUrl: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",
+      dayEndHour: 18,
+      dailyGoalMin: 120,
       petSize: 128,
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });
@@ -30,6 +32,14 @@ describe("prefs", () => {
     expect([normalizePrefs({ petSize: "200" }).petSize, normalizePrefs({ petSize: 9000 }).petSize]).toEqual([
       200, 128,
     ]);
+  });
+  it("cierre del día: hora 0–23 (0 apaga) y meta en minutos", () => {
+    const p = normalizePrefs({ dayEndHour: "20", dailyGoalMin: "90" });
+    expect([p.dayEndHour, p.dailyGoalMin]).toEqual([20, 90]);
+    expect(normalizePrefs({ dayEndHour: 0 }).dayEndHour).toBe(0);
+    const bad = normalizePrefs({ dayEndHour: 24, dailyGoalMin: 0 });
+    expect([bad.dayEndHour, bad.dailyGoalMin]).toEqual([18, 120]);
+    expect(normalizePrefs({ dayEndHour: "x", dailyGoalMin: 5000 }).dayEndHour).toBe(18);
   });
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };

@@ -1,9 +1,9 @@
 import Database from "@tauri-apps/plugin-sql";
 import { emit } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
-import { updateSql, type Category, type Task } from "./tasks";
+import { updateSql, type Category, type Repeat, type Task } from "./tasks";
 import { dueFromDate, parseAction } from "./suggestions";
-import { post } from "./ipc";
+import { call, post } from "./ipc";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
@@ -38,19 +38,23 @@ export interface NewTask {
   priority: number;
   due_at: number | null;
   est_pomodoros: number;
+  repeat: Repeat;
 }
 export const addTask = (t: NewTask) =>
   exec(
-    "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-    [t.title, t.category_id, t.project, t.priority, t.due_at, t.est_pomodoros, Date.now()],
+    "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+    [t.title, t.category_id, t.project, t.priority, t.due_at, t.est_pomodoros, t.repeat, Date.now()],
   );
 /** Edita un campo de la tarea (el nombre de columna sale del tipo, nunca del usuario). */
 export const updateTask = <K extends keyof NewTask>(id: number, field: K, value: NewTask[K]) =>
   exec(updateSql(field), [value, id]);
 export const renameTask = (id: number, title: string) =>
   exec("UPDATE tasks SET title = $1 WHERE id = $2", [title, id]);
-export const setDone = (id: number, done: boolean) =>
-  exec("UPDATE tasks SET done = $1 WHERE id = $2", [done ? 1 : 0, id]);
+/** Completar pasa por Rust (db.rs `task_set_done`): si la tarea se repite, crea la siguiente. Lo mismo hará el MCP. */
+export const setDone = async (id: number, done: boolean) => {
+  await call("task_set_done", { id, done }); // la app avisa a sus ventanas
+  if (IS_WEB) window.dispatchEvent(new Event("db://changed")); // y esta pestaña recarga ya
+};
 export const deleteTask = (id: number) => exec("DELETE FROM tasks WHERE id = $1", [id]);
 export const markNotified = (id: number) => exec("UPDATE tasks SET notified = 1 WHERE id = $1", [id]);
 
@@ -75,6 +79,14 @@ export const focusByTask = (since: number) =>
   select<{ task_id: number | null; secs: number }>(
     "SELECT task_id, SUM(end - start) / 1000 AS secs FROM sessions WHERE mode = 'focus' AND start >= $1 GROUP BY task_id",
     [since],
+  );
+
+/** Sesiones de foco que tocan [from, to) con el proyecto de su tarea ('' = sin proyecto). Se traen las que empiezan
+ *  antes del rango y terminan dentro (y al revés): `pivot` las recorta. */
+export const focusByProjectDay = (from: number, to: number) =>
+  select<{ project: string; start: number; end: number }>(
+    "SELECT COALESCE(t.project, '') AS project, s.start, s.end FROM sessions s LEFT JOIN tasks t ON t.id = s.task_id WHERE s.mode = 'focus' AND s.end > $1 AND s.start < $2",
+    [from, to],
   );
 
 export type ChatRow = {
@@ -121,6 +133,7 @@ export const acceptSuggestion = async (s: Suggestion, title = s.title, project: 
       priority: a?.prioridad ?? 1,
       due_at: a?.fecha ? dueFromDate(a.fecha) : null,
       est_pomodoros: a?.pomodoros ?? 1,
+      repeat: "none",
     });
   } else if (a.op === "completar") await setDone(a.id!, true);
   else {

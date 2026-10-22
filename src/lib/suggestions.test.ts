@@ -14,6 +14,8 @@ const task: Task = {
   done_pomodoros: 0,
   notified: 0,
   created_at: 0,
+  repeat: "none",
+  done_at: null,
 };
 
 describe("suggestions", () => {

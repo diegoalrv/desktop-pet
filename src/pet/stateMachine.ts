@@ -11,7 +11,8 @@ export type PetState =
   | "work"
   | "mission"
   | "oops"
-  | "ask"; // Claude Code: trabajando, misión cumplida, falló, espera tu ok
+  | "ask" // Claude Code: trabajando, misión cumplida, falló, espera tu ok
+  | "tea"; // cierre del día sin cumplir la meta: un té tranquilo
 
 /** Cómo terminó una orden a Claude Code. */
 export type ClaudeOutcome = "mission" | "oops" | "ask";
@@ -31,7 +32,8 @@ export type PetEvent =
   | { type: "panelOpen" } // se abrió el panel: quieta y atenta
   | { type: "panelClose" } // se cerró: sigue con lo suyo
   | { type: "claudeStart" }
-  | { type: "claudeEnd"; outcome: ClaudeOutcome };
+  | { type: "claudeEnd"; outcome: ClaudeOutcome }
+  | { type: "dayEnd"; met: boolean }; // cierre del día: meta cumplida -> celebra; si no, toma té
 
 export interface Ctx {
   state: PetState;
@@ -51,9 +53,10 @@ export const CELEBRATE_S = 2;
 export const SLEEP_AFTER_S = 600;
 export const OUTCOME_S = 4; // misión cumplida / falló
 export const ASK_S = 60; // esperando tu ok
+export const TEA_S = 8; // té del cierre del día
 
 /** Estados libres: Claude puede ponerla a trabajar (en foco/pausa no la interrumpe). */
-const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask"];
+const FREE: PetState[] = ["idle", "walk", "sleep", "attention", "work", "mission", "oops", "ask", "tea"];
 
 const idleFor = (r: number) => IDLE_MIN + r * IDLE_SPAN;
 const to = (c: Ctx, state: PetState, left = Infinity, after = c.after): Ctx => ({ ...c, state, left, after });
@@ -115,6 +118,9 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     case "claudeEnd":
       if (c.state === "work") return to(c, ev.outcome, ev.outcome === "ask" ? ASK_S : OUTCOME_S, "attention");
       return c.after === "work" ? { ...c, after: "attention" } : c; // terminó mientras la arrastraban
+    case "dayEnd":
+      if (ev.met) return transition(c, { type: "taskDone" }, r);
+      return FREE.includes(c.state) ? { ...to(c, "tea", TEA_S, "attention"), quiet: 0 } : c;
     case "input":
       return c.state === "sleep" ? goIdle({ ...c, quiet: 0 }, r) : { ...c, quiet: 0 };
     case "arrive":
@@ -126,7 +132,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       const left = c.left - ev.dt;
       if (left > 0) return { ...c, left, quiet };
       if (c.state === "idle") return { ...to(c, "walk"), quiet };
-      if (c.state === "mission" || c.state === "oops" || c.state === "ask") return goIdle({ ...c, quiet }, r);
+      if (c.state === "mission" || c.state === "oops" || c.state === "ask" || c.state === "tea") return goIdle({ ...c, quiet }, r);
       if (c.state === "celebrate")
         return c.after === "walk" || c.after === "attention"
           ? goIdle({ ...c, quiet }, r)

@@ -10,7 +10,9 @@ import { chime } from "../lib/sound";
 import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
-import { needsReminder } from "../lib/tasks";
+import { load } from "@tauri-apps/plugin-store";
+import { needsReminder, startOfDay } from "../lib/tasks";
+import { closeMessage, dayKey, shouldClose, summarize } from "../lib/standup";
 import { dueMeetings, meetingsBetween, type Meeting } from "../lib/calendar";
 import { useTimer } from "../store/useTimer";
 import { useMusic } from "../store/useMusic";
@@ -258,9 +260,29 @@ export function PetWindow() {
         );
         if (sound.current.sound) chime("work");
       }
-      for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {
+      const tasks = await db.listTasks();
+      for (const t of tasks.filter((t) => needsReminder(t, now))) {
         await db.markNotified(t.id);
         notify("Recordatorio", t.title);
+      }
+      // Cierre del día: una vez por día, pasada la hora y si hubo actividad (la fecha ya avisada vive en settings.json).
+      const { dayEndHour, dailyGoalMin } = sound.current;
+      if (dayEndHour && new Date(now).getHours() >= dayEndHour) {
+        const store = await load("settings.json", { autoSave: true, defaults: {} });
+        const last = await store.get<string>("dayEnd");
+        const s = summarize(
+          tasks,
+          await db.listSessions(startOfDay(now)),
+          (await db.listSuggestions("pending")).length,
+          dailyGoalMin,
+          now,
+        );
+        if (shouldClose(dayEndHour, now, last, s)) {
+          await store.set("dayEnd", dayKey(now));
+          notify(s.goalMet ? "¡Día cerrado, meta cumplida!" : "Cierre del día", closeMessage(s));
+          send({ type: "dayEnd", met: s.goalMet });
+          if (sound.current.sound) chime(s.goalMet ? "rest" : "work");
+        }
       }
     };
     remind();

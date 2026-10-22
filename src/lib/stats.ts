@@ -53,3 +53,94 @@ export function byWeekday(days: { day: number; secs: number }[]) {
   });
   return sum.map((s, i) => (n[i] ? s / n[i] : 0));
 }
+
+// ---- Informe de horas por proyecto (web/Report.tsx) ----
+
+export type ProjectRow = { project: string; start: number; end: number };
+export type Pivot = { days: number[]; projects: { name: string; days: number[]; total: number }[] };
+
+const nextDay = (ms: number) => {
+  const d = new Date(ms);
+  d.setDate(d.getDate() + 1);
+  return d.getTime();
+};
+
+/** Redondea segundos al múltiplo más cercano de `minutes` (0 = sin redondeo). Para facturar por cuartos de hora. */
+export const roundTo = (secs: number, minutes: number) =>
+  minutes > 0 ? Math.round(secs / (minutes * 60)) * minutes * 60 : secs;
+
+/** Segundos de foco por proyecto y día en [from, to). La sesión que cruza medianoche se reparte entre los días y la
+ *  que empieza antes de `from` o termina después de `to` se recorta. `round` (minutos) redondea cada celda y el total
+ *  es la suma de las celdas redondeadas, así la tabla cuadra. Proyecto '' = sin proyecto (va al final). */
+export function pivot(rows: ProjectRow[], from: number, to: number, round = 0): Pivot {
+  const days: number[] = [];
+  for (let d = startOfDay(from); d < to; d = nextDay(d)) days.push(d);
+  const at = new Map(days.map((d, i) => [d, i]));
+  const cells = new Map<string, number[]>();
+  for (const r of rows) {
+    const mine = cells.get(r.project) ?? cells.set(r.project, Array<number>(days.length).fill(0)).get(r.project)!;
+    for (let s = Math.max(r.start, from), e = Math.min(r.end, to); s < e; ) {
+      const next = Math.min(nextDay(startOfDay(s)), e);
+      mine[at.get(startOfDay(s))!] += (next - s) / 1000;
+      s = next;
+    }
+  }
+  const projects = [...cells]
+    .map(([name, secs]) => {
+      const d = secs.map((x) => roundTo(x, round));
+      return { name, days: d, total: d.reduce((a, b) => a + b, 0) };
+    })
+    .filter((p) => p.total > 0)
+    .sort((a, b) => +(a.name === "") - +(b.name === "") || b.total - a.total || a.name.localeCompare(b.name));
+  return { days, projects };
+}
+
+/** Lunes 00:00 de la semana de `now`, desplazada `weeksAgo` semanas, y el lunes siguiente (excluido). */
+export function weekRange(weeksAgo = 0, now = Date.now()) {
+  const d = new Date(startOfDay(now));
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7 * weeksAgo);
+  const from = d.getTime();
+  d.setDate(d.getDate() + 7);
+  return { from, to: d.getTime() };
+}
+
+/** Primer día del mes de `now` y el primero del siguiente (excluido). */
+export const monthRange = (now = Date.now()) => {
+  const d = new Date(now);
+  return { from: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), to: new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() };
+};
+
+/** aaaa-mm-dd en hora local (toISOString daría el día UTC). */
+export const isoDay = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const hours = (secs: number) => (secs / 3600).toFixed(2);
+const NO_PROJECT = "Sin proyecto";
+
+/** Tabla del informe en CSV: una fila por proyecto, horas decimales por día y total; última fila con los totales. */
+export function toCsv(p: Pivot) {
+  const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const sums = p.days.map((_, i) => p.projects.reduce((a, r) => a + r.days[i], 0));
+  const grand = p.projects.reduce((a, r) => a + r.total, 0);
+  const line = (name: string, d: number[], t: number) => [q(name), ...d.map(hours), hours(t)].join(",");
+  return [
+    ["Proyecto", ...p.days.map(isoDay), "Total"].join(","),
+    ...p.projects.map((r) => line(r.name || NO_PROJECT, r.days, r.total)),
+    line("Total", sums, grand),
+  ].join("\n");
+}
+
+/** Lo mismo en una tabla Markdown. */
+export function toMarkdown(p: Pivot) {
+  const row = (cells: string[]) => `| ${cells.join(" | ")} |`;
+  const sums = p.days.map((_, i) => p.projects.reduce((a, r) => a + r.days[i], 0));
+  const grand = p.projects.reduce((a, r) => a + r.total, 0);
+  return [
+    row(["Proyecto", ...p.days.map(isoDay), "Total"]),
+    row(["---", ...p.days.map(() => "---:"), "---:"]),
+    ...p.projects.map((r) => row([(r.name || NO_PROJECT).replace(/\|/g, "\\|"), ...r.days.map(hours), hours(r.total)])),
+    row(["**Total**", ...sums.map(hours), `**${hours(grand)}**`]),
+  ].join("\n");
+}
