@@ -43,6 +43,15 @@ pub fn claude_cancel(state: tauri::State<ClaudeChild>) {
     state.kill();
 }
 
+/// `claude` con el PATH del usuario: una app con bundle no hereda el del shell, así que va por un zsh de login
+/// (`claude install` deja el binario en ~/.local/bin, Homebrew en /opt/homebrew/bin…). `exec` hace que el pid del
+/// hijo sea el de `claude` mismo (`kill()` le llega directo) y "$@" evita problemas de quoting.
+pub fn command(args: &[String]) -> Command {
+    let mut c = Command::new("/bin/zsh");
+    c.args(["-lc", "exec claude \"$@\"", "claude"]).args(args);
+    c
+}
+
 /// Personalidad y forma de trabajar de la Candola (editable en candola.md).
 const SYSTEM: &str = include_str!("candola.md");
 
@@ -86,10 +95,7 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
         args.push("--allowedTools".into());
         args.extend(READ_ONLY.iter().map(|s| s.to_string()).chain(allow));
     }
-    // ponytail: zsh de login para heredar el PATH del usuario (una app GUI no lo trae); "$@" evita quoting.
-    let mut child = Command::new("/bin/zsh")
-        .args(["-lc", "exec claude \"$@\"", "claude"])
-        .args(&args)
+    let mut child = command(&args)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

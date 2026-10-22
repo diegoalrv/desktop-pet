@@ -457,32 +457,48 @@ fn ask_any<T>(llms: &[Llm], system: &str, user: &str, parse: impl Fn(&str) -> Re
     Err(if errs.is_empty() { "no hay modelos configurados (Ajustes → Reuniones)".into() } else { errs.join(" · ") })
 }
 
-/// `claude -p` (Claude Code instalado y con sesión): sin API key ni llamada propia a la API. Una app con
-/// bundle no hereda el PATH del shell, por eso se prueban las rutas típicas del binario.
+/// `claude -p` (Claude Code instalado y con sesión): sin API key ni llamada propia a la API. Con límite de tiempo:
+/// si `claude` se cuelga (login vencido, diálogo de confianza, red caída) se mata y `ask_any` pasa al siguiente.
+/// Sin `--bare`: en ese modo la CLI no lee la sesión del keychain y exigiría ANTHROPIC_API_KEY.
 fn ask_claude_code(model: &str, system: &str, user: &str) -> Result<String, String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let home = std::env::var("HOME").unwrap_or_default();
-    let bins = ["claude".into(), "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into(), format!("{home}/.claude/local/claude")];
-    let mut child = bins
-        .iter()
-        .find_map(|b| {
-            Command::new(b)
-                .args(["-p", "--model", model, "--tools", "", "--no-session-persistence", "--system-prompt", system])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .ok()
-        })
-        .ok_or("no encuentro el comando `claude` (instala Claude Code)")?;
+    use std::io::{Read, Write};
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    const TIMEOUT: Duration = Duration::from_secs(300);
+    let args: Vec<String> = ["-p", "--model", model, "--tools", "", "--no-session-persistence", "--system-prompt", system].map(String::from).into();
+    let mut child = crate::claude::command(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("no pude lanzar claude: {e}"))?;
     child.stdin.take().unwrap().write_all(user.as_bytes()).map_err(|e| e.to_string())?;
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
+    // ponytail: stdout en un hilo para que el pipe no se llene; stderr se lee al final (claude escribe poco ahí).
+    let mut out = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let deadline = Instant::now() + TIMEOUT;
+    let status = loop {
+        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
+            break st;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("claude -p: sin respuesta en {} min", TIMEOUT.as_secs() / 60));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let stdout = reader.join().unwrap_or_default();
+    if !status.success() {
+        let mut err = String::new();
+        let _ = child.stderr.take().unwrap().read_to_string(&mut err);
         return Err(format!("claude -p: {}", err.trim().chars().take(200).collect::<String>()));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(stdout)
 }
 
 /// Texto de la respuesta del modelo (el JSON lo lee quien llama).
@@ -1002,6 +1018,7 @@ mod tests {
 /// Prueba el postproceso con una transcripción de ejemplo:
 /// `MEETING_TXT=reunion.txt LLM_MODEL=qwen3.5:9b cargo test --lib probar_llm -- --ignored --nocapture`
 /// (líneas "Yo: …" / "Otros: …"; LLM_PROVIDER y LLM_KEY opcionales, por defecto Ollama local).
+/// Con Claude Code: `LLM_PROVIDER=claude-code LLM_MODEL=sonnet` (usa la sesión de `claude`, sin key).
 #[cfg(test)]
 #[test]
 #[ignore]
