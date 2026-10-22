@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
 import { MusicPlayer } from "./MusicPlayer";
@@ -50,6 +51,11 @@ function Status() {
 
 export function PanelWindow() {
   const [tab, setTab] = useState<Tab>("timer");
+  // Rust (open_panel_tab) abre el panel en una pestaña: el aviso de reunión lo deja en "Reunión".
+  useEffect(() => {
+    const un = listen<Tab>("panel://tab", (e) => setTab(e.payload));
+    return () => void un.then((f) => f());
+  }, []);
 
   return (
     <div className="pn">

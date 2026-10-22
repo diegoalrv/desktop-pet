@@ -252,10 +252,9 @@ export function PetWindow() {
       for (const m of dueMeetings(meetings.current, now, warned)) {
         warned.add(m.key);
         const min = Math.round((m.start - now) / 60_000);
-        notify(
-          min > 0 ? `Reunión en ${min} min` : "Reunión ahora",
-          `${m.title} · Panel → Reunión para escucharla`,
-        );
+        notify(min > 0 ? `Reunión en ${min} min` : "Reunión ahora", `${m.title} · Escuchar reunión en el panel`);
+        // ponytail: el plugin de notificaciones no trae botones en escritorio; el panel abierto en Reunión sí.
+        invoke("open_panel_tab", { tab: "meeting" });
         if (sound.current.sound) chime("work");
       }
       for (const t of (await db.listTasks()).filter((t) => needsReminder(t, now))) {

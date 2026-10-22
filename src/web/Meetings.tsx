@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { call } from "../lib/ipc";
+import { call, meetingCtx } from "../lib/ipc";
 import * as db from "../lib/db";
 import { useLive, useTasks } from "../store/useTasks";
 import { useSettings } from "../store/useSettings";
@@ -7,7 +7,8 @@ import { projectsOf } from "../lib/tasks";
 import { Icon } from "../panel/icons";
 import { countHits, download, fmtDate, Head, Hl, SuggestionRow, usePoll } from "./kit";
 
-type Saved = { id: number; text: string }; // id = epoch s (meetings_list en meeting.rs)
+// id = epoch s; title/attendees: evento del calendario, si lo había (meetings_list en meeting.rs)
+type Saved = { id: number; text: string; title?: string; attendees?: string[] };
 type Live = { active: boolean; status: string; lines: { who: string; text: string }[] };
 
 const parse = (text: string) =>
@@ -18,6 +19,17 @@ const parse = (text: string) =>
     .map((m) => ({ who: m[1], text: m[2] }));
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 const llms = () => ({ llms: useSettings.getState().prefs.llms }); // en la web Rust usa los de Ajustes
+const titleOf = (m: Saved) => m.title || fmtDate(m.id * 1000);
+/** El .md para copiar o descargar: título, fecha y asistentes arriba de la transcripción. */
+const toMd = (m: Saved) =>
+  [
+    `# ${titleOf(m)}`,
+    m.title ? fmtDate(m.id * 1000) : "",
+    m.attendees?.length ? `Participantes: ${m.attendees.join(", ")}` : "",
+    m.text,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 /** Proyecto con el que se crean las tareas aceptadas (autocompleta con los existentes). */
 function ProjectInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -57,9 +69,10 @@ function LiveCard({ live, onErr }: { live: Live | undefined; onErr: (e: string) 
         <button
           className={live.active ? "d-b" : "d-b pri"}
           style={{ marginLeft: "auto" }}
-          onClick={() =>
-            call(live.active ? "meeting_stop" : "meeting_start", llms()).catch((e) => onErr(String(e)))
-          }
+          onClick={async () => {
+            const args = live.active ? {} : { ...llms(), ctx: await meetingCtx("") };
+            call(live.active ? "meeting_stop" : "meeting_start", args).catch((e) => onErr(String(e)));
+          }}
         >
           <Icon name={live.active ? "stop" : "mic"} size="1em" /> {live.active ? "Terminar" : "Empezar"}
         </button>
@@ -104,8 +117,14 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           ← Reuniones
         </a>
         <Head
-          title={fmtDate(cur.id * 1000)}
-          sub={`${words(cur.text)} palabras · ${parse(cur.text).length} intervenciones`}
+          title={titleOf(cur)}
+          sub={[
+            cur.title && fmtDate(cur.id * 1000),
+            cur.attendees?.length && cur.attendees.join(", "),
+            `${words(cur.text)} palabras · ${parse(cur.text).length} intervenciones`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         >
           <button
             className="d-b sm"
@@ -115,7 +134,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           >
             <Icon name="zap" size="1em" /> {busy ? "Buscando…" : "Buscar tareas de nuevo"}
           </button>
-          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(cur.text)}>
+          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(toMd(cur))}>
             <Icon name="copy" size="1em" /> Copiar
           </button>
           {db.IS_WEB && (
@@ -124,7 +143,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
               onClick={() =>
                 download(
                   `reunion-${new Date(cur.id * 1000).toISOString().slice(0, 16).replace(":", "")}.md`,
-                  cur.text,
+                  toMd(cur),
                   "text/markdown",
                 )
               }
@@ -216,8 +235,9 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           return (
             <div key={m.id} className="d-lrow">
               <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 2 }}>
-                <b>{fmtDate(m.id * 1000)}</b>
+                <b>{titleOf(m)}</b>
                 <span className="d-dim" style={{ fontSize: 13 }}>
+                  {m.title && `${fmtDate(m.id * 1000)} · `}
                   {words(m.text)} palabras · {parse(m.text).length} intervenciones
                   {q && ` · ${countHits(m.text, q)} coincidencias`}
                 </span>

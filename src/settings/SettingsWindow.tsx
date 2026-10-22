@@ -226,6 +226,12 @@ export function SettingsWindow() {
       </small>
 
       <h2 style={h}>Reuniones (sugerir tareas)</h2>
+      <input
+        placeholder="Tu nombre (quién es “Yo” en las reuniones)"
+        defaultValue={prefs.userName}
+        onBlur={(e) => setPrefs({ userName: e.target.value })}
+        style={{ ...btn, padding: 4 }}
+      />
       <LlmEditor value={prefs.llms} onSave={(llms) => setPrefs({ llms })} />
       <small style={{ opacity: 0.7 }}>
         Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al siguiente. En

@@ -5,7 +5,12 @@ export interface Meeting {
   title: string;
   start: number; // ms epoch
   end: number;
+  attendees: string[]; // nombre (CN) o, si no tiene, el mail
+  description: string;
 }
+
+/** Lo que se le pasa a meeting_start: el evento que está ocurriendo (meeting.rs: Ctx). */
+export type MeetingCtx = Pick<Meeting, "title" | "attendees">;
 
 /** Minutos de anticipación del aviso de reunión. */
 export const LEAD_MIN = 2;
@@ -37,6 +42,10 @@ export function meetingsBetween(ics: string, from: number, to: number): Meeting[
       title: ev.summary || "(sin título)",
       start: s,
       end: end.toJSDate().getTime(),
+      attendees: ev.attendees
+        .map((a) => String(a.getParameter("cn") || a.getFirstValue() || "").replace(/^mailto:/i, ""))
+        .filter(Boolean),
+      description: ev.description || "",
     });
   };
 
@@ -59,3 +68,11 @@ export function meetingsBetween(ics: string, from: number, to: number): Meeting[
 /** Reuniones que toca avisar ahora: empiezan dentro de LEAD_MIN (o empezaron hace < 1 min) y no se avisaron. */
 export const dueMeetings = (ms: Meeting[], now: number, notified: Set<string>) =>
   ms.filter((m) => !notified.has(m.key) && m.start - now <= LEAD_MIN * 60_000 && m.start > now - 60_000);
+
+const SLACK = 10 * 60_000;
+
+/** El evento en curso (con 10 min de holgura a cada lado); si se pisan dos, el que empieza más cerca de `now`. */
+export const currentMeeting = (ms: Meeting[], now: number): Meeting | undefined =>
+  ms
+    .filter((m) => m.start - SLACK <= now && now < m.end + SLACK)
+    .sort((a, b) => Math.abs(a.start - now) - Math.abs(b.start - now))[0];

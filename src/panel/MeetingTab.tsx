@@ -5,6 +5,7 @@ import * as db from "../lib/db";
 import { useSettings } from "../store/useSettings";
 import { useLive, useTasks } from "../store/useTasks";
 import { describeAction, parseAction } from "../lib/suggestions";
+import { meetingCtx } from "../lib/ipc";
 import { Icon } from "./icons";
 
 interface Snapshot {
@@ -38,10 +39,12 @@ export function MeetingTab() {
   }, []);
   useEffect(() => void log.current?.scrollTo(0, log.current.scrollHeight), [s?.lines.length]);
 
-  const call = (cmd: string) =>
-    invoke(cmd, { llms: prefs.llms, manage })
+  const call = async (cmd: string) => {
+    const ctx = cmd === "meeting_start" && !manage ? await meetingCtx(prefs.icalUrl) : null;
+    return invoke(cmd, { llms: prefs.llms, manage, ctx })
       .then(() => setErr(""))
       .catch((e) => setErr(String(e)));
+  };
   const busy = s?.status.startsWith("Buscando tareas") || s?.status.startsWith("Ordenando");
 
   if (!s) return null;

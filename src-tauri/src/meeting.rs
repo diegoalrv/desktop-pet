@@ -81,10 +81,21 @@ pub fn meeting_state(state: State<MeetingState>) -> Snapshot {
     state.0.lock().unwrap().snap.clone()
 }
 
+/// Evento del calendario que estaba ocurriendo al empezar (lo manda el panel o la web). Se guarda como cabecera
+/// YAML del .md y el LLM lo recibe para saber de qué era la reunión y quién estaba.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Ctx {
+    pub title: String,
+    #[serde(default)]
+    pub attendees: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct Saved {
     id: u64, // epoch s = nombre del .md
-    text: String,
+    text: String, // sin la cabecera
+    #[serde(flatten)]
+    ctx: Option<Ctx>, // title, attendees
 }
 
 /// Transcripciones guardadas, la más reciente primero.
@@ -98,7 +109,9 @@ pub fn meetings_list(app: AppHandle) -> Vec<Saved> {
         .filter_map(|e| {
             let p = e.ok()?.path();
             let id = p.file_name()?.to_str()?.strip_suffix(".md")?.parse().ok()?;
-            Some(Saved { id, text: std::fs::read_to_string(&p).ok()? })
+            let raw = std::fs::read_to_string(&p).ok()?;
+            let (ctx, text) = parse_head(&raw);
+            Some(Saved { id, text: text.to_string(), ctx })
         })
         .collect();
     v.sort_by(|a, b| b.id.cmp(&a.id));
@@ -123,7 +136,7 @@ pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
 }
 
 #[tauri::command]
-pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool) -> Result<(), String> {
+pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool, ctx: Option<Ctx>) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("Escuchar reuniones solo funciona en macOS".into());
     }
@@ -135,12 +148,13 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         }
         g.stop = Some(stop.clone());
     }
+    let ctx = ctx.filter(|_| !manage); // el dictado de gestión no es una reunión del calendario
     update(&app, |g| {
         g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
     });
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
-        let res = mac::run(&app, &stop, &llms, manage);
+        let res = mac::run(&app, &stop, &llms, manage, ctx);
         #[cfg(not(target_os = "macos"))]
         let res: Result<(), String> = Ok(());
         update(&app, |g| {
@@ -169,7 +183,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         None => saved.into_iter().next(),
     }
     .ok_or("No hay reuniones guardadas")?;
-    let (id, lines, manage) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER));
+    let (id, lines, manage, ctx) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER), m.ctx);
     if lines.is_empty() {
         return Err("La transcripción está vacía".into());
     }
@@ -179,7 +193,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llms, id, &lines, manage);
+        let res = finalize(&app, &llms, id, &lines, manage, ctx.as_ref());
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(m) => m,
@@ -195,6 +209,22 @@ const MANAGE_HEADER: &str = "# gestión\n";
 
 fn meetings_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("meetings"))
+}
+
+/// Cabecera YAML del .md (los valores van en JSON, que también es YAML válido: títulos con ":" no la rompen).
+fn fmt_head(c: &Ctx) -> String {
+    format!("---\ntitle: {}\nattendees: {}\n---\n", json!(c.title), json!(c.attendees))
+}
+
+/// Inverso de `fmt_head`: (contexto, resto del .md). Sin cabecera devuelve el texto tal cual.
+pub fn parse_head(s: &str) -> (Option<Ctx>, &str) {
+    let Some((head, body)) = s.strip_prefix("---\n").and_then(|r| r.split_once("\n---\n")) else { return (None, s) };
+    let field = |k: &str| head.lines().find_map(|l| l.strip_prefix(k)?.strip_prefix(": ")).and_then(|v| serde_json::from_str::<Value>(v).ok());
+    let ctx = Ctx {
+        title: field("title").and_then(|v| v.as_str().map(String::from)).unwrap_or_default(),
+        attendees: field("attendees").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+    };
+    (Some(ctx), body)
 }
 
 /// Inverso de `fmt_lines`: "Yo: …" / "Otros: …" por línea.
@@ -271,16 +301,32 @@ No inventes ni incluyas ideas o temas solo conversados. Une las tareas repetidas
 Responde únicamente JSON: {\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
 \"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Si no hay tareas: {\"tareas\":[]}.";
 
+/// Con el evento del calendario y el nombre del usuario el modelo acierta mejor quién pidió qué.
 /// Sin micrófono (ninguna línea "Yo") el prompt normal casi nunca encuentra tareas: no hay compromisos del usuario.
-fn prompt(lines: &[Line]) -> String {
-    if lines.iter().any(|l| l.who == "Yo") {
-        return PROMPT.into();
+fn prompt(lines: &[Line], ctx: Option<&Ctx>, me: &str) -> String {
+    let mut p = PROMPT.to_string();
+    if let Some(c) = ctx {
+        p += &format!("\nReunión: {}.", c.title);
+        if !c.attendees.is_empty() {
+            p += &format!(" Participantes: {}.", c.attendees.join(", "));
+        }
     }
-    format!(
-        "{PROMPT}\nOJO: en esta reunión no se grabó el micrófono del usuario; todas las líneas son \"Otros\". Incluye \
-         también lo que le piden o asignan a quien escucha y los acuerdos o pendientes de la reunión que no tengan \
-         un responsable claro; el usuario revisará cada una."
-    )
+    if !me.is_empty() {
+        p += &format!(" \"Yo\" es {me}.");
+    }
+    if !lines.iter().any(|l| l.who == "Yo") {
+        p += "\nOJO: en esta reunión no se grabó el micrófono del usuario; todas las líneas son \"Otros\". Incluye \
+              también lo que le piden o asignan a quien escucha y los acuerdos o pendientes de la reunión que no tengan \
+              un responsable claro; el usuario revisará cada una.";
+    }
+    p
+}
+
+/// Nombre del usuario (Ajustes → Reuniones), leído de settings.json: sirve igual si la reunión empezó en la web.
+fn user_name(app: &AppHandle) -> String {
+    use tauri_plugin_store::StoreExt;
+    let prefs = app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default();
+    prefs["userName"].as_str().unwrap_or("").trim().to_string()
 }
 
 const MANAGE_PROMPT: &str = "Eres el asistente personal del usuario. Recibes su lista de tareas pendientes (cada una con su id) \
@@ -544,7 +590,7 @@ fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, Strin
 
 /// Postproceso: transcripción limpia → LLM → tareas sugeridas (tabla meeting_tasks), con notificación.
 /// Reintentar reemplaza las pendientes de esa reunión; las aceptadas o descartadas se quedan.
-fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool) -> Result<String, String> {
+fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool, ctx: Option<&Ctx>) -> Result<String, String> {
     let pool = &app.state::<crate::db::Db>().0;
     let lines = condense(lines);
     let mut model = String::new();
@@ -567,7 +613,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
             .collect()
     } else {
         let user = format!("Transcripción:\n{}", fmt_lines(&lines));
-        ask_any(llms, &prompt(&lines), &user, parse_tasks, on_try)?.into_iter().map(|(t, d)| (t, d, None)).collect()
+        ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_tasks, on_try)?.into_iter().map(|(t, d)| (t, d, None)).collect()
     };
     let n = rows.len();
     let id = json!(id);
@@ -800,7 +846,7 @@ mod mac {
         println!("{:.2}s para {:.1}s de audio", t.elapsed().as_secs_f32(), audio.len() as f32 / RATE as f32);
     }
 
-    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool) -> Result<(), String> {
+    pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool, cal: Option<Ctx>) -> Result<(), String> {
         let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
         let path = model_path(app)?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
@@ -859,20 +905,20 @@ mod mac {
         update(app, |g| g.snap.status = "Transcribiendo lo último…".into());
         push(app, &mut lines, true);
         if !lines.is_empty() {
-            let id = save(app, &lines, manage);
+            let id = save(app, &lines, manage, cal.as_ref());
             update(app, |g| g.snap.status = if manage { "Ordenando las tareas…" } else { "Buscando tareas en la reunión…" }.into());
-            let msg = finalize(app, llms, id, &lines, manage)?;
+            let msg = finalize(app, llms, id, &lines, manage, cal.as_ref())?;
             update(app, |g| g.snap.status = msg);
         }
         Ok(())
     }
 
     /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md y devuelve el epoch (id de la reunión).
-    fn save(app: &AppHandle, lines: &[Line], manage: bool) -> u64 {
+    fn save(app: &AppHandle, lines: &[Line], manage: bool, ctx: Option<&Ctx>) -> u64 {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         if let Some(dir) = meetings_dir(app) {
             let _ = std::fs::create_dir_all(&dir);
-            let head = if manage { MANAGE_HEADER } else { "" };
+            let head = if manage { MANAGE_HEADER.to_string() } else { ctx.map(fmt_head).unwrap_or_default() };
             let _ = std::fs::write(dir.join(format!("{secs}.md")), format!("{head}{}", fmt_lines(lines)));
         }
         secs
@@ -1008,6 +1054,22 @@ mod tests {
     }
 
     #[test]
+    fn cabecera_del_calendario_ida_y_vuelta() {
+        let ctx = Ctx { title: "Daily: equipo \"pet\"".into(), attendees: vec!["Ana Pérez".into(), "bob@x.dev".into()] };
+        let md = format!("{}Yo: hola\nOtros: chao", fmt_head(&ctx));
+        assert!(md.starts_with("---\ntitle: \"Daily: equipo \\\"pet\\\"\"\nattendees: [\"Ana Pérez\",\"bob@x.dev\"]\n---\n"));
+        let (back, body) = parse_head(&md);
+        assert_eq!(back, Some(ctx.clone()));
+        assert_eq!(body, "Yo: hola\nOtros: chao");
+        assert_eq!(parse_lines(&md).len(), 2); // la cabecera no son líneas de la reunión
+        assert_eq!(parse_head("Yo: sin cabecera"), (None, "Yo: sin cabecera"));
+        let p = prompt(&parse_lines(body), Some(&ctx), "Diego");
+        assert!(p.contains("Reunión: Daily: equipo \"pet\". Participantes: Ana Pérez, bob@x.dev. \"Yo\" es Diego."));
+        assert!(!p.contains("OJO"));
+        assert!(prompt(&[], None, "").ends_with("revisará cada una."));
+    }
+
+    #[test]
     fn relee_la_transcripcion_guardada() {
         let lines = vec![Line { who: "Yo", text: "Hora: 10:30".into() }, Line { who: "Otros", text: "ok".into() }];
         let back = parse_lines(&format!("{MANAGE_HEADER}{}\nbasura sin hablante", fmt_lines(&lines)));
@@ -1035,7 +1097,7 @@ fn probar_llm() {
     println!("{} líneas → {} tras limpiar", lines.len(), clean.len());
     let t = std::time::Instant::now();
     let user = format!("Transcripción:\n{}", fmt_lines(&clean));
-    let tasks = ask_any(&[llm], &prompt(&clean), &user, parse_tasks, |m| println!("probando {m}")).unwrap();
+    let tasks = ask_any(&[llm], &prompt(&clean, None, ""), &user, parse_tasks, |m| println!("probando {m}")).unwrap();
     println!("{:.1}s", t.elapsed().as_secs_f32());
     for (title, detail) in tasks {
         println!("  + {title} — {detail}");

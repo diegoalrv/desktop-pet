@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { currentMeeting, meetingsBetween, type MeetingCtx } from "./calendar";
 
 /** Token por arranque de la app (web.rs): llega en `?t=` al abrir la web desde la app y se guarda en localStorage. */
 const TOKEN = "pet-token";
@@ -32,6 +33,19 @@ export const post = async <T>(path: string, body: unknown): Promise<T> => {
  *  Desde la web los comandos de reunión usan los LLMs de Ajustes (Rust los lee de settings.json). */
 export const call = <T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> =>
   isTauri() ? invoke<T>(cmd, args) : post<T>("/api/invoke", { cmd, args });
+
+/** El evento del calendario que está ocurriendo, para guardarlo con la reunión; null si no hay calendario o falla.
+ *  En la web Rust usa la URL de Ajustes (el navegador no tiene las prefs). */
+export async function meetingCtx(icalUrl: string): Promise<MeetingCtx | null> {
+  const now = Date.now();
+  try {
+    const ics = await call<string>("fetch_ical", { url: icalUrl });
+    const m = currentMeeting(meetingsBetween(ics, now - 86_400_000, now + 3_600_000), now);
+    return m ? { title: m.title, attendees: m.attendees } : null;
+  } catch {
+    return null;
+  }
+}
 
 export type Mode = "focus" | "short" | "long";
 export interface TimerSnap {

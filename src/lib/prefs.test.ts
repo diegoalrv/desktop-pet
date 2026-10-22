@@ -21,6 +21,7 @@ describe("prefs", () => {
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
       icalUrl: "",
+      userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       claudeCwd: "",
       petSize: 128,

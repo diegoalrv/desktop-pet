@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dueMeetings, meetingsBetween } from "./calendar";
+import { currentMeeting, dueMeetings, meetingsBetween } from "./calendar";
 
 // Formato de Google: VTIMEZONE propia, serie semanal con EXDATE y una ocurrencia movida.
 const ICS = `BEGIN:VCALENDAR
@@ -39,6 +39,9 @@ UID:one@x
 DTSTART:20261020T150000Z
 DTEND:20261020T160000Z
 SUMMARY:Cliente
+DESCRIPTION:Revisar plazos
+ATTENDEE;CN=Ana Pérez;ROLE=REQ-PARTICIPANT:mailto:ana@x.dev
+ATTENDEE:mailto:bob@x.dev
 END:VEVENT
 BEGIN:VEVENT
 UID:cancel@x
@@ -75,5 +78,19 @@ describe("meetingsBetween", () => {
     expect(dueMeetings(ms, m.start - 60_000, new Set())).toEqual([m]);
     expect(dueMeetings(ms, m.start - 60_000, new Set([m.key]))).toEqual([]);
     expect(dueMeetings(ms, m.start + 2 * 60_000, new Set())).toEqual([]);
+  });
+
+  it("asistentes (CN o mail) y descripción", () => {
+    expect(ms[1].attendees).toEqual(["Ana Pérez", "bob@x.dev"]);
+    expect(ms[1].description).toBe("Revisar plazos");
+    expect(ms[0].attendees).toEqual([]);
+  });
+
+  it("reunión en curso, con 10 min de holgura", () => {
+    const m = ms[1]; // 15:00–16:00Z
+    expect(currentMeeting(ms, m.start - 11 * 60_000)).toBeUndefined();
+    expect(currentMeeting(ms, m.start - 9 * 60_000)).toBe(m);
+    expect(currentMeeting(ms, m.end + 9 * 60_000)).toBe(m);
+    expect(currentMeeting(ms, m.end + 11 * 60_000)).toBeUndefined();
   });
 });
