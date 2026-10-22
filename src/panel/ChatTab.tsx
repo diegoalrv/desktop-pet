@@ -34,11 +34,7 @@ const label = (d: Denial) => d.tool_input.command ?? d.tool_name;
 const CLEARED = "chat:clearedAt";
 const clearedAt = () => Number(localStorage.getItem(CLEARED)) || 0;
 
-const SUGGESTIONS = [
-  "¿Qué contenedores están comiendo RAM?",
-  "¿Cómo está de memoria y disco mi Mac?",
-  "¿Quién eres y qué puedes hacer?",
-];
+const SUGGESTIONS = ["¿Qué tengo para hoy?", "¿Qué quedó de la última reunión?", "¿Cómo va mi semana?"];
 
 /** Chat estilo CLI con Claude Code (claude.rs). Solo lectura por defecto; lo demás se confirma o va en modo dios. */
 export function ChatTab() {

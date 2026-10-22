@@ -52,6 +52,15 @@ pub fn command(args: &[String]) -> Command {
     c
 }
 
+fn mcp_config(port: u16, token: &str) -> String {
+    serde_json::json!({"mcpServers": {"pet": {
+        "type": "http",
+        "url": format!("http://127.0.0.1:{port}/mcp"),
+        "headers": {"X-Pet-Token": token},
+    }}})
+    .to_string()
+}
+
 /// Personalidad y forma de trabajar de la Candola (editable en candola.md).
 const SYSTEM: &str = include_str!("candola.md");
 
@@ -89,11 +98,15 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
     if let Some(s) = session {
         args.extend(["--resume".into(), s]);
     }
+    // Las herramientas de la app (mcp.rs) por la web local, con su token. Antes de --allowedTools: --mcp-config
+    // acepta varios valores y se comería los que vengan detrás hasta el próximo flag.
+    args.extend(["--mcp-config".into(), mcp_config(crate::web::PORT, crate::web::token())]);
     if god {
         args.push("--dangerously-skip-permissions".into());
     } else {
         args.push("--allowedTools".into());
-        args.extend(READ_ONLY.iter().map(|s| s.to_string()).chain(allow));
+        // mcp__pet: todas las herramientas de la app, también las que escriben (tareas, timer): son reversibles.
+        args.extend(READ_ONLY.iter().map(|s| s.to_string()).chain(["mcp__pet".into()]).chain(allow));
     }
     let mut child = command(&args)
         .current_dir(dir)
@@ -164,5 +177,12 @@ mod tests {
         assert_eq!(outcome(Some(&json!({"is_error": true}))), "oops");
         assert_eq!(outcome(Some(&json!({"is_error": false, "permission_denials": [{"tool_name": "Bash"}]}))), "ask");
         assert_eq!(outcome(Some(&json!({"is_error": false, "permission_denials": []}))), "mission");
+    }
+
+    #[test]
+    fn mcp_config_http() {
+        let c: Value = serde_json::from_str(&mcp_config(4748, "abc")).unwrap();
+        assert_eq!(c["mcpServers"]["pet"]["url"], "http://127.0.0.1:4748/mcp");
+        assert_eq!(c["mcpServers"]["pet"]["headers"]["X-Pet-Token"], "abc");
     }
 }
