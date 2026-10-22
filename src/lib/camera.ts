@@ -86,6 +86,7 @@ async function openCam(): Promise<Cam> {
 export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   let cam: Cam | null = null;
   let st: CamState | null = null; // st.away = el foco está pausado porque te fuiste
+  let calib: number[] = []; // calibración de la postura: sobrevive a pausas (ponytail: no al reiniciar la app)
   let seg: Segment | null = null; // tramo en curso para cam_segments; se guarda al cerrarse
   let busy = false;
   let hush: (() => void) | null = null; // calla el gruñido en curso
@@ -101,6 +102,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     save(seg); // ponytail: si la app se cae a mitad de un tramo, ese tramo se pierde
     seg = null;
     cam?.stop();
+    if (st) calib = st.pitches;
     cam = st = null;
   };
   const handle = async (ev: CamEvent, quiet: boolean) => {
@@ -155,7 +157,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
         );
         return;
       }
-      st = initCam();
+      st = initCam(calib);
     }
     if (st?.away && s.status === "running") st = { ...st, away: false, noFace: null }; // lo reanudaste a mano
     const ctx = await invoke<{ idle: number; meeting: boolean }>("focus_cam_ctx");

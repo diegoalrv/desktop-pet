@@ -23,7 +23,7 @@ export type CamEvent =
   | { type: "back" }; // volvió después de un `away`
 
 export interface CamState {
-  pitches: number[]; // calibración: primeras muestras usando el computador
+  pitches: number[]; // calibración: últimas CALIB_N muestras usando el computador
   downSince: number | null; // cabeza abajo sin input desde
   phoneRun: number; // muestras seguidas con teléfono
   phoneGone: number; // muestras seguidas sin teléfono
@@ -35,14 +35,15 @@ export interface CamState {
   away: boolean;
 }
 
-export const CALIB_N = 30; // ~1 min de muestras tecleando o con el mouse
+export const CALIB_N = 30; // ventana móvil: ~1 min de muestras tecleando o con el mouse
 const ACTIVE_S = 3; // input hace menos de esto = está usando el computador
 export const HEAD_MS = 3_000; // cabeza abajo sin input antes de gruñir
 export const REBARK_MS = 4_000; // sigue ladrando mientras sigas distraído (una muestra sí, una no)
 const PHONE_SAMPLES = 2; // muestras seguidas para encender/apagar "teléfono a la vista"
 
-export const initCam = (): CamState => ({
-  pitches: [],
+/** `pitches`: la calibración que ya había (al reanudar tras una pausa no parte de cero). */
+export const initCam = (pitches: number[] = []): CamState => ({
+  pitches,
   downSince: null,
   phoneRun: 0,
   phoneGone: 0,
@@ -70,8 +71,7 @@ export function step(prev: CamState, x: Sample, p: CamPrefs): { state: CamState;
   const { now } = x;
 
   // Calibración: postura normal = mediana del pitch mientras usa el computador (no mientras mira el teléfono).
-  if (x.face && x.pitch !== null && x.idle < ACTIVE_S && s.pitches.length < CALIB_N)
-    s.pitches = [...s.pitches, x.pitch];
+  if (x.face && x.pitch !== null && x.idle < ACTIVE_S) s.pitches = [...s.pitches, x.pitch].slice(-CALIB_N);
   const base = basePitch(s);
 
   // Teléfono a la vista, con histéresis para que un frame suelto no prenda ni apague.

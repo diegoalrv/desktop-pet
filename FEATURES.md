@@ -222,8 +222,8 @@ Cómo:
   runtime). `getUserMedia` en `PetWindow` con un `<video>` fuera de pantalla; parar los tracks (`track.stop()`,
   apaga el LED) apenas el foco deja de estar `Running`.
 - "Distraído" = (`pitch - base ≥ headDownDeg` (pref, default 12; medido: cabeza abajo ≈ +18°) durante ≥ 3 s **y** sin teclado ni mouse en ese
-  rato) **o** teléfono visto en 2 muestras seguidas. `base` = mediana del pitch de las primeras ~30 muestras
-  usando el computador (input hace < 3 s; así mirar el teléfono al empezar no la ensucia). La cámara del usuario
+  rato) **o** teléfono visto en 2 muestras seguidas. `base` = mediana del pitch de las últimas ~30 muestras
+  usando el computador (ventana móvil, se mantiene entre pausas) (input hace < 3 s; así mirar el teléfono al empezar no la ensucia). La cámara del usuario
   está en el monitor, de frente: base ≈ 0, pero se calibra igual por si cambia. Inactividad:
   comando Rust `input_idle_secs` con `CGEventSourceSecondsSinceLastEventType(CombinedSessionState,
   kCGAnyInputEventType)` (sin permiso de Accesibilidad). Falso positivo típico (leer papel en la mesa): el gruñido

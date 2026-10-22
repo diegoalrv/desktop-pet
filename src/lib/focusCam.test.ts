@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addSample,
+  basePitch,
   CALIB_N,
   initCam,
   REBARK_MS,
@@ -62,8 +63,22 @@ describe("focusCam", () => {
     expect(cal.s.pitches).toEqual(n(CALIB_N, 15)); // lo de cabeza abajo sin input no calibra
     expect(run(cal.s, cal.t, n(5, { ...down, pitch: 30 })).types).toEqual([]);
     expect(run(cal.s, cal.t, n(5, { ...down, pitch: 40 })).types).toEqual(["growl"]);
-    // completa la calibración, lo que viene después no mueve la base
-    expect(run(cal.s, cal.t, n(60, { ...ok, pitch: 40 })).s.pitches).toEqual(cal.s.pitches);
+    // ventana móvil: unas pocas muestras raras no mueven la base; si la postura cambia de verdad, la sigue
+    const odd = run(cal.s, cal.t, n(5, { ...ok, pitch: 32 }));
+    expect(basePitch(odd.s)).toBe(15);
+    expect(odd.s.pitches).toHaveLength(CALIB_N);
+    expect(basePitch(run(cal.s, cal.t, n(CALIB_N, { ...ok, pitch: 25 })).s)).toBe(25);
+  });
+  it("al reanudar parte de la calibración anterior", () => {
+    const cal = run(initCam(), T0, n(CALIB_N, { ...ok, pitch: 10 }));
+    // vuelve con la cabeza abajo y recién hizo click en reanudar (input reciente): no gruñe por eso, pero sí
+    // sigue detectando: la base sigue en 10, no en 32
+    const back = run(initCam(cal.s.pitches), cal.t, [
+      ...n(2, { ...ok, pitch: 32, idle: 1 }),
+      ...n(3, { ...down, pitch: 32 }),
+    ]);
+    expect(basePitch(back.s)).toBe(10);
+    expect(back.types).toEqual(["growl"]);
   });
   it("ausencia: corta no pausa; larga pausa una sola vez; volver avisa", () => {
     const gone = { ...ok, face: false, pitch: null };
