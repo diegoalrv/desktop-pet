@@ -42,6 +42,11 @@ export const prefsSchema = z.object({
   voiceShortcut: z.string().min(1).catch(DEFAULT_VOICE_SHORTCUT), // mantener para hablarle a la Candola (voice.rs)
   voice: z.boolean().catch(false), // leer en voz alta (say) las respuestas a lo dictado
   distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
+  // Cámara durante el foco (F17, lib/camera.ts): gruñe/ladra si miras el teléfono, pausa si te vas
+  focusCam: z.boolean().catch(false),
+  headDownDeg: z.coerce.number().int().min(5).max(60).catch(20), // grados bajo tu postura normal = mirando abajo
+  barkAfterSec: z.coerce.number().int().min(3).max(300).catch(15), // gruñe al tiro; ladra (y cuenta) pasado esto
+  awayPauseSec: z.coerce.number().int().min(10).max(900).catch(90),
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar
   userName: z.string().trim().catch(""), // quién es "Yo" en las reuniones (meeting.rs lo lee de settings.json)
   // LLMs que sacan las tareas de la reunión al terminar, en orden de fallback (meeting.rs: ask_any)

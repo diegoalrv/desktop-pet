@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@mediapipe/tasks-vision':
+        specifier: ^1.1.1
+        version: 1.1.1
       '@tauri-apps/api':
         specifier: ^2
         version: 2.12.1
@@ -167,6 +170,9 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
+
+  '@mediapipe/tasks-vision@1.1.1':
+    resolution: {integrity: sha512-jwntgT5tzDrKOkqg6xNDNpRcTUnGvmylZE5DFnzPXossiWOIDdZX+C81LI75hlXhsG58YZW+lGzcmjH1qrQE/Q==}
 
   '@oxc-project/types@0.153.0':
     resolution: {integrity: sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw==}
@@ -1095,6 +1101,8 @@ snapshots:
       keyv: 5.6.0
 
   '@keyv/serialize@1.1.1': {}
+
+  '@mediapipe/tasks-vision@1.1.1': {}
 
   '@oxc-project/types@0.153.0': {}
 

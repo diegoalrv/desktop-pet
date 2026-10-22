@@ -208,7 +208,9 @@ pub fn run() {
             timer::timer_skip,
             timer::timer_set_task,
             timer::send_notification,
-            apps::running_apps
+            timer::focus_phone,
+            apps::running_apps,
+            apps::focus_cam_ctx
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

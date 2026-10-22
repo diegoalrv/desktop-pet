@@ -204,6 +204,51 @@ Pregunta → embedding → coseno en Rust (pocos miles de vectores, sin índice)
 de respuesta con citas) → respuesta + enlaces `#meetings/<id>`. Si Ollama no está, el campo lo dice.
 Commit: `Preguntas sobre las reuniones con búsqueda semántica local`
 
+## F17. Webcam durante el foco: teléfono y ausencia — DESPUÉS DE F11
+Qué: opcional (pref `focusCam`, default apagada). Durante un foco, la cámara mira cada ~2 s, todo local, nada se
+guarda ni sale del equipo. Si miras el teléfono (cabeza agachada sin usar el computador, o teléfono visible en la
+mano), la mascota escala como un perro:
+1. Apenas lo detecta → **"grrr"** (gruñido) y anim `oops`. Es solo un aviso: no cuenta como distracción. Si
+   levantas la cabeza o vuelves a teclear, se calma (vuelve a `focus`) y no pasa nada más.
+2. Si sigues distraído más de `barkAfterSec` (pref, default 15) → **"bark bark"** (ladridos), `oops` de nuevo y
+   recién ahí cuenta como distracción de F11 (`bundle = "phone"`). Mientras siga, ladra otra vez cada 30 s.
+Si no hay cara durante `awayPauseSec` (pref, default 90) → el foco se pausa solo y Candolita queda en `sleep`; al
+volver a verte, notificación "Pausé el foco cuando te fuiste" (no reanuda sola).
+Cómo:
+- Detección en la webview (no en Rust): `@mediapipe/tasks-vision` (dependencia nueva, justificada: no hay nada
+  nativo que detecte objetos), `FaceLandmarker` con `outputFacialTransformationMatrixes: true` para presencia e
+  inclinación de la cabeza (pitch sale de la matriz), y `ObjectDetector` (EfficientDet-Lite0, COCO, clase
+  `cell phone`, score ≥ 0.5) para el teléfono a la vista. Modelos y `.wasm` copiados a `public/models/` (sin CDN en
+  runtime). `getUserMedia` en `PetWindow` con un `<video>` fuera de pantalla; parar los tracks (`track.stop()`,
+  apaga el LED) apenas el foco deja de estar `Running`.
+- "Distraído" = (`pitch - base ≥ headDownDeg` (pref, default 20) durante ≥ 3 s **y** sin teclado ni mouse en ese
+  rato) **o** teléfono visto en 2 muestras seguidas. `base` = mediana del pitch de las primeras ~30 muestras
+  usando el computador (input hace < 3 s; así mirar el teléfono al empezar no la ensucia). La cámara del usuario
+  está en el monitor, de frente: base ≈ 0, pero se calibra igual por si cambia. Inactividad:
+  comando Rust `input_idle_secs` con `CGEventSourceSecondsSinceLastEventType(CombinedSessionState,
+  kCGAnyInputEventType)` (sin permiso de Accesibilidad). Falso positivo típico (leer papel en la mesa): el gruñido
+  ya es el aviso; si molesta, el usuario sube `headDownDeg` o apaga la cámara.
+- Sonidos: grabaciones CC0 (OpenGameArt, licencia anotada en `public/sounds/LICENSE`) en `public/sounds/growl.m4a`
+  y `bark.m4a`. `sound.ts`: `clip(name)` que reusa el `music_cmd duck` de `chime` y reproduce con `new Audio()`,
+  volumen propio (`CLIP_GAIN`, a oído). **Silencio durante una reunión** (captura de `meeting.rs` activa): ni
+  gruñe ni ladra, solo anim, para no ladrarle al micrófono de la llamada.
+- macOS: `NSCameraUsageDescription` en `src-tauri/Info.plist` (hoy solo está el micrófono). Si el usuario niega el
+  permiso, la pref se apaga y Ajustes lo dice.
+- Lógica pura en `src/lib/focusCam.ts`: `step(state, {face, pitch, phone, idleSecs, now}, prefs) → {state,
+  event?}` con eventos `growl | bark | calm | away | back`. Test en `focusCam.test.ts`: cabeza abajo 3 s sin input
+  → `growl`, con input → nada; teléfono 1 frame no dispara, 2 sí; volver antes de `barkAfterSec` → `calm` sin
+  `bark`; pasado el umbral → `bark` una vez y de nuevo a los 30 s; calibración de `base`; ausencia corta no pausa,
+  larga pausa una sola vez; volver → `back`.
+- Eventos: `bark` → comando que emite `focus://distraction {bundle:"phone", name:"Teléfono"}` y suma en
+  `session_apps` igual que F11 (el `growl` no se registra); ausencia → `timer_pause` + evento `focus://away`.
+  `stateMachine`: `growl`/`bark` → `oops`, `calm` → `focus`, `away` → `sleep` (test).
+- Ajustes → Timer: "Usar la cámara durante el foco", grados de "cabeza abajo", segundos hasta ladrar y segundos de
+  ausencia antes de pausar.
+Límites conocidos: COCO detecta mal el teléfono plano sobre la mesa o de canto (por eso manda la cabeza);
+con poca luz falla la cara → `awayPauseSec` generoso. CPU: 2 inferencias cada 2 s en WebGL; medir con el Monitor
+de Actividad y, si pesa, bajar a 1 cada 4 s.
+Commit: `Cámara durante el foco: gruñe y ladra si miras el teléfono, pausa si te vas`
+
 ---------------------------------------------------------------------------------------------------------------
 ## Postergadas — no hacer por ahora
 ---------------------------------------------------------------------------------------------------------------

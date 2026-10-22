@@ -1,0 +1,3 @@
+face_landmarker.task y efficientdet_lite0.tflite: modelos de MediaPipe (Google), Apache-2.0.
+https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite

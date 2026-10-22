@@ -54,6 +54,16 @@ describe("stateMachine", () => {
     c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "timerStop" });
     expect(run(c, tick(3.1)).state).toBe("idle");
   });
+  it("ausencia (cámara): focus -> sleep; back -> focus; reset estando ausente -> idle", () => {
+    const c = run(initial(), { type: "timerStart" }, { type: "away" });
+    expect(c.state).toBe("sleep");
+    expect(run(c, tick(700)).state).toBe("sleep");
+    expect(run(c, { type: "back" }).state).toBe("focus");
+    expect(run(c, { type: "timerStop" }, { type: "back" }).state).toBe("idle");
+    expect(run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "away" }).state).toBe("sleep");
+    expect(run(initial(), { type: "away" }).state).toBe("idle"); // fuera del foco no hace nada
+    expect(run(initial(), { type: "back" }).state).toBe("idle");
+  });
   it("arrastrarla durante el oops de distracción no pierde el foco", () => {
     const c = run(initial(), { type: "timerStart" }, { type: "distracted" }, { type: "drag" }, { type: "drop" }, { type: "land" });
     expect(c.state).toBe("focus");

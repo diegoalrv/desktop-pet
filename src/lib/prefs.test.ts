@@ -25,6 +25,10 @@ describe("prefs", () => {
       voiceShortcut: "Alt+Space",
       voice: false,
       distractions: [],
+      focusCam: false,
+      headDownDeg: 20,
+      barkAfterSec: 15,
+      awayPauseSec: 90,
       icalUrl: "",
       userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
@@ -46,6 +50,10 @@ describe("prefs", () => {
     const bad = normalizePrefs({ dayEndHour: 24, dailyGoalMin: 0 });
     expect([bad.dayEndHour, bad.dailyGoalMin]).toEqual([18, 120]);
     expect(normalizePrefs({ dayEndHour: "x", dailyGoalMin: 5000 }).dayEndHour).toBe(18);
+  });
+  it("cámara del foco: rangos", () => {
+    const p = normalizePrefs({ headDownDeg: "35", barkAfterSec: 1, awayPauseSec: 99999 });
+    expect([p.headDownDeg, p.barkAfterSec, p.awayPauseSec]).toEqual([35, 15, 90]);
   });
   it("distractions: lista de bundle ids, inválida -> vacía", () => {
     expect(normalizePrefs({ distractions: [" com.tinyspeck.slackmacgap "] }).distractions).toEqual([

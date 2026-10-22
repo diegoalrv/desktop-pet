@@ -53,7 +53,10 @@ export function SettingsWindow() {
     }
   };
 
-  const num = (key: "focusMin" | "shortMin" | "longMin" | "longEvery", label: string) => (
+  const num = (
+    key: "focusMin" | "shortMin" | "longMin" | "longEvery" | "headDownDeg" | "barkAfterSec" | "awayPauseSec",
+    label: string,
+  ) => (
     <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       {label}
       <input
@@ -242,6 +245,29 @@ export function SettingsWindow() {
       <small style={{ opacity: 0.7 }}>
         Solo macOS. Si abres una de estas apps en pleno foco, Candolita se queja; si te quedas más de 1 min,
         avisa. El tiempo por app de cada foco se ve en la web (Foco).
+      </small>
+
+      <h2 style={h}>Cámara durante el foco</h2>
+      <label>
+        <input
+          type="checkbox"
+          checked={prefs.focusCam}
+          onChange={(e) => setPrefs({ focusCam: e.target.checked })}
+        />{" "}
+        Usar la cámara durante el foco
+      </label>
+      {prefs.focusCam && (
+        <>
+          {num("headDownDeg", "Cabeza abajo desde (grados bajo tu postura normal)")}
+          {num("barkAfterSec", "Ladrar pasados (s de distracción)")}
+          {num("awayPauseSec", "Pausar si no te ve por (s)")}
+        </>
+      )}
+      <small style={{ opacity: 0.7 }}>
+        Si miras el teléfono (cabeza abajo sin usar el computador, o teléfono a la vista), Candolita gruñe; si
+        sigues, ladra y cuenta como distracción. Si te vas, pausa el foco. Todo se procesa en tu Mac y no se guarda
+        ninguna imagen; la cámara solo se enciende durante el foco. macOS pide permiso la primera vez (Ajustes del
+        Sistema → Privacidad → Cámara).
       </small>
 
       <h2 style={h}>Cierre del día</h2>

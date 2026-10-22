@@ -1,0 +1,3 @@
+growl.m4a: "Dog Growl" de bonebrah, CC0 — https://opengameart.org/content/dog-growl
+bark.m4a: "Dog Bark.wav" + "Dog Bark 2.wav" de "dog sounds" de pauliuw, CC0 — https://opengameart.org/content/dog-sounds
+Convertidos a AAC y normalizados con ffmpeg (loudnorm I=-16).

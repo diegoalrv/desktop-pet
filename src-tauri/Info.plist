@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>La mascota escucha tus reuniones (solo cuando tú lo activas) para transcribirlas en tu Mac y sugerir tareas.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Si lo activas en Ajustes, la mascota mira durante el foco si tomas el teléfono o te vas. Todo se procesa en tu Mac y no se guarda ninguna imagen.</string>
 </dict>
 </plist>

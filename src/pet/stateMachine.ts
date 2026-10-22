@@ -30,7 +30,9 @@ export type PetEvent =
   | { type: "timerStop" } // reset / fin de pausa: vuelve a idle
   | { type: "timerEnd" } // fin de foco -> celebrate -> break; fin de break -> idle
   | { type: "taskDone" }
-  | { type: "distracted" } // abrió una app de la lista de distracciones durante el foco
+  | { type: "distracted" } // abrió una app de la lista de distracciones durante el foco (o la cámara vio el teléfono)
+  | { type: "away" } // la cámara no te ve: el foco se pausó solo y se duerme
+  | { type: "back" } // volviste: despierta al foco (pausado, no lo reanuda)
   | { type: "panelOpen" } // se abrió el panel: quieta y atenta
   | { type: "panelClose" } // se cerró: sigue con lo suyo
   | { type: "claudeStart" }
@@ -99,6 +101,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
         : c;
     case "timerStop":
       if (c.state === "focus" || c.state === "break") return goIdle(c, r);
+      if (c.state === "sleep" && c.after === "focus") return goIdle({ ...c, after: "idle" }, r); // reset estando ausente
       if (backToTimer(c)) return { ...c, after: "idle" };
       return (c.state === "dragged" || c.state === "fall") && (c.after === "focus" || c.after === "break")
         ? { ...c, after: "idle" }
@@ -114,6 +117,10 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     }
     case "distracted":
       return c.state === "focus" ? to(c, "oops", DISTRACT_S, "focus") : c;
+    case "away":
+      return c.state === "focus" || backToTimer(c) ? to(c, "sleep", Infinity, "focus") : c;
+    case "back":
+      return c.state === "sleep" && c.after === "focus" ? to(c, "focus") : c;
     case "panelOpen": {
       const w = { ...c, watching: true, quiet: 0 };
       return w.state === "idle" || w.state === "walk" || w.state === "sleep" ? to(w, "attention") : w;

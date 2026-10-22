@@ -58,6 +58,8 @@ pub enum Watch {
 }
 
 const LINGER_MS: u64 = 60_000;
+/// "App" del teléfono en `session_apps` (lo ve la cámara, F17).
+const PHONE: &str = "phone";
 
 /// Tiempos en ms de reloj (epoch), no `Instant`: así el estado se puede guardar en disco
 /// y retomarse tras cerrar la app (y el día de mañana sincronizarse con otro dispositivo).
@@ -220,6 +222,17 @@ impl Timer {
             return Some(Watch::Lingering(name));
         }
         None
+    }
+
+    /// Teléfono visto por la cámara (F17): suma `ms` a la sesión y, si `hit`, una distracción. false fuera del foco.
+    pub fn phone(&mut self, ms: u64, hit: bool) -> bool {
+        if !self.watching() {
+            return false;
+        }
+        let a = self.apps.entry(PHONE.into()).or_insert_with(|| AppUse { bundle: PHONE.into(), name: "Teléfono".into(), ..Default::default() });
+        a.ms += ms;
+        a.hits += hit as u32;
+        true
     }
 
     fn elapsed(&self, now: u64) -> u64 {
@@ -422,6 +435,15 @@ pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, au
     t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer, distractions };
 }
 
+/// La cámara vio el teléfono durante el foco (F17): `hit` = primer ladrido, cuenta como distracción de F11.
+#[tauri::command]
+pub fn focus_phone(ms: u64, hit: bool, app: AppHandle, s: State<TimerState>) {
+    let counted = s.lock().unwrap().phone(ms, hit);
+    if counted && hit {
+        let _ = app.emit("focus://distraction", serde_json::json!({ "bundle": PHONE, "name": "Teléfono" }));
+    }
+}
+
 /// Inicia un foco con la duración configurada (menú del tray).
 pub fn start_focus(app: &AppHandle) {
     let state = app.state::<TimerState>();
@@ -615,6 +637,17 @@ mod tests {
         let sum: Vec<_> = d.apps.iter().map(|a| (a.bundle.as_str(), a.ms, a.hits)).collect();
         assert_eq!(sum, [("red", 64_000, 2), ("ide", 3000, 0)]);
         assert!(t.apps.is_empty());
+    }
+
+    #[test]
+    fn telefono_de_la_camara() {
+        let mut t = Timer::new();
+        assert!(!t.phone(5000, true)); // reposo: no cuenta
+        t.start(Mode::Focus, 600, None, 0);
+        assert!(t.phone(16_000, true));
+        assert!(t.phone(30_000, false)); // ladra de nuevo: tiempo, no otra distracción
+        let d = t.reset(1000).unwrap();
+        assert_eq!(d.apps, [AppUse { bundle: "phone".into(), name: "Teléfono".into(), ms: 46_000, hits: 1 }]);
     }
 
     #[test]

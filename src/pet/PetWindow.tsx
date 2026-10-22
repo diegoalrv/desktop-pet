@@ -7,6 +7,7 @@ import { headroom, Sprite, spriteSize } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
 import { chime } from "../lib/sound";
+import { watchFocusCam } from "../lib/camera";
 import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
@@ -252,6 +253,7 @@ export function PetWindow() {
     const unPanel = listen<boolean>("panel://visible", (e) =>
       send({ type: e.payload ? "panelOpen" : "panelClose" }),
     );
+    const stopCam = watchFocusCam(send); // F17: solo abre la cámara con la pref y un foco corriendo
 
     // Recordatorios de tareas con fecha/hora (granularidad de minutos; la ventana mascota siempre está viva).
     const warned = new Set<string>();
@@ -345,6 +347,7 @@ export function PetWindow() {
       unClaude.then((f) => f());
       unClaudeEnd.then((f) => f());
       unPanel.then((f) => f());
+      stopCam();
       clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
     };
