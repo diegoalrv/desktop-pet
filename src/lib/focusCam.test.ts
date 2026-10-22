@@ -45,15 +45,16 @@ describe("focusCam", () => {
     expect(r.types).toEqual(["growl", "calm"]);
     expect(r.out[1][1]).toEqual({ type: "calm", ms: 0 });
   });
-  it("pasado el umbral ladra una vez, de nuevo a los 30 s, y calm reporta el resto", () => {
-    // growl a los 2 s; bark a los 2+15 s -> muestra de los 18 s
-    const r = run(initCam(), T0, [...n(10 + REBARK_MS / 2000, phone), ok, ok]);
+  it("pasado el umbral ladra y sigue ladrando cada REBARK_MS; calm reporta el resto", () => {
+    // growl a los 2 s; bark a los 2+15 s -> muestra de los 18 s; después cada 4 s mientras siga
+    const r = run(initCam(), T0, [...n(14, phone), ok, ok]);
     const barks = r.out.filter(([, e]) => e.type === "bark");
     expect(barks).toEqual([
       [18000, { type: "bark", first: true, ms: 16000 }],
-      [48000, { type: "bark", first: false, ms: 30000 }],
+      [18000 + REBARK_MS, { type: "bark", first: false, ms: REBARK_MS }],
+      [18000 + 2 * REBARK_MS, { type: "bark", first: false, ms: REBARK_MS }],
     ]);
-    expect(r.out[r.out.length - 1]).toEqual([52000, { type: "calm", ms: 4000 }]);
+    expect(r.out[r.out.length - 1]).toEqual([30000, { type: "calm", ms: 4000 }]);
   });
   it("calibra la postura normal mientras usa el computador", () => {
     // cámara mirando desde arriba: 15° de base; 30° es solo 15 más -> no gruñe; 40° sí

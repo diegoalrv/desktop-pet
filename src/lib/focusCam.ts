@@ -38,7 +38,7 @@ export interface CamState {
 export const CALIB_N = 30; // ~1 min de muestras tecleando o con el mouse
 const ACTIVE_S = 3; // input hace menos de esto = está usando el computador
 export const HEAD_MS = 3_000; // cabeza abajo sin input antes de gruñir
-export const REBARK_MS = 30_000;
+export const REBARK_MS = 4_000; // sigue ladrando mientras sigas distraído (una muestra sí, una no)
 const PHONE_SAMPLES = 2; // muestras seguidas para encender/apagar "teléfono a la vista"
 
 export const initCam = (): CamState => ({
