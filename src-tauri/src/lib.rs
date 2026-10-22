@@ -1,6 +1,7 @@
 mod apps;
 mod claude;
 mod db;
+mod mcp;
 mod meeting;
 mod music;
 mod timer;
