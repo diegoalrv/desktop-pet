@@ -13,6 +13,7 @@
 - Notificación nativa desde Rust al terminar (funciona con ventanas ocultas).
 - Píldora bajo la mascota (color por modo, parpadea en pausa); panel anclado sobre la mascota con controles, 5/15/30 y minutos custom (+1 min solo en dev).
 - Clic en la mascota abre/cierra el panel; arrastre empieza al mover > 3 px.
+- Un foco que vence con la app cerrada se registra a su hora real (`Timer::catch_up` al restaurar), no a la de reabrir la app.
 
 ## F4: Tareas — hecha (pendiente verificación del usuario)
 - SQLite (`tauri-plugin-sql`, migración `src-tauri/migrations/001_init.sql`, preload en `tauri.conf.json`): categorías, tareas, sesiones.
@@ -67,6 +68,8 @@
 - Al terminar: guarda la transcripción en `$APPDATA/meetings/<epoch>.md`, la limpia (`condense`: muletillas, repeticiones, eco de la llamada en el micrófono, une líneas del mismo hablante) y hace UNA llamada a un LLM (Ajustes → Reuniones; por defecto `claude -p` de Claude Code, modelo `sonnet`, sin API key; también Gemini, Claude API, OpenAI, Ollama o cualquier API compatible con OpenAI). Las tareas llegan al panel con ✓ (crea la tarea) / ✕ y una notificación.
 - Sin diarización: Yo/Otros sale del canal de audio.
 - Pruebas manuales: `probar_whisper` y `probar_llm` (tests `#[ignore]` en `meeting.rs`, ver su doc). Con una reunión de ejemplo, `qwen3.5:9b` local sacó 5/5 tareas sin falsos positivos en 85 s.
+- El hilo que transcribe suelta el candado de `bufs` antes de llamar a whisper: el callback de ScreenCaptureKit no espera y se perdía audio (huecos en la transcripción).
+- `claude -p` con límite de 5 min (si se cuelga se mata y se prueba el siguiente modelo) y lanzado por el zsh de login del usuario (`claude::command`, compartido con el chat), así encuentra también el `claude` de `~/.local/bin`.
 
 ## Extra: chat con Claude Code
 - Panel → Chat: input estilo CLI que corre `claude -p --output-format stream-json` (`claude.rs`) en la carpeta base (Ajustes → Chat con Claude Code; vacía = home, ahí lee su CLAUDE.md). Prompt por stdin; zsh de login para heredar el PATH.
