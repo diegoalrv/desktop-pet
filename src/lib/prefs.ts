@@ -49,7 +49,7 @@ export const prefsSchema = z.object({
   // grados sobre tu postura normal = mirando abajo; medido: monitor ≈ 12°, cabeza abajo ≈ 30° (+18), techo ≈ −40°
   headDownDeg: z.coerce.number().int().min(5).max(60).catch(12),
   barkAfterSec: z.coerce.number().int().min(2).max(300).catch(3), // gruñe seguido; pasado esto ladra (y cuenta)
-  awayPauseSec: z.coerce.number().int().min(10).max(900).catch(90),
+  awayPauseSec: z.coerce.number().int().min(5).max(900).catch(90),
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar
   userName: z.string().trim().catch(""), // quién es "Yo" en las reuniones (meeting.rs lo lee de settings.json)
   // LLMs que sacan las tareas de la reunión al terminar, en orden de fallback (meeting.rs: ask_any)

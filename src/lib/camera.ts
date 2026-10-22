@@ -38,7 +38,7 @@ async function openCam(): Promise<Cam> {
     await video.play();
     const { FaceLandmarker, ObjectDetector } = await import("@mediapipe/tasks-vision");
     const files = { wasmLoaderPath, wasmBinaryPath };
-    const base = (modelAssetPath: string) => ({ modelAssetPath, delegate: "GPU" as const });
+    const base = (modelAssetPath: string, delegate: "GPU" | "CPU" = "GPU") => ({ modelAssetPath, delegate });
     const [face, obj]: [FaceLandmarker, ObjectDetector] = await Promise.all([
       FaceLandmarker.createFromOptions(files, {
         baseOptions: base("/models/face_landmarker.task"),
@@ -47,7 +47,9 @@ async function openCam(): Promise<Cam> {
         outputFacialTransformationMatrixes: true,
       }),
       ObjectDetector.createFromOptions(files, {
-        baseOptions: base("/models/efficientdet_lite0.tflite"),
+        // CPU: en WebKit, con GPU nunca devolvió un teléfono (score 0 en todas las muestras, aun con el teléfono de
+        // frente); la cara en GPU sí anda. EfficientDet-Lite0 en CPU cuesta poco cada 2 s.
+        baseOptions: base("/models/efficientdet_lite0.tflite", "CPU"),
         runningMode: "IMAGE",
         scoreThreshold: LOG_SCORE,
         categoryAllowlist: ["cell phone"],

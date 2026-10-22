@@ -84,7 +84,7 @@ export function SettingsWindow() {
     longEvery: [1, 12],
     headDownDeg: [5, 60],
     barkAfterSec: [2, 300],
-    awayPauseSec: [10, 900],
+    awayPauseSec: [5, 900],
     dayEndHour: [0, 23],
     dailyGoalMin: [1, 960],
   } as const;
