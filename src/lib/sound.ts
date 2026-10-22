@@ -64,11 +64,17 @@ export async function chime(kind: Kind = "rest") {
 
 const CLIP_GAIN = 0.6; // ponytail: a oído, como GAIN; las grabaciones ya vienen normalizadas (loudnorm -16)
 
-/** Gruñido / ladridos de la cámara del foco (F17): grabaciones CC0 en public/sounds (ver su LICENSE). */
-export async function clip(name: "growl" | "bark") {
-  void invoke("music_cmd", { cmd: "duck", arg: 2 }); // duran < 1 s
-  await new Promise((r) => setTimeout(r, 300));
+/** Gruñido / ladridos de la cámara del foco (F17): grabaciones CC0 en public/sounds (ver su LICENSE).
+ *  `loop`: el gruñido (~3,5 s) sigue hasta que lo callen. Devuelve la función que lo calla. */
+export function clip(name: "growl" | "bark", loop = false): () => void {
+  void invoke("music_cmd", { cmd: "duck", arg: loop ? 5 : 2 }); // gruñido + ladrido / solo ladrido (< 1 s)
   const a = new Audio(`/sounds/${name}.m4a`);
   a.volume = CLIP_GAIN;
-  await a.play().catch(() => {}); // autoplay bloqueado: en silencio, como chime
+  a.loop = loop;
+  let on = true;
+  setTimeout(() => on && void a.play().catch(() => {}), 300); // que la música ya esté abajo; autoplay bloqueado: silencio
+  return () => {
+    on = false;
+    a.pause();
+  };
 }

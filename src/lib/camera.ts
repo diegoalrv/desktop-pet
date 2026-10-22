@@ -86,10 +86,16 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   let st: CamState | null = null; // st.away = el foco está pausado porque te fuiste
   let seg: Segment | null = null; // tramo en curso para cam_segments; se guarda al cerrarse
   let busy = false;
+  let hush: (() => void) | null = null; // calla el gruñido en curso
+  const stopGrowl = () => {
+    hush?.();
+    hush = null;
+  };
 
   const save = (g: Segment | null) =>
     g && void logCamSegment(g).catch((e) => console.warn("cam_segments:", e));
   const close = () => {
+    stopGrowl();
     save(seg); // ponytail: si la app se cae a mitad de un tramo, ese tramo se pierde
     seg = null;
     cam?.stop();
@@ -98,16 +104,19 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   const handle = async (ev: CamEvent, quiet: boolean) => {
     const loud = !quiet && useSettings.getState().prefs.sound;
     switch (ev.type) {
-      case "growl":
+      case "growl": // gruñe seguido hasta que ladra o te calmas
         send({ type: "growl" });
-        if (loud) clip("growl");
+        stopGrowl();
+        if (loud) hush = clip("growl", true);
         break;
       case "bark": // Rust suma el tiempo y, en el primero, emite focus://distraction -> oops
         void invoke("focus_phone", { ms: ev.ms, hit: ev.first });
         if (!ev.first) send({ type: "distracted" });
+        stopGrowl();
         if (loud) clip("bark");
         break;
       case "calm":
+        stopGrowl();
         if (ev.ms) void invoke("focus_phone", { ms: ev.ms, hit: false });
         break;
       case "away":

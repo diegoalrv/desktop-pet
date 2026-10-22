@@ -28,7 +28,7 @@ describe("prefs", () => {
       distractions: [],
       focusCam: false,
       headDownDeg: 12,
-      barkAfterSec: 15,
+      barkAfterSec: 3,
       awayPauseSec: 90,
       icalUrl: "",
       userName: "",
@@ -54,7 +54,7 @@ describe("prefs", () => {
   });
   it("cámara del foco: rangos", () => {
     const p = normalizePrefs({ headDownDeg: "35", barkAfterSec: 1, awayPauseSec: 99999 });
-    expect([p.headDownDeg, p.barkAfterSec, p.awayPauseSec]).toEqual([35, 15, 90]);
+    expect([p.headDownDeg, p.barkAfterSec, p.awayPauseSec]).toEqual([35, 3, 90]);
   });
   it("distractions: lista de bundle ids, inválida -> vacía", () => {
     expect(normalizePrefs({ distractions: [" com.tinyspeck.slackmacgap "] }).distractions).toEqual([

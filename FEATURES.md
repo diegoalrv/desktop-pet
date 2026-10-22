@@ -210,7 +210,7 @@ guarda ni sale del equipo. Si miras el teléfono (cabeza agachada sin usar el co
 mano), la mascota escala como un perro:
 1. Apenas lo detecta → **"grrr"** (gruñido) y anim `oops`. Es solo un aviso: no cuenta como distracción. Si
    levantas la cabeza o vuelves a teclear, se calma (vuelve a `focus`) y no pasa nada más.
-2. Si sigues distraído más de `barkAfterSec` (pref, default 15) → **"bark bark"** (ladridos), `oops` de nuevo y
+2. Si sigues distraído más de `barkAfterSec` (pref, default 3; el gruñido suena seguido hasta ahí) → **"bark bark"** (ladridos), `oops` de nuevo y
    recién ahí cuenta como distracción de F11 (`bundle = "phone"`). Mientras siga, ladra otra vez cada 30 s.
 Si no hay cara durante `awayPauseSec` (pref, default 90) → el foco se pausa solo y Candolita queda en `sleep`; al
 volver a verte, notificación "Pausé el foco cuando te fuiste" (no reanuda sola).

@@ -83,7 +83,7 @@ export function SettingsWindow() {
     longMin: [1, 180],
     longEvery: [1, 12],
     headDownDeg: [5, 60],
-    barkAfterSec: [3, 300],
+    barkAfterSec: [2, 300],
     awayPauseSec: [10, 900],
     dayEndHour: [0, 23],
     dailyGoalMin: [1, 960],
@@ -285,7 +285,7 @@ export function SettingsWindow() {
       {prefs.focusCam && (
         <>
           {num("headDownDeg", "Cabeza abajo desde (grados bajo tu postura normal)")}
-          {num("barkAfterSec", "Ladrar pasados (s de distracción)")}
+          {num("barkAfterSec", "Ladrar tras gruñir (s)")}
           {num("awayPauseSec", "Pausar si no te ve por (s)")}
         </>
       )}
