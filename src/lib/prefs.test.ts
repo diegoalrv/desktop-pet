@@ -18,6 +18,7 @@ describe("prefs", () => {
       longMin: 15,
       longEvery: 4,
       autoCycle: true,
+      trayTimer: true,
       sound: true,
       shortcut: "CommandOrControl+Shift+Space",
       icalUrl: "",

@@ -90,3 +90,6 @@
 - Sugerencias: las tareas del LLM ahora se guardan en `meeting_tasks` (migración 4) con estado pendiente/aceptada/descartada; título editable, proyecto al aceptar, aceptar/descartar todas, recuperar descartadas. El panel de la mascota lee de la misma tabla.
 - Foco: por día (7/30/90), por proyecto/categoría/tarea, por hora del día y lista de sesiones borrables. Chat: historial de `chat_log` con búsqueda. Respaldo JSON de todo (solo navegador).
 - La web llama comandos de la app por `POST /api/invoke` (`web.rs`, lista cerrada); los de reunión usan los LLMs de `settings.json`, así las API keys no pasan por el navegador.
+
+## Lote features — carril A
+- F1 Timer en la barra de menú — hecha (pendiente de verificación visual): `🍅 12:34` / `☕ 04:10` / `⏸ 12:34` junto al ícono del tray (macOS), pref `trayTimer`. Solo el hilo del timer llama a `TrayIcon::set_title`, siempre sin el candado del timer (espera al hilo principal; los comandos síncronos corren ahí y piden el candado); los comandos solo cambian el estado y la barra se actualiza en ≤ 250 ms.

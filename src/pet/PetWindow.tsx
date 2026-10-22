@@ -63,6 +63,7 @@ export function PetWindow() {
       longS: prefs.longMin * 60,
       longEvery: prefs.longEvery,
       autoCycle: prefs.autoCycle,
+      trayTimer: prefs.trayTimer,
     });
     invoke("set_quick_shortcut", { accel: prefs.shortcut }).catch(() => {});
   }, [prefs]);

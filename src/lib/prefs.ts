@@ -33,6 +33,7 @@ export const prefsSchema = z.object({
   longMin: mins(15),
   longEvery: mins(4, 12),
   autoCycle: z.boolean().catch(true),
+  trayTimer: z.boolean().catch(true), // tiempo restante junto al ícono de la barra de menú
   sound: z.boolean().catch(true),
   shortcut: z.string().min(1).catch(DEFAULT_SHORTCUT),
   icalUrl: z.string().trim().catch(""), // "Dirección secreta en formato iCal" de Google Calendar

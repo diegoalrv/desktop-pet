@@ -32,6 +32,8 @@ pub struct Cfg {
     pub long_every: u32,
     /// Al terminar una pausa, arranca el siguiente foco solo.
     pub auto_cycle: bool,
+    /// Muestra el tiempo restante junto al ícono del tray (macOS).
+    pub tray_timer: bool,
 }
 
 /// Tiempos en ms de reloj (epoch), no `Instant`: así el estado se puede guardar en disco
@@ -84,7 +86,7 @@ impl Timer {
             count: 0,
             task_id: None,
             last_task: None,
-            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false },
+            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false, tray_timer: true },
         }
     }
 
@@ -204,6 +206,17 @@ impl Timer {
 
 pub type TimerState = Mutex<Timer>;
 
+/// Texto junto al ícono del tray: `🍅 12:34` en foco, `☕ 04:10` en pausa, `⏸ 12:34` en pausa manual; nada en reposo.
+fn tray_label(mode: Mode, status: Status, remaining_s: u64) -> Option<String> {
+    let icon = match (status, mode) {
+        (Status::Idle, _) => return None,
+        (Status::Paused, _) => "⏸",
+        (Status::Running, Mode::Focus) => "🍅",
+        (Status::Running, _) => "☕",
+    };
+    Some(format!("{icon} {:02}:{:02}", remaining_s / 60, remaining_s % 60))
+}
+
 fn emit_tick(app: &AppHandle, t: &Timer) {
     let _ = app.emit("timer://tick", t.snap(now_ms()));
 }
@@ -256,25 +269,39 @@ fn finish(app: &AppHandle, t: &Timer, done: Done) {
 }
 
 /// Hilo del timer: vive en Rust, no depende del webview (sobrevive a throttling y ventana oculta).
+///
+/// Es el ÚNICO que toca el título del tray, y siempre sin el candado del timer: `set_title` espera al hilo
+/// principal, y los comandos síncronos (que corren ahí) piden ese candado → llamarlo con el guard tomado
+/// (o desde un comando) cuelga la app. Los comandos solo cambian el estado; el cambio llega a la barra
+/// en el siguiente ciclo (250 ms).
 pub fn spawn(app: AppHandle) {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(250));
-        let state = app.state::<TimerState>();
-        let mut t = state.lock().unwrap();
-        if t.status == Status::Idle {
-            continue;
-        }
-        match t.due(now_ms()) {
-            Some(done) => finish(&app, &t, done),
-            None => emit_tick(&app, &t),
+    thread::spawn(move || {
+        let mut last = String::new(); // lo último escrito en la barra; solo lo usa este hilo
+        loop {
+            thread::sleep(Duration::from_millis(250));
+            let label = {
+                let state = app.state::<TimerState>();
+                let mut t = state.lock().unwrap();
+                if t.status != Status::Idle {
+                    match t.due(now_ms()) {
+                        Some(done) => finish(&app, &t, done),
+                        None => emit_tick(&app, &t),
+                    }
+                }
+                let s = t.snap(now_ms());
+                t.cfg.tray_timer.then(|| tray_label(s.mode, s.status, s.remaining)).flatten().unwrap_or_default()
+            }; // guard soltado aquí
+            if label != last && crate::tray::set_title(&app, (!label.is_empty()).then(|| label.clone())) {
+                last = label;
+            }
         }
     });
 }
 
 #[tauri::command]
-pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, s: State<TimerState>) {
+pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, tray_timer: bool, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle };
+    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer };
 }
 
 /// Inicia un foco con la duración configurada (menú del tray).
@@ -425,6 +452,18 @@ mod tests {
         t.start(Mode::Focus, 1500, None, t0);
         t.pause(t0 + 1000);
         assert!(t.catch_up(t0 + 36_000_000).is_none());
+    }
+
+    #[test]
+    fn texto_del_tray() {
+        let l = |m, s, r| tray_label(m, s, r);
+        assert_eq!(l(Mode::Focus, Status::Running, 754), Some("🍅 12:34".into()));
+        assert_eq!(l(Mode::Short, Status::Running, 250), Some("☕ 04:10".into()));
+        assert_eq!(l(Mode::Long, Status::Running, 5), Some("☕ 00:05".into()));
+        assert_eq!(l(Mode::Focus, Status::Paused, 754), Some("⏸ 12:34".into()));
+        assert_eq!(l(Mode::Short, Status::Paused, 60), Some("⏸ 01:00".into()));
+        assert_eq!(l(Mode::Focus, Status::Idle, 0), None);
+        assert_eq!(l(Mode::Focus, Status::Running, 180 * 60), Some("🍅 180:00".into()));
     }
 
     #[test]

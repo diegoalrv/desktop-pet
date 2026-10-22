@@ -169,6 +169,14 @@ export function SettingsWindow() {
         />{" "}
         Ciclo automático (al terminar una pausa arranca el siguiente foco)
       </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={prefs.trayTimer}
+          onChange={(e) => setPrefs({ trayTimer: e.target.checked })}
+        />{" "}
+        Mostrar el tiempo en la barra de menú
+      </label>
 
       <h2 style={h}>Sonido</h2>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
