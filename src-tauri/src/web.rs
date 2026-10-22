@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::thread;
 
 use serde::Deserialize;
@@ -27,10 +28,22 @@ struct Cmd {
     args: Value,
 }
 
-/// Abre la web local en el navegador por defecto (macOS).
+/// Token por arranque, solo en memoria: la pestaña lo recibe en la URL al abrirla desde la app y lo manda en cada
+/// POST. Sin él, otro proceso del Mac que llegue a loopback no puede ejecutar SQL ni arrancar una reunión.
+fn token() -> &'static str {
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    TOKEN.get_or_init(|| {
+        let mut b = [0u8; 16];
+        std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom").expect("urandom"), &mut b).expect("urandom");
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    })
+}
+
+/// Abre la web local en el navegador por defecto (macOS). En dev, vite (1420) hace proxy de /api a PORT.
 #[tauri::command]
 pub fn open_web() {
-    let _ = std::process::Command::new("open").arg(format!("http://127.0.0.1:{PORT}")).spawn();
+    let origin = if cfg!(debug_assertions) { "http://localhost:1420".to_string() } else { format!("http://127.0.0.1:{PORT}") };
+    let _ = std::process::Command::new("open").arg(format!("{origin}/?t={}", token())).spawn();
 }
 
 pub fn spawn(app: AppHandle) {
@@ -101,6 +114,9 @@ fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
     let json = |status: u16, v: Value| (status, "application/json".to_string(), v.to_string().into_bytes());
     if !trusted(req) {
         return json(403, "forbidden".into());
+    }
+    if *req.method() == Method::Post && header(req, "X-Pet-Token") != Some(token()) {
+        return json(401, "token".into());
     }
     let path = req.url().split('?').next().unwrap_or("/").to_string();
     match (req.method(), path.as_str()) {

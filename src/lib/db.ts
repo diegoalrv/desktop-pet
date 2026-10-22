@@ -3,19 +3,12 @@ import { emit } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { updateSql, type Category, type Task } from "./tasks";
 import { dueFromDate, parseAction } from "./suggestions";
+import { post } from "./ipc";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
 
-const api = async <T>(op: "select" | "execute", sql: string, args: unknown[]) => {
-  const r = await fetch(`/api/${op}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sql, args }),
-  });
-  if (!r.ok) throw new Error(await r.text());
-  return (await r.json()) as T;
-};
+const api = <T>(op: "select" | "execute", sql: string, args: unknown[]) => post<T>(`/api/${op}`, { sql, args });
 
 // Las migraciones corren en Rust (src-tauri/migrations) al primer load.
 let db: Promise<Database> | undefined;
