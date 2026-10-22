@@ -813,7 +813,11 @@ mod mac {
         let mut lines: Vec<Line> = vec![];
         let mut push = |app: &AppHandle, lines: &mut Vec<Line>, flush: bool| {
             for src in 0..sources {
-                while let Some(chunk) = take_chunk(&mut bufs.lock().unwrap()[src], flush) {
+                loop {
+                    // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de ScreenCaptureKit
+                    // no puede esperar tanto para guardar el audio que va llegando.
+                    let chunk = { let mut b = bufs.lock().unwrap(); take_chunk(&mut b[src], flush) };
+                    let Some(chunk) = chunk else { break };
                     if rms(&chunk) < SILENCE / 2.0 {
                         continue; // todo silencio: whisper alucinaría
                     }
