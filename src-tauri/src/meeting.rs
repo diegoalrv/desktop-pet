@@ -264,9 +264,10 @@ pub fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
 }
 
-/// Saca un fragmento listo para transcribir: con al menos MIN_S s, cortado en la ventana más silenciosa
-/// (si es silencio de verdad o ya se llegó a MAX_S). `flush` entrega lo que quede.
-pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
+/// Saca un fragmento listo para transcribir: con al menos MIN_S s, cortado donde `cut` encuentre una pausa (recibe
+/// hasta MAX_S s del búfer y devuelve la posición) o, si no la hay y ya se llegó a MAX_S, en la ventana más
+/// silenciosa. `flush` entrega lo que quede.
+pub fn take_chunk_with(buf: &mut Vec<f32>, flush: bool, cut: impl FnOnce(&[f32]) -> Option<usize>) -> Option<Vec<f32>> {
     if flush {
         return (!buf.is_empty()).then(|| std::mem::take(buf));
     }
@@ -274,16 +275,43 @@ pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
     if buf.len() < min + WIN {
         return None;
     }
-    let end = buf.len().min(max);
-    let (i, r) = (min..=end - WIN)
-        .step_by(WIN / 2)
-        .map(|i| (i, rms(&buf[i..i + WIN])))
-        .min_by(|a, b| a.1.total_cmp(&b.1))?;
-    if r >= SILENCE && buf.len() < max {
-        return None;
-    }
-    let rest = buf.split_off(i + WIN / 2);
+    let x = &buf[..buf.len().min(max)];
+    let at = cut(x).filter(|i| (min..=x.len()).contains(i)).or_else(|| (buf.len() >= max).then(|| quietest(x).0))?;
+    let rest = buf.split_off(at);
     Some(std::mem::replace(buf, rest))
+}
+
+/// Con el umbral de RMS, como corta la app si no hay modelo de VAD.
+#[cfg(test)]
+pub fn take_chunk(buf: &mut Vec<f32>, flush: bool) -> Option<Vec<f32>> {
+    take_chunk_with(buf, flush, rms_cut)
+}
+
+/// Centro de la ventana más silenciosa después de MIN_S, con su RMS.
+fn quietest(x: &[f32]) -> (usize, f32) {
+    (MIN_S * RATE..=x.len() - WIN)
+        .step_by(WIN / 2)
+        .map(|i| (i + WIN / 2, rms(&x[i..i + WIN])))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((x.len(), 0.0))
+}
+
+/// Corte por RMS: la ventana más silenciosa, si de verdad es silencio. Con ruido de fondo sobre SILENCE no
+/// encuentra nada y el fragmento espera hasta MAX_S.
+fn rms_cut(x: &[f32]) -> Option<usize> {
+    let (i, r) = quietest(x);
+    (r < SILENCE).then_some(i)
+}
+
+/// Corte con VAD (segmentos con voz `(ini, fin)` en muestras): el centro de la última pausa que deje al menos MIN_S
+/// antes y no quede pegada al final (ahí la voz puede seguir). Sin voz en todo el búfer, se corta ya (y se descarta).
+pub fn last_pause(speech: &[(usize, usize)], len: usize) -> Option<usize> {
+    if speech.is_empty() {
+        return Some(len - WIN / 2);
+    }
+    let mut gaps: Vec<(usize, usize)> = speech.windows(2).map(|w| (w[0].1, w[1].0)).collect();
+    gaps.push((speech[speech.len() - 1].1, len));
+    gaps.iter().rev().map(|(a, b)| (a + b) / 2).find(|c| *c >= MIN_S * RATE && c + WIN / 2 <= len)
 }
 
 /// Texto de whisper limpio; None si es una alucinación típica (whisper inventa subtítulos con ruido o música).
@@ -695,9 +723,13 @@ mod mac {
     use super::*;
     use screencapturekit::prelude::*;
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+    use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
     const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
     const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin";
+    /// Silero VAD de whisper.cpp (~1 MB): dónde hay voz, para cortar en pausas reales y no transcribir ruido.
+    const VAD_MODEL: &str = "ggml-silero-v5.1.2.bin";
+    const VAD_URL: &str = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin";
     /// ponytail: idioma fijo; "auto" en fragmentos de 15 s confunde idiomas a veces. Pref si hay reuniones en inglés.
     const LANG: &str = "es";
     const WHO: [&str; 2] = ["Yo", "Otros"];
@@ -757,24 +789,25 @@ mod mac {
             .collect()
     }
 
-    fn model_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    /// Ruta del modelo en $APPDATA/models; lo descarga la primera vez (`what` va al estado mientras baja).
+    fn model_path(app: &AppHandle, name: &str, url: &str, what: &str) -> Result<std::path::PathBuf, String> {
         let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
-        let path = dir.join(MODEL);
+        let path = dir.join(name);
         if path.exists() {
             return Ok(path);
         }
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        update(app, |g| g.snap.status = "Descargando el modelo de voz (~550 MB, solo la primera vez)…".into());
-        let tmp = dir.join(format!("{MODEL}.part"));
+        update(app, |g| g.snap.status = format!("Descargando {what} (solo la primera vez)…"));
+        let tmp = dir.join(format!("{name}.part"));
         let ok = std::process::Command::new("curl")
             .args(["-fsSL", "--retry", "3", "-o"])
             .arg(&tmp)
-            .arg(MODEL_URL)
+            .arg(url)
             .status()
             .map_err(|e| e.to_string())?
             .success();
         if !ok {
-            return Err("no se pudo descargar el modelo de voz".into());
+            return Err(format!("no se pudo descargar {what}"));
         }
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         Ok(path)
@@ -842,6 +875,14 @@ mod mac {
         Ok(stream)
     }
 
+    /// Segmentos con voz `(ini, fin)` en muestras. Pausas de 200 ms o más separan segmentos.
+    fn speech(vad: &mut WhisperVadContext, x: &[f32]) -> Vec<(usize, usize)> {
+        let mut p = WhisperVadParams::default();
+        p.set_min_silence_duration(200);
+        let cs = RATE / 100; // los tiempos vienen en centésimas de segundo
+        vad.segments_from_samples(p, x).map(|s| s.map(|g| (g.start as usize * cs, g.end as usize * cs)).collect()).unwrap_or_default()
+    }
+
     pub fn transcribe(ws: &mut whisper_rs::WhisperState, audio: &[f32]) -> String {
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         p.set_language(Some(LANG));
@@ -876,15 +917,88 @@ mod mac {
         println!("{:.2}s para {:.1}s de audio", t.elapsed().as_secs_f32(), audio.len() as f32 / RATE as f32);
     }
 
+    /// Compara los cortes por RMS (`take_chunk`) con los del VAD simulando la captura (bloques de 300 ms):
+    /// `VAD_MODEL=…/ggml-silero-v5.1.2.bin AUDIO_F32=voz.f32 GAPS=pausas.json [CLEAN_F32=…] [WHISPER_MODEL=…] cargo test --lib probar_vad -- --ignored --nocapture`
+    /// GAPS: `[[ini, fin], …]` en muestras sin voz (verdad de terreno); CLEAN_F32: el mismo audio sin ruido, para ver
+    /// si el corte cae en silencio (aunque sea una coma); con WHISPER_MODEL además transcribe cada fragmento.
+    #[test]
+    #[ignore]
+    fn probar_vad() {
+        let env = |k: &str| std::env::var(k).ok();
+        let f32s = |p: String| -> Vec<f32> { std::fs::read(p).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect() };
+        let audio = f32s(env("AUDIO_F32").unwrap());
+        let clean = env("CLEAN_F32").map(f32s).unwrap_or_default();
+        let gaps: Vec<[usize; 2]> = serde_json::from_str(&std::fs::read_to_string(env("GAPS").unwrap()).unwrap()).unwrap();
+        let in_gap = |i: usize| gaps.iter().any(|g| g[0] <= i && i < g[1]);
+        let mute = |a: usize, b: usize| (a..b).step_by(160).filter(|i| !in_gap(*i)).count() * 160 < RATE / 4; // < 250 ms de voz
+        let quiet = |i: usize| clean.get(i.saturating_sub(400)..(i + 400).min(clean.len())).is_some_and(|w| rms(w) < 0.003);
+        let mut vad = WhisperVadContext::new(&env("VAD_MODEL").unwrap(), WhisperVadContextParams::default()).unwrap();
+        let whisper = env("WHISPER_MODEL").map(|m| WhisperContext::new_with_params(&m, WhisperContextParameters::default()).unwrap());
+        let mut ws = whisper.as_ref().map(|c| c.create_state().unwrap());
+        for use_vad in [false, true] {
+            let t = std::time::Instant::now();
+            let (mut buf, mut base, mut fed) = (vec![], 0, 0);
+            let [mut cuts, mut in_pause, mut silent, mut forced, mut sent, mut mute_sent, mut mute_skipped, mut lost] = [0usize; 8];
+            loop {
+                let flush = fed >= audio.len();
+                let n = (RATE * 3 / 10).min(audio.len() - fed);
+                buf.extend_from_slice(&audio[fed..fed + n]);
+                fed += n;
+                loop {
+                    let full = buf.len() >= MAX_S * RATE;
+                    let mut found = false;
+                    let chunk = take_chunk_with(&mut buf, flush, |x| {
+                        let c = if use_vad { last_pause(&speech(&mut vad, x), x.len()) } else { rms_cut(x) };
+                        found = c.is_some();
+                        c
+                    });
+                    let Some(chunk) = chunk else { break };
+                    let (a, b) = (base, base + chunk.len());
+                    base = b;
+                    if !flush {
+                        cuts += 1;
+                        in_pause += in_gap(b) as usize;
+                        silent += quiet(b) as usize;
+                        forced += (full && !found) as usize;
+                    }
+                    let m = mute(a, b);
+                    if if use_vad { speech(&mut vad, &chunk).is_empty() } else { rms(&chunk) < SILENCE / 2.0 } {
+                        mute_skipped += m as usize;
+                        lost += !m as usize;
+                        continue;
+                    }
+                    sent += 1;
+                    mute_sent += m as usize;
+                    if let Some(ws) = ws.as_mut() {
+                        println!("  [{:5.1}–{:5.1}s{}] {}", a as f32 / RATE as f32, b as f32 / RATE as f32, if m { " SIN VOZ" } else { "" }, transcribe(ws, &chunk));
+                    }
+                }
+                if flush {
+                    break;
+                }
+            }
+            println!(
+                "{}: {cuts} cortes · {in_pause} entre frases · {silent} en silencio · {forced} forzados a {MAX_S} s · {sent} a whisper ({mute_sent} sin voz) · descartados sin voz {mute_skipped}, con voz {lost} · {} ms",
+                if use_vad { "vad" } else { "rms" },
+                t.elapsed().as_millis()
+            );
+        }
+    }
+
     pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool, cal: Option<Ctx>) -> Result<(), String> {
         let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
-        let path = model_path(app)?;
+        let path = model_path(app, MODEL, MODEL_URL, "el modelo de voz (~550 MB)")?;
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
         whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
         let ctx = WhisperContext::new_with_params(&path, WhisperContextParameters::default())
             .map_err(|e| format!("whisper: {e}"))?;
         let mut ws = ctx.create_state().map_err(|e| format!("whisper: {e}"))?;
         let mut transcribe = |audio: &[f32]| transcribe(&mut ws, audio);
+        // Sin el VAD (no bajó o no carga) se sigue con el umbral de RMS: peor con ruido de fondo, pero funciona.
+        let mut vad = model_path(app, VAD_MODEL, VAD_URL, "el detector de voz (~1 MB)")
+            .ok()
+            .and_then(|p| WhisperVadContext::new(p.to_str()?, WhisperVadContextParams::default()).ok());
+        let mut voice = |x: &[f32]| vad.as_mut().map(|v| speech(v, x));
 
         let bufs: Bufs = Arc::default();
         let meter: Arc<Meter> = Arc::default();
@@ -908,10 +1022,14 @@ mod mac {
                 loop {
                     // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de ScreenCaptureKit
                     // no puede esperar tanto para guardar el audio que va llegando.
-                    let chunk = { let mut b = bufs.lock().unwrap(); take_chunk(&mut b[src], flush) };
+                    // ponytail: el VAD corre con el candado tomado (~ms por 20 s de audio, no los ~2 s de whisper).
+                    let chunk = {
+                        let mut b = bufs.lock().unwrap();
+                        take_chunk_with(&mut b[src], flush, |x| voice(x).map_or_else(|| rms_cut(x), |s| last_pause(&s, x.len())))
+                    };
                     let Some(chunk) = chunk else { break };
-                    if rms(&chunk) < SILENCE / 2.0 {
-                        continue; // todo silencio: whisper alucinaría
+                    if voice(&chunk).map_or(rms(&chunk) < SILENCE / 2.0, |s| s.is_empty()) {
+                        continue; // sin voz: whisper alucinaría ("Gracias.", "Gracias por ver el video")
                     }
                     let secs = chunk.len() / RATE;
                     update(app, |g| g.snap.status = format!("Transcribiendo {secs} s de {}…", WHO[src]));
@@ -982,6 +1100,28 @@ mod tests {
         let mut buf = tone(2.0, 0.3);
         assert_eq!(take_chunk(&mut buf, true).unwrap().len(), 2 * RATE);
         assert!(take_chunk(&mut buf, true).is_none());
+    }
+
+    #[test]
+    fn corta_en_la_ultima_pausa_del_vad() {
+        let s = |a: f32, b: f32| ((a * RATE as f32) as usize, (b * RATE as f32) as usize);
+        let at = |x: Option<usize>| x.map(|i| i as f32 / RATE as f32);
+        // voz 0–9 s, pausa, voz 9,5–12 s: con 12,2 s de búfer la cola (200 ms) es muy corta → la pausa de 9,25 s
+        assert_eq!(at(last_pause(&[s(0.0, 9.0), s(9.5, 12.0)], 12 * RATE + RATE / 5)), Some(9.25));
+        // con 1 s de silencio al final, corta ahí
+        assert_eq!(at(last_pause(&[s(0.0, 9.0), s(9.5, 12.0)], 13 * RATE)), Some(12.5));
+        // la única pausa queda antes de MIN_S y la voz sigue hasta el final: espera
+        assert_eq!(last_pause(&[s(0.0, 3.0), s(4.0, 12.0)], 12 * RATE), None);
+        // sin voz: corta ya, para descartarlo
+        assert_eq!(last_pause(&[], 9 * RATE), Some(9 * RATE - WIN / 2));
+        // take_chunk_with respeta el corte inyectado y, sin corte, espera a MAX_S
+        let mut buf = tone(9.0, 0.3);
+        assert_eq!(take_chunk_with(&mut buf, false, |_| Some(8 * RATE + 7)).map(|c| c.len()), Some(8 * RATE + 7));
+        assert_eq!(buf.len(), RATE - 7);
+        let mut buf = tone(12.0, 0.3);
+        assert!(take_chunk_with(&mut buf, false, |_| None).is_none());
+        let mut buf = tone(21.0, 0.3);
+        assert!(take_chunk_with(&mut buf, false, |_| Some(RATE)).unwrap().len() <= MAX_S * RATE); // corte inválido: el de RMS
     }
 
     #[test]
