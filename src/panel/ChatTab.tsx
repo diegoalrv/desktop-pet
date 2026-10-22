@@ -8,6 +8,15 @@ import idleSprite from "../../examples/candolita/idle.png";
 
 type Line = { kind: "you" | "text" | "tool" | "err"; text: string };
 type Denial = { tool_name: string; tool_input: { command?: string } };
+/** Línea de `claude -p --output-format stream-json` (solo los campos que usa el panel). */
+type ClaudeEvent = {
+  type: string;
+  session_id?: string;
+  is_error?: boolean;
+  result?: string;
+  permission_denials?: Denial[];
+  message?: { content?: { type: string; text?: string; name?: string; input?: { command?: string; file_path?: string; pattern?: string } }[] };
+};
 
 /** Regla de --allowedTools para aprobar exactamente lo que Claude intentó. */
 export const ruleFor = (d: Denial) => (d.tool_name === "Bash" && d.tool_input.command ? `Bash(${d.tool_input.command})` : d.tool_name);
@@ -56,12 +65,12 @@ export function ChatTab() {
   }, []);
 
   useEffect(() => {
-    const unEv = listen<any>("claude://event", ({ payload: e }) => {
+    const unEv = listen<ClaudeEvent>("claude://event", ({ payload: e }) => {
       if (e.session_id) session.current = e.session_id;
       if (e.type === "assistant")
         for (const c of e.message?.content ?? []) {
-          if (c.type === "text" && c.text.trim()) add({ kind: "text", text: c.text.trim() });
-          if (c.type === "tool_use") add({ kind: "tool", text: c.input?.command ?? c.input?.file_path ?? c.input?.pattern ?? c.name });
+          if (c.type === "text" && c.text?.trim()) add({ kind: "text", text: c.text.trim() });
+          if (c.type === "tool_use") add({ kind: "tool", text: c.input?.command ?? c.input?.file_path ?? c.input?.pattern ?? c.name ?? "?" });
         }
       if (e.type === "result") {
         if (e.is_error) add({ kind: "err", text: e.result ?? "error" });
