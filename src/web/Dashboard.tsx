@@ -39,7 +39,7 @@ function useHash() {
 
 /** Respaldo de todo lo que guarda la app (tablas + transcripciones) en un JSON. */
 async function backup() {
-  const tables = ["categories", "tasks", "sessions", "chat_log", "meeting_tasks"];
+  const tables = ["categories", "tasks", "sessions", "chat_log", "meeting_tasks", "meeting_notes"];
   const data = Object.fromEntries(
     await Promise.all(tables.map(async (t) => [t, await db.query(`SELECT * FROM ${t}`)])),
   );

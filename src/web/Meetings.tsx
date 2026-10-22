@@ -20,13 +20,15 @@ const parse = (text: string) =>
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 const llms = () => ({ llms: useSettings.getState().prefs.llms }); // en la web Rust usa los de Ajustes
 const titleOf = (m: Saved) => m.title || fmtDate(m.id * 1000);
-/** El .md para copiar o descargar: título, fecha y asistentes arriba de la transcripción. */
-const toMd = (m: Saved) =>
+/** El .md para copiar o descargar: título, fecha, asistentes, resumen y decisiones arriba de la transcripción. */
+const toMd = (m: Saved, n?: db.Notes) =>
   [
     `# ${titleOf(m)}`,
     m.title ? fmtDate(m.id * 1000) : "",
     m.attendees?.length ? `Participantes: ${m.attendees.join(", ")}` : "",
-    m.text,
+    n?.summary && `## Resumen\n\n${n.summary}`,
+    db.decisionsOf(n).length && `## Decisiones\n\n${db.decisionsOf(n).map((d) => `- ${d}`).join("\n")}`,
+    n ? `## Transcripción\n\n${m.text}` : m.text,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -97,6 +99,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
   const [list, setList] = useState<Saved[]>([]);
   useEffect(() => void call<Saved[]>("meetings_list").then(setList, () => {}), [live?.active]);
   const sugs = useLive(() => db.listSuggestions()) ?? [];
+  const notes = useLive(() => db.listNotes()) ?? [];
   const [q, setQ] = useState("");
   const [who, setWho] = useState<"" | "Yo" | "Otros">("");
   const [project, setProject] = useState("");
@@ -109,6 +112,8 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
 
   if (cur) {
     const mine = of(cur.id);
+    const note = notes.find((n) => n.meeting === cur.id);
+    const decisions = db.decisionsOf(note);
     const lines = parse(cur.text).filter((l) => !who || l.who === who);
     const tasks = tab === "tareas";
     return (
@@ -134,7 +139,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
           >
             <Icon name="zap" size="1em" /> {busy ? "Buscando…" : "Buscar tareas de nuevo"}
           </button>
-          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(toMd(cur))}>
+          <button className="d-b sm" onClick={() => navigator.clipboard.writeText(toMd(cur, note))}>
             <Icon name="copy" size="1em" /> Copiar
           </button>
           {db.IS_WEB && (
@@ -143,7 +148,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
               onClick={() =>
                 download(
                   `reunion-${new Date(cur.id * 1000).toISOString().slice(0, 16).replace(":", "")}.md`,
-                  toMd(cur),
+                  toMd(cur, note),
                   "text/markdown",
                 )
               }
@@ -158,6 +163,29 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
             No se grabó tu micrófono en esta reunión: todo quedó como “Otros”. Revisa el permiso de micrófono
             de Desktop Pet en Ajustes del Sistema → Privacidad.
           </span>
+        )}
+        {(note?.summary || decisions.length > 0) && (
+          <div className="d-card" style={{ maxWidth: "80ch" }}>
+            {note?.summary && (
+              <>
+                <b>Resumen</b>
+                <span style={{ whiteSpace: "pre-line" }}>{note.summary}</span>
+              </>
+            )}
+            {decisions.length > 0 && (
+              <>
+                <b>Decisiones</b>
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {decisions.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <span className="d-dim" style={{ fontSize: 12 }}>
+              {note!.model}
+            </span>
+          </div>
         )}
         <div className="d-row">
           <div className="d-seg">

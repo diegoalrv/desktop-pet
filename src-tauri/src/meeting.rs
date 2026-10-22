@@ -1,7 +1,7 @@
 //! Reuniones: durante la reunión escucha el micrófono ("Yo") y el audio del sistema ("Otros") por separado y
 //! transcribe en local con whisper por fragmentos. Al terminar guarda la transcripción, la limpia (`condense`)
 //! y la manda completa, en una sola llamada, a un LLM compatible con OpenAI (Gemini, Claude, Ollama) que
-//! devuelve las tareas sugeridas.
+//! devuelve las tareas sugeridas, un resumen y las decisiones.
 //!
 //! Modo gestión (`manage`): solo el micrófono, para dictar cómo ordenar las tareas. Al terminar el LLM recibe
 //! además las tareas pendientes y devuelve acciones (crear, editar, completar) que el usuario aprueba una a una.
@@ -57,6 +57,8 @@ pub struct Snapshot {
     manage: bool, // modo gestión: solo micrófono, el LLM devuelve acciones sobre las tareas
     status: String,
     lines: Vec<Line>,
+    summary: String, // de la última reunión revisada (meeting_notes)
+    decisions: Vec<String>,
 }
 
 #[derive(Default)]
@@ -190,6 +192,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     update(&app, |g| {
         g.snap.lines = lines.clone();
         g.snap.manage = manage;
+        (g.snap.summary, g.snap.decisions) = Default::default();
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
@@ -298,8 +301,11 @@ resto de participantes).\n\
 Extrae SOLO las tareas accionables que le tocan al usuario: compromisos que asumió, cosas que le pidieron y seguimientos \
 que debe hacer a otros. Si otra persona dice \"yo lo hago\" o \"yo lo reviso\", esa tarea es de ella, no del usuario. \
 No inventes ni incluyas ideas o temas solo conversados. Une las tareas repetidas.\n\
-Responde únicamente JSON: {\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
-\"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Si no hay tareas: {\"tareas\":[]}.";
+Además resume la reunión en 3 a 5 frases cortas (de qué se habló y en qué quedó; máximo 80 palabras) y lista las decisiones: acuerdos que se \
+tomaron explícitamente, no temas que quedaron abiertos.\n\
+Responde únicamente JSON: {\"resumen\":\"3 a 5 frases\",\"decisiones\":[\"qué se decidió, una frase\"],\
+\"tareas\":[{\"titulo\":\"verbo en infinitivo + qué, máximo 80 caracteres\",\
+\"detalle\":\"quién lo pidió y plazo si se mencionó; breve\"}]}. Sin tareas: \"tareas\":[]; sin decisiones: \"decisiones\":[].";
 
 /// Con el evento del calendario y el nombre del usuario el modelo acierta mejor quién pidió qué.
 /// Sin micrófono (ninguna línea "Yo") el prompt normal casi nunca encuentra tareas: no hay compromisos del usuario.
@@ -398,10 +404,10 @@ pub fn manage_input(today: &str, pending: &[Pending], lines: &[Line]) -> String 
 /// con algo que cambiar, prioridad en 0..=2 y fecha AAAA-MM-DD (otra cosa se descarta). Sin `{"acciones":[…]}` = error.
 pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> {
     let v = json_of(content, "acciones")?;
+    let v = v["acciones"].as_array().into_iter().flatten();
     let date_ok = |d: &str| d.len() == 10 && d.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() });
     let clean = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.chars().take(120).collect::<String>());
     Ok(v
-        .iter()
         .filter_map(|a| {
             let mut act = Action {
                 op: a["op"].as_str()?.trim().to_lowercase(),
@@ -426,13 +432,13 @@ pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> 
         .collect())
 }
 
-/// El array `key` del JSON que venga en la respuesta; tolera texto o `<think>…</think>` alrededor.
-fn json_of(content: &str, key: &str) -> Result<Vec<Value>, String> {
+/// El JSON que venga en la respuesta, que debe traer el array `key`; tolera texto o `<think>…</think>` alrededor.
+fn json_of(content: &str, key: &str) -> Result<Value, String> {
     let c = content.rsplit("</think>").next().unwrap_or(content);
     let bad = || format!("respuesta sin JSON de {key}: {}", c.trim().chars().take(120).collect::<String>());
     let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
     let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
-    v[key].as_array().cloned().ok_or_else(bad)
+    if v[key].is_array() { Ok(v) } else { Err(bad()) }
 }
 
 fn fmt_lines(lines: &[Line]) -> String {
@@ -474,17 +480,30 @@ pub fn condense(lines: &[Line]) -> Vec<Line> {
     out
 }
 
-/// (título, detalle) del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
-/// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas".
-pub fn parse_tasks(content: &str) -> Result<Vec<(String, String)>, String> {
-    Ok(json_of(content, "tareas")?
-        .iter()
-        .filter_map(|t| {
-            let title = t["titulo"].as_str()?.trim();
-            let detail = t["detalle"].as_str().unwrap_or("").trim();
-            (!title.is_empty()).then(|| (title.chars().take(120).collect(), detail.to_string()))
-        })
-        .collect())
+/// Lo que el LLM devuelve de una reunión normal.
+#[derive(Debug, Default, PartialEq)]
+pub struct Outcome {
+    pub tareas: Vec<(String, String)>, // (título, detalle)
+    pub resumen: String,
+    pub decisiones: Vec<String>,
+}
+
+/// Tareas, resumen y decisiones del JSON del modelo; tolera texto o `<think>…</think>` alrededor.
+/// Respuesta sin `{"tareas":[…]}` = error (pasa al siguiente modelo), no "cero tareas"; resumen y decisiones que
+/// falten quedan vacíos (un resumen en array de líneas se une).
+pub fn parse_result(content: &str) -> Result<Outcome, String> {
+    let v = json_of(content, "tareas")?;
+    let strs = |k: &str| -> Vec<String> {
+        let items = v[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).map(str::trim);
+        items.filter(|s| !s.is_empty()).map(String::from).collect()
+    };
+    let tareas = v["tareas"].as_array().into_iter().flatten().filter_map(|t| {
+        let title = t["titulo"].as_str()?.trim();
+        let detail = t["detalle"].as_str().unwrap_or("").trim();
+        (!title.is_empty()).then(|| (title.chars().take(120).collect(), detail.to_string()))
+    });
+    let resumen = v["resumen"].as_str().map(|s| s.trim().to_string()).unwrap_or_else(|| strs("resumen").join("\n"));
+    Ok(Outcome { tareas: tareas.collect(), resumen, decisiones: strs("decisiones") })
 }
 
 /// Prueba cada proveedor y, dentro de él, cada modelo en orden hasta que uno responda (sobrecarga, cuota, key
@@ -600,6 +619,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
         update(app, |g| g.snap.status = format!("{what} ({m})…"));
     };
     // (título, detalle, acción JSON): en reunión solo tareas nuevas; en gestión acciones sobre las tareas.
+    let mut notes = None; // (resumen, decisiones): solo reuniones
     let rows: Vec<(String, String, Option<String>)> = if manage {
         let pending = pending_tasks(pool)?;
         let ids: Vec<i64> = pending.iter().map(|t| t.id).collect();
@@ -613,7 +633,9 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
             .collect()
     } else {
         let user = format!("Transcripción:\n{}", fmt_lines(&lines));
-        ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_tasks, on_try)?.into_iter().map(|(t, d)| (t, d, None)).collect()
+        let r = ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
+        notes = Some((r.resumen, r.decisiones));
+        r.tareas.into_iter().map(|(t, d)| (t, d, None)).collect()
     };
     let n = rows.len();
     let id = json!(id);
@@ -621,6 +643,14 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
     run("DELETE FROM meeting_tasks WHERE meeting = $1 AND status = 'pending'", &[id.clone()])?;
     for (title, detail, action) in rows {
         run("INSERT INTO meeting_tasks (meeting, title, detail, action) VALUES ($1, $2, $3, $4)", &[id.clone(), json!(title), json!(detail), json!(action)])?;
+    }
+    if let Some((summary, decisions)) = notes {
+        let at = chrono::Utc::now().timestamp_millis();
+        run(
+            "INSERT OR REPLACE INTO meeting_notes (meeting, summary, decisions, model, at) VALUES ($1, $2, $3, $4, $5)",
+            &[id.clone(), json!(summary), json!(json!(decisions).to_string()), json!(model), json!(at)],
+        )?;
+        update(app, |g| (g.snap.summary, g.snap.decisions) = (summary, decisions));
     }
     let _ = app.emit("db://changed", ());
     let (noun, head) = if manage { ("cambio", "Gestión revisada") } else { ("tarea sugerida", "Reunión revisada") };
@@ -1000,11 +1030,16 @@ mod tests {
     #[test]
     fn lee_el_json_del_modelo() {
         let out = "<think>{no}</think>Claro: {\"tareas\":[{\"titulo\":\"Enviar informe\",\"detalle\":\"Ana, lunes\"},{\"titulo\":\" \"}]}";
-        assert_eq!(parse_tasks(out), Ok(vec![("Enviar informe".into(), "Ana, lunes".into())]));
-        assert_eq!(parse_tasks("{\"tareas\":[]}"), Ok(vec![]));
-        assert!(parse_tasks("sin json").is_err());
-        assert!(parse_tasks("} {").is_err());
-        assert!(parse_tasks("{\"tasks\":[]}").is_err()); // clave equivocada ≠ cero tareas
+        let tareas = vec![("Enviar informe".to_string(), "Ana, lunes".to_string())];
+        assert_eq!(parse_result(out), Ok(Outcome { tareas: tareas.clone(), ..Default::default() })); // sin resumen ni decisiones
+        let full = r#"{"resumen":" Se revisó el plan. ","decisiones":["Lanzar el lunes"," ",3],"tareas":[{"titulo":"Enviar informe","detalle":"Ana, lunes"}]}"#;
+        let r = parse_result(full).unwrap();
+        assert_eq!((r.resumen.as_str(), r.decisiones, r.tareas), ("Se revisó el plan.", vec!["Lanzar el lunes".to_string()], tareas));
+        assert_eq!(parse_result(r#"{"resumen":["Uno.","Dos."],"tareas":[]}"#).unwrap().resumen, "Uno.\nDos.");
+        assert_eq!(parse_result("{\"tareas\":[]}"), Ok(Outcome::default()));
+        assert!(parse_result("sin json").is_err());
+        assert!(parse_result("} {").is_err());
+        assert!(parse_result("{\"tasks\":[],\"resumen\":\"x\"}").is_err()); // clave equivocada ≠ cero tareas
     }
 
     #[test]
@@ -1012,10 +1047,10 @@ mod tests {
         // Sin key ninguno llega a la red: cada uno falla y pasa al siguiente.
         let llm = |p: &str, m: &[&str]| Llm { provider: p.into(), apikey: "".into(), models: m.iter().map(|s| s.to_string()).collect() };
         let mut tried = vec![];
-        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], "", "", parse_tasks, |m| tried.push(m.to_string()));
+        let err = ask_any(&[llm("gemini", &["a", "b"]), llm("https://x.dev/v1", &["c"])], "", "", parse_result, |m| tried.push(m.to_string()));
         assert_eq!(tried, ["a", "b", "c"]);
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
-        assert!(ask_any(&[], "", "", parse_tasks, |_| {}).is_err());
+        assert!(ask_any(&[], "", "", parse_result, |_| {}).is_err());
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
     }
 
@@ -1097,9 +1132,13 @@ fn probar_llm() {
     println!("{} líneas → {} tras limpiar", lines.len(), clean.len());
     let t = std::time::Instant::now();
     let user = format!("Transcripción:\n{}", fmt_lines(&clean));
-    let tasks = ask_any(&[llm], &prompt(&clean, None, ""), &user, parse_tasks, |m| println!("probando {m}")).unwrap();
-    println!("{:.1}s", t.elapsed().as_secs_f32());
-    for (title, detail) in tasks {
+    let r = ask_any(&[llm], &prompt(&clean, None, ""), &user, parse_result, |m| println!("probando {m}")).unwrap();
+    println!("{:.1}s\nResumen:\n{}\nDecisiones:", t.elapsed().as_secs_f32(), r.resumen);
+    for d in r.decisiones {
+        println!("  · {d}");
+    }
+    println!("Tareas:");
+    for (title, detail) in r.tareas {
         println!("  + {title} — {detail}");
     }
 }
