@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareTasks, groupByCategory, isToday, needsReminder, projectsOf, type Category, type Task } from "./tasks";
+import { compareTasks, groupByCategory, isToday, needsReminder, projectsOf, updateSql, type Category, type Task } from "./tasks";
 
 const now = new Date(2026, 9, 8, 12, 0).getTime();
 const mk = (o: Partial<Task>): Task => ({
@@ -29,6 +29,11 @@ describe("tasks", () => {
     expect(isToday(mk({ due_at: now, done: 1 }), now)).toBe(false);
     expect(isToday(mk({}), now)).toBe(false);
   });
+  it("updateSql vuelve a recordar solo al cambiar la fecha", () => {
+    expect(updateSql("due_at")).toBe("UPDATE tasks SET due_at = $1, notified = 0 WHERE id = $2");
+    expect(updateSql("priority")).toBe("UPDATE tasks SET priority = $1 WHERE id = $2");
+  });
+
   it("needsReminder una sola vez", () => {
     expect(needsReminder(mk({ due_at: now - 1 }), now)).toBe(true);
     expect(needsReminder(mk({ due_at: now + 1 }), now)).toBe(false);

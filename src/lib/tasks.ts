@@ -32,6 +32,10 @@ export const needsReminder = (t: Task, now: number) =>
   !t.done && !t.notified && t.due_at != null && t.due_at <= now;
 
 /** Pendientes primero, luego prioridad alta, luego fecha más cercana, luego antigüedad. */
+/** SQL de `updateTask`: cambiar la fecha vuelve a armar el recordatorio (`notified = 0`). */
+export const updateSql = (field: string) =>
+  `UPDATE tasks SET ${field} = $1${field === "due_at" ? ", notified = 0" : ""} WHERE id = $2`;
+
 export const compareTasks = (a: Task, b: Task) =>
   a.done - b.done ||
   b.priority - a.priority ||

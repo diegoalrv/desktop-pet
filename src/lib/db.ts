@@ -1,7 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import { emit } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
-import type { Category, Task } from "./tasks";
+import { updateSql, type Category, type Task } from "./tasks";
 import { dueFromDate, parseAction } from "./suggestions";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
@@ -52,7 +52,7 @@ export const addTask = (t: NewTask) =>
   );
 /** Edita un campo de la tarea (el nombre de columna sale del tipo, nunca del usuario). */
 export const updateTask = <K extends keyof NewTask>(id: number, field: K, value: NewTask[K]) =>
-  exec(`UPDATE tasks SET ${field} = $1 WHERE id = $2`, [value, id]);
+  exec(updateSql(field), [value, id]);
 export const renameTask = (id: number, title: string) =>
   exec("UPDATE tasks SET title = $1 WHERE id = $2", [title, id]);
 export const setDone = (id: number, done: boolean) =>
