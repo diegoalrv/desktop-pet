@@ -128,10 +128,14 @@ export function PetWindow() {
       invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
     };
     report();
+    // El sprite va pegado abajo: si la ventana cambia de alto (setSize es async) se mueve sin cambiar de tamaño.
     const ro = new ResizeObserver(report);
     ro.observe(el);
-    ro.observe(document.documentElement);
-    return () => ro.disconnect();
+    window.addEventListener("resize", report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", report);
+    };
   }, [active, skin, overlap, size]);
 
   useEffect(() => {
