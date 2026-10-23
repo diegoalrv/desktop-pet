@@ -119,6 +119,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   // la mascota suelta su cámara y decide con lo que esa ventana ve (`cam://seen`, ~6 por segundo).
   let ext: { seen: Seen; at: number } | null = null;
   const unExt = listen<Seen>("cam://seen", (e) => (ext = { seen: e.payload, at: Date.now() }));
+  let opening: Promise<void> | null = null;
   const stopGrowl = () => {
     hush?.();
     hush = null;
@@ -172,26 +173,32 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
       !(s.status === "running" || (s.status === "paused" && st?.away))
     )
       return close();
-    const lent = ext && Date.now() - ext.at < 1000 ? ext.seen : null;
+    const lent = ext && Date.now() - ext.at < 1500 ? ext.seen : null;
     if (lent && cam) {
       cam.stop(); // sin cerrar el tramo ni perder el estado: solo la cámara
       cam = null;
     }
-    if (!lent && !cam) {
-      try {
-        cam = await openCam();
-      } catch (e) {
-        await setPrefs({ focusCam: false });
-        const denied = e instanceof DOMException && e.name === "NotAllowedError";
-        notify(
-          "No pude usar la cámara",
-          denied
-            ? "Dale permiso en Ajustes del Sistema → Privacidad → Cámara y actívala de nuevo."
-            : String(e),
-        );
-        return;
-      }
+    // Abrir la cámara propia sin esperarla en el tick: si WebKit la deja colgada (otra ventana la tiene), el loop
+    // sigue y puede usar las muestras de "Ver cámara".
+    if (!lent && !cam && !opening) {
+      opening = openCam()
+        .then((c) => {
+          if (ext && Date.now() - ext.at < 1500) c.stop();
+          else cam = c;
+        })
+        .catch(async (e) => {
+          await setPrefs({ focusCam: false });
+          const denied = e instanceof DOMException && e.name === "NotAllowedError";
+          notify(
+            "No pude usar la cámara",
+            denied
+              ? "Dale permiso en Ajustes del Sistema → Privacidad → Cámara y actívala de nuevo."
+              : String(e),
+          );
+        })
+        .finally(() => (opening = null));
     }
+    if (!lent && !cam) return;
     st ??= initCam(calib);
     if (st?.away && s.status === "running") st = { ...st, away: false, noFace: null }; // lo reanudaste a mano
     const ctx = await invoke<{ idle: number; meeting: boolean }>("focus_cam_ctx");
