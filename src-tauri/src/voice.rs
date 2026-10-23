@@ -67,12 +67,12 @@ pub fn stop(app: &AppHandle) {
 
 #[cfg(target_os = "macos")]
 fn listen(app: &AppHandle, stop: &AtomicBool) -> Result<Option<String>, String> {
-    use crate::meeting::mac;
-    let audio = mac::record_mic(stop, MAX)?;
+    use crate::meeting::local;
+    let audio = local::record_mic(stop, MAX)?;
     if audio.len() < MIN_SAMPLES {
         return Ok(None);
     }
-    let text = mac::transcribe_once(app, &audio)?;
+    let text = local::transcribe_once(app, &audio)?;
     if text.is_none() {
         notify(app, "No te entendí, ¿me lo repites?");
     }

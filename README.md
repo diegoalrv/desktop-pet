@@ -9,7 +9,7 @@ carpeta local) y tiene un chat con Claude Code. Tauri v2 (Rust) + React + Vite +
 - Node 20+ y [pnpm](https://pnpm.io)
 - Rust (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`) y luego `source ~/.cargo/env`
 - macOS: Xcode Command Line Tools. Windows: WebView2 y Build Tools de Visual Studio.
-- Reuniones: macOS 15 o superior. Para las tareas sugeridas sin API key, [Claude Code](https://claude.com/claude-code)
+- Reuniones: macOS 15 o superior, o Windows 10+ (para compilar: CMake y LLVM/clang). Para las tareas sugeridas sin API key, [Claude Code](https://claude.com/claude-code)
   instalado y con sesión iniciada (`claude` en el PATH, Homebrew o `~/.claude/local`).
 
 ## Desarrollo
@@ -46,10 +46,10 @@ En macOS el build se firma con **"Pet Local Signing"** (`bundle.macOS.signingIde
 - **Panel web**: http://127.0.0.1:4747 (botón ↗ del panel). Resumen del día, reuniones con búsqueda, tareas
   sugeridas, estadísticas de foco e historial del chat.
 
-## Reuniones (macOS 15+)
+## Reuniones (macOS 15+ / Windows)
 
-Panel → **Reunión** → **Empezar**. Transcribe tu micrófono como "Yo" y el audio de la llamada como "Otros", en tu Mac
-con whisper.cpp (el modelo de ~550 MB se descarga la primera vez). Al **Terminar** guarda la transcripción y propone
+Panel → **Reunión** → **Empezar**. Transcribe tu micrófono como "Yo" y el audio de la llamada como "Otros", en tu equipo
+con whisper.cpp (el modelo de ~550 MB se descarga la primera vez; en Windows corre en CPU, más lento). Al **Terminar** guarda la transcripción y propone
 las tareas que te tocan; las apruebas con ✓ o las descartas con ✕.
 
 - **Permisos**: la primera vez macOS pide *Micrófono* y *Grabación de pantalla y audio del sistema*. Si falta el de

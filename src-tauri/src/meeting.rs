@@ -144,8 +144,8 @@ pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
 
 #[tauri::command]
 pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool, ctx: Option<Ctx>) -> Result<(), String> {
-    if !cfg!(target_os = "macos") {
-        return Err("Escuchar reuniones solo funciona en macOS".into());
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+        return Err("Escuchar reuniones solo funciona en macOS y Windows".into());
     }
     let stop = Arc::new(AtomicBool::new(false));
     {
@@ -160,9 +160,9 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
     });
     std::thread::spawn(move || {
-        #[cfg(target_os = "macos")]
-        let res = mac::run(&app, &stop, &llms, manage, ctx);
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let res = local::run(&app, &stop, &llms, manage, ctx);
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let res: Result<(), String> = Ok(());
         update(&app, |g| {
             g.stop = None;
@@ -874,9 +874,11 @@ pub async fn meetings_ask(app: AppHandle, llms: Vec<Llm>, q: String) -> Result<A
     tauri::async_runtime::spawn_blocking(move || ask_meetings(&app, &llms, &q)).await.map_err(|e| e.to_string())?
 }
 
-#[cfg(target_os = "macos")]
-pub mod mac {
+/// Captura (ScreenCaptureKit en macOS, WASAPI vía cpal en Windows) + whisper.cpp local.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub mod local {
     use super::*;
+    #[cfg(target_os = "macos")]
     use screencapturekit::prelude::*;
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
     use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
@@ -900,8 +902,19 @@ pub mod mac {
         peak: [AtomicU32; 2],
     }
 
+    /// Audio de una fuente (mono, a `rate` Hz) → 16 kHz al búfer, y medidor.
+    fn feed(bufs: &Bufs, meter: &Meter, src: usize, mono: &[f32], rate: f64) {
+        let out = resample(mono, rate);
+        let peak = out.iter().fold(0f32, |a, v| a.max(v.abs()));
+        meter.got[src].fetch_add(out.len(), Ordering::Relaxed);
+        meter.peak[src].fetch_max(peak.to_bits(), Ordering::Relaxed);
+        bufs.lock().unwrap()[src].extend_from_slice(&out);
+    }
+
+    #[cfg(target_os = "macos")]
     struct Capture(Bufs, Arc<Meter>);
 
+    #[cfg(target_os = "macos")]
     impl SCStreamOutputTrait for Capture {
         fn did_output_sample_buffer(&self, sample: CMSampleBuffer, kind: SCStreamOutputType) {
             let src = match kind {
@@ -919,11 +932,7 @@ pub mod mac {
             // ponytail: solo el primer canal (un buffer por canal, o intercalados en uno: `step` los salta).
             let Some(b) = list.get(0) else { return };
             let mono = super::decode(b.data(), float, bits, b.number_channels.max(1) as usize);
-            let out = resample(&mono, rate);
-            let peak = out.iter().fold(0f32, |a, v| a.max(v.abs()));
-            self.1.got[src].fetch_add(out.len(), Ordering::Relaxed);
-            self.1.peak[src].fetch_max(peak.to_bits(), Ordering::Relaxed);
-            self.0.lock().unwrap()[src].extend_from_slice(&out);
+            feed(&self.0, &self.1, src, &mono, rate);
         }
     }
 
@@ -955,7 +964,7 @@ pub mod mac {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         update(app, |g| g.snap.status = format!("Descargando {what} (solo la primera vez)…"));
         let tmp = dir.join(format!("{name}.part"));
-        let ok = std::process::Command::new("curl")
+        let ok = crate::cmd("curl") // Windows 10+ trae curl.exe
             .args(["-fsSL", "--retry", "3", "-o"])
             .arg(&tmp)
             .arg(url)
@@ -1007,6 +1016,7 @@ pub mod mac {
 
     /// Permiso de Micrófono. ScreenCaptureKit no lo pide solo: sin él entrega el micrófono vacío y toda la
     /// reunión queda como "Otros". Pide el permiso la primera vez (bloquea hasta que el usuario responda).
+    #[cfg(target_os = "macos")]
     fn mic_permission() -> Result<(), String> {
         use objc2::{class, msg_send, runtime::Bool};
         use objc2_foundation::NSString;
@@ -1036,6 +1046,7 @@ pub mod mac {
 
     /// `manage`: solo micrófono (sin audio del sistema). ponytail: sigue pasando por ScreenCaptureKit, así que
     /// pide igual el permiso de Grabación de pantalla; AVAudioEngine/cpal si eso molesta.
+    #[cfg(target_os = "macos")]
     fn start_capture(bufs: Bufs, meter: Arc<Meter>, manage: bool) -> Result<SCStream, String> {
         mic_permission()?;
         // Apple fija el micrófono explícitamente (uniqueID del dispositivo por defecto); sin id no llega audio.
@@ -1065,6 +1076,57 @@ pub mod mac {
         stream.add_output_handler(Capture(bufs, meter), SCStreamOutputType::Microphone).map_err(|e| e.to_string())?;
         stream.start_capture().map_err(|e| e.to_string())?;
         Ok(stream)
+    }
+
+    /// Streams de cpal; se paran al soltarlos (`stop_capture` para que el código de arriba sea el mismo).
+    #[cfg(target_os = "windows")]
+    struct Streams(Vec<cpal::Stream>);
+
+    #[cfg(target_os = "windows")]
+    impl Streams {
+        fn stop_capture(&self) -> Result<(), String> {
+            use cpal::traits::StreamTrait;
+            self.0.iter().try_for_each(|s| s.pause().map_err(|e| e.to_string()))
+        }
+    }
+
+    /// Micrófono por defecto ("Yo") y, salvo en `manage`, loopback de la salida por defecto ("Otros"): en WASAPI
+    /// abrir un stream de entrada sobre un dispositivo de salida graba lo que suena.
+    /// ponytail: el loopback incluye los sonidos de la propia Candola (ladrido); excluirlos pide la API de loopback
+    /// por proceso de Windows 10 2004+.
+    #[cfg(target_os = "windows")]
+    fn start_capture(bufs: Bufs, meter: Arc<Meter>, manage: bool) -> Result<Streams, String> {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        let host = cpal::default_host();
+        let mic = host.default_input_device().ok_or("no hay micrófono")?;
+        let mut devs = vec![(0, mic.default_input_config().map_err(|e| format!("micrófono: {e}"))?, mic)];
+        if !manage {
+            let out = host.default_output_device().ok_or("no hay salida de audio")?;
+            devs.push((1, out.default_output_config().map_err(|e| format!("audio del sistema: {e}"))?, out));
+        }
+        let streams = devs
+            .into_iter()
+            .map(|(src, cfg, dev)| {
+                let (bufs, meter) = (bufs.clone(), meter.clone());
+                let fmt = cfg.sample_format();
+                let (rate, ch) = (cfg.sample_rate().0 as f64, cfg.channels() as usize);
+                let s = dev
+                    .build_input_stream_raw(
+                        &cfg.config(),
+                        fmt,
+                        move |data: &cpal::Data, _: &_| {
+                            let mono = super::decode(data.bytes(), fmt.is_float(), fmt.sample_size() as u32 * 8, ch);
+                            feed(&bufs, &meter, src, &mono, rate);
+                        },
+                        |e| eprintln!("captura de audio: {e}"),
+                        None,
+                    )
+                    .map_err(|e| format!("{}: {e}", WHO[src]))?;
+                s.play().map_err(|e| e.to_string())?;
+                Ok(s)
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(Streams(streams))
     }
 
     /// Segmentos con voz `(ini, fin)` en muestras. Pausas de 200 ms o más separan segmentos.
@@ -1209,7 +1271,7 @@ pub mod mac {
         let mut push = |app: &AppHandle, lines: &mut Vec<Line>, flush: bool| {
             for src in 0..sources {
                 loop {
-                    // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de ScreenCaptureKit
+                    // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de la captura
                     // no puede esperar tanto para guardar el audio que va llegando.
                     // ponytail: el VAD corre con el candado tomado (~ms por 20 s de audio, no los ~2 s de whisper).
                     let chunk = {
