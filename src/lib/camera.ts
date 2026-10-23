@@ -2,7 +2,7 @@
 // teléfono con MediaPipe (local, modelos en public/models) y aplica lo que decide `focusCam.step`.
 // Nada se guarda: cada frame se analiza y se descarta.
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import type { FaceLandmarker, ObjectDetector } from "@mediapipe/tasks-vision";
 // ponytail: solo el build SIMD (WebKit lo tiene desde macOS 13.3); agregar el nosimd si alguna vez falla al cargar
 import wasmLoaderPath from "@mediapipe/tasks-vision/vision_wasm_internal.js?url";
@@ -115,6 +115,10 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   let seg: Segment | null = null; // tramo en curso para cam_segments; se guarda al cerrarse
   let busy = false;
   let hush: (() => void) | null = null; // calla el gruñido en curso
+  // Con la ventana "Ver cámara" abierta, WebKit deja capturar a una sola página (la nueva silencia a la anterior):
+  // la mascota suelta su cámara y decide con lo que esa ventana ve (`cam://seen`, ~6 por segundo).
+  let ext: { seen: Seen; at: number } | null = null;
+  const unExt = listen<Seen>("cam://seen", (e) => (ext = { seen: e.payload, at: Date.now() }));
   const stopGrowl = () => {
     hush?.();
     hush = null;
@@ -168,7 +172,12 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
       !(s.status === "running" || (s.status === "paused" && st?.away))
     )
       return close();
-    if (!cam) {
+    const lent = ext && Date.now() - ext.at < 1000 ? ext.seen : null;
+    if (lent && cam) {
+      cam.stop(); // sin cerrar el tramo ni perder el estado: solo la cámara
+      cam = null;
+    }
+    if (!lent && !cam) {
       try {
         cam = await openCam();
       } catch (e) {
@@ -182,11 +191,11 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
         );
         return;
       }
-      st = initCam(calib);
     }
+    st ??= initCam(calib);
     if (st?.away && s.status === "running") st = { ...st, away: false, noFace: null }; // lo reanudaste a mano
     const ctx = await invoke<{ idle: number; meeting: boolean }>("focus_cam_ctx");
-    const seen = cam.look();
+    const seen = lent ?? cam!.look();
     const now = Date.now();
     const sample = {
       face: seen.face,
@@ -221,6 +230,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   }, SAMPLE_MS);
   return () => {
     clearInterval(id);
+    void unExt.then((f) => f());
     close();
   };
 }

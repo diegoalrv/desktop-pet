@@ -1,9 +1,10 @@
 // Ventana "Ver cámara" (demo de F17): lo que ve la cámara con las cajas de cara y teléfono, y a un lado los
-// gráficos de inclinación de la cabeza y puntaje de teléfono. Abre su propio stream y sus detectores (más
-// seguido que la mascota, para que se vea fluido); la base, el umbral y los gruñidos/ladridos llegan de la mascota
-// por `cam://sample`, que es la que decide. Al cerrar la ventana se destruye y la cámara se apaga.
+// gráficos de inclinación de la cabeza y puntaje de teléfono. Mientras está abierta es la dueña de la cámara
+// (WebKit deja capturar a una sola página): detecta ~6 por segundo y le pasa cada muestra a la mascota
+// (`cam://seen`), que sigue decidiendo y devuelve base, umbral y gruñidos/ladridos por `cam://sample`. Al cerrar la
+// ventana se destruye, su cámara se apaga y la mascota vuelve a abrir la suya.
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { openCam, PHONE_SCORE, type Box, type Cam, type Seen } from "../lib/camera";
 import { T } from "../panel/ui";
 
@@ -143,6 +144,7 @@ export function CamWindow() {
           drawSpark(pitchC.current!, pts, (p) => p.pitch, [-20, 50], BLUE, refs);
           drawSpark(phoneC.current!, pts, (p) => p.phone, [0, 1], ORANGE, [{ v: PHONE_SCORE, color: RED }]);
           setSeen(s);
+          void emit("cam://seen", s); // la mascota decide con esto mientras la ventana tiene la cámara
         }, FRAME_MS);
       })
       .catch((e) => setError(String(e)));
