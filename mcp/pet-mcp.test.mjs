@@ -37,11 +37,11 @@ describe("pet-mcp", () => {
 
   it("busca en las transcripciones", () => {
     const ms = [
-      { id: 1, text: "Yo: el plazo de SIMBIO\nOtros: ok" },
-      { id: 2, text: "Otros: Simbio se atrasa" },
+      { id: 1, text: "Yo: el plazo de Acme\nOtros: ok" },
+      { id: 2, text: "Otros: Acme se atrasa" },
     ];
-    expect(search(ms, "simbio")).toEqual(["1 · Yo: el plazo de SIMBIO", "2 · Otros: Simbio se atrasa"]);
-    expect(search(ms, "simbio", 1)).toHaveLength(1);
+    expect(search(ms, "acme")).toEqual(["1 · Yo: el plazo de Acme", "2 · Otros: Acme se atrasa"]);
+    expect(search(ms, "acme", 1)).toHaveLength(1);
     expect(search(ms, "  ")).toEqual([]);
   });
 });

@@ -562,11 +562,11 @@ mod tests {
 
     #[test]
     fn reparte_por_el_ultimo_mensaje_con_tope() {
-        // foco de 0 a 60 min: un mensaje a "pet" 2 min antes, "sigot" a los 5, "pet" a los 8 y nada hasta el final
-        let prompts = [p(-2 * MIN, "pet"), p(8 * MIN, "pet"), p(5 * MIN, "sigot")];
+        // foco de 0 a 60 min: un mensaje a "pet" 2 min antes, "web" a los 5, "pet" a los 8 y nada hasta el final
+        let prompts = [p(-2 * MIN, "pet"), p(8 * MIN, "pet"), p(5 * MIN, "web")];
         let r = attribute(&prompts, 0, 60 * MIN);
         let get = |k: &str| r.get(&(k.to_string(), String::new())).copied().unwrap_or(0);
-        assert_eq!(get("sigot"), 3 * MIN);
+        assert_eq!(get("web"), 3 * MIN);
         // 0–5 (el mensaje previo al foco sigue contando) + 8–18 (tope de 10 min); 18–60 queda sin atribuir
         assert_eq!(get("pet"), 5 * MIN + 10 * MIN);
     }

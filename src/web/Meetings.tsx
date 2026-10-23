@@ -78,7 +78,7 @@ function AskCard() {
           className="d-in"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Pregúntale a tus reuniones: ¿qué dijimos del plazo de SIMBIO?"
+          placeholder="Pregúntale a tus reuniones: ¿qué dijimos del plazo del proyecto?"
           style={{ flex: 1, minWidth: 0 }}
         />
         <button className="d-b pri" disabled={busy || !q.trim()}>

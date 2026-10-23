@@ -59,7 +59,7 @@ describe("informe por proyecto", () => {
         { project: "", start: h(20, 9), end: h(20, 11) },
         { project: "Colbún", start: h(20, 10), end: h(20, 10, 30) },
         { project: "Colbún", start: h(21, 10), end: h(21, 11) },
-        { project: "SIMBIO", start: h(21, 8), end: h(21, 8, 15) },
+        { project: "Acme", start: h(21, 8), end: h(21, 8, 15) },
       ],
       from,
       to,
@@ -67,7 +67,7 @@ describe("informe por proyecto", () => {
     expect(p.days).toEqual([from, h(21, 0)]);
     expect(p.projects.map((r) => [r.name, r.days, r.total])).toEqual([
       ["Colbún", [1800, 3600], 5400],
-      ["SIMBIO", [0, 900], 900],
+      ["Acme", [0, 900], 900],
       ["", [7200, 0], 7200],
     ]);
   });

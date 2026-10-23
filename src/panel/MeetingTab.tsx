@@ -19,7 +19,7 @@ interface Snapshot {
 
 const HELP = {
   meeting:
-    "Transcribe en tu Mac tu micrófono (“Yo”) y la llamada (“Otros”). Al terminar te propone tareas. Avisa que estás transcribiendo.",
+    "Transcribe en tu computador tu micrófono (“Yo”) y la llamada (“Otros”). Al terminar te propone tareas. Avisa que estás transcribiendo.",
   manage:
     "Dicta qué hacer con tus tareas: crear, cambiar fecha, prioridad o proyecto, o dar por hechas. Al terminar te propone los cambios.",
 };

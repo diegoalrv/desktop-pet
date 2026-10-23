@@ -145,7 +145,7 @@ pub fn meeting_reset(app: AppHandle, state: State<MeetingState>) {
 #[tauri::command]
 pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>, manage: bool, ctx: Option<Ctx>) -> Result<(), String> {
     if !cfg!(any(target_os = "macos", target_os = "windows")) {
-        return Err("Escuchar reuniones solo funciona en macOS y Windows".into());
+        return Err("Escuchar reuniones no está disponible en este sistema".into());
     }
     let stop = Arc::new(AtomicBool::new(false));
     {

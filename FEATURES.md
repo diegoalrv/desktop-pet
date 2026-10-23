@@ -196,7 +196,7 @@ sigan valiendo (inyectar la función de "silencio").
 Commit: `Cortes por voz (Silero VAD) en la transcripción`
 
 ## F13. Preguntarle a las reuniones
-Qué: en la vista Reuniones, una pregunta libre ("¿qué dijimos del plazo de SIMBIO?") responde citando las
+Qué: en la vista Reuniones, una pregunta libre ("¿qué dijimos del plazo del proyecto?") responde citando las
 reuniones y líneas usadas.
 Cómo: embeddings locales con Ollama (`nomic-embed-text`, `/api/embeddings`) por bloque de ~10 líneas; tabla
 `meeting_chunks (meeting, idx, text, vec BLOB)`; se indexa al guardar cada reunión y al arrancar lo que falte.

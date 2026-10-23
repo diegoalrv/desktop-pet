@@ -26,7 +26,7 @@ fn notify(app: &AppHandle, body: &str) {
 /// Atajo presionado: empieza a grabar. La mascota escucha (`voice://listening`).
 pub fn start(app: &AppHandle) {
     if !cfg!(target_os = "macos") {
-        return notify(app, "Hablarle a la Candola solo funciona en macOS");
+        return notify(app, "Hablarle a la Candola aún no está disponible en este sistema");
     }
     if crate::meeting::recording(app) {
         return notify(app, "Estoy escuchando una reunión: no puedo grabarte ahora");

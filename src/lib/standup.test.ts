@@ -26,7 +26,7 @@ describe("standup", () => {
   const tasks = [
     mk({ id: 1, title: "Enviar propuesta", project: "Colbún", done: 1, done_at: at(21, 16) }),
     mk({ id: 2, title: "Revisar informe", done: 1, done_at: at(22, 11) }),
-    mk({ id: 3, title: "Llamar a SIMBIO", due_at: at(22, 20) }), // hoy, aún no vence
+    mk({ id: 3, title: "Llamar a Acme", due_at: at(22, 20) }), // hoy, aún no vence
     mk({ id: 4, title: "Pagar patente", due_at: at(20, 9) }), // vencida
     mk({ id: 5, title: "Vencida pero hecha", done: 1, done_at: at(20, 10), due_at: at(19, 9) }),
   ];
@@ -63,7 +63,7 @@ describe("standup", () => {
         "",
         "Hoy",
         "- ✓ Revisar informe",
-        "- Llamar a SIMBIO",
+        "- Llamar a Acme",
         "- Foco: 50m",
         "",
         "Bloqueos",

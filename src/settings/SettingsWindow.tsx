@@ -17,6 +17,9 @@ import { useSettings } from "../store/useSettings";
 import { LlmEditor } from "./LlmEditor";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 
+// Distracciones por app y dictado a la Candola aún no existen en Windows (apps.rs, voice.rs): no se muestran.
+const WIN = navigator.userAgent.includes("Windows");
+
 const h = {
   margin: "8px 0 0",
   fontSize: 13,
@@ -27,7 +30,17 @@ const h = {
 
 /** Número que se puede escribir: guarda apenas el valor queda dentro de [min, max] (escribir "47" pasa por "4", que
  *  si se guardara al tiro el saneo de prefs lo devolvería al valor por defecto); al salir con uno inválido, vuelve. */
-function NumInput({ value, min, max, onCommit }: { value: number; min: number; max: number; onCommit: (n: number) => void }) {
+function NumInput({
+  value,
+  min,
+  max,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (n: number) => void;
+}) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const ok = (s: string) => s.trim() !== "" && Number.isInteger(Number(s)) && +s >= min && +s <= max;
@@ -91,7 +104,12 @@ export function SettingsWindow() {
   const num = (key: keyof typeof RANGE, label: string) => (
     <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       {label}
-      <NumInput value={prefs[key]} min={RANGE[key][0]} max={RANGE[key][1]} onCommit={(n) => setPrefs({ [key]: n })} />
+      <NumInput
+        value={prefs[key]}
+        min={RANGE[key][0]}
+        max={RANGE[key][1]}
+        onCommit={(n) => setPrefs({ [key]: n })}
+      />
     </label>
   );
 
@@ -237,42 +255,50 @@ export function SettingsWindow() {
         Mostrar el tiempo en la barra de menú
       </label>
 
-      <h2 style={h}>Distracciones durante el foco</h2>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {prefs.distractions.map((id) => (
-          <button
-            key={id}
-            style={{ ...btn, padding: "2px 8px" }}
-            title="Quitar"
-            onClick={() => setPrefs({ distractions: prefs.distractions.filter((d) => d !== id) })}
+      {!WIN && (
+        <>
+          <h2 style={h}>Distracciones durante el foco</h2>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {prefs.distractions.map((id) => (
+              <button
+                key={id}
+                style={{ ...btn, padding: "2px 8px" }}
+                title="Quitar"
+                onClick={() => setPrefs({ distractions: prefs.distractions.filter((d) => d !== id) })}
+              >
+                {running.find((a) => a.bundle === id)?.name ?? id} ✕
+              </button>
+            ))}
+            {!prefs.distractions.length && <small style={{ color: T.dim }}>Ninguna.</small>}
+          </div>
+          <select
+            style={{ ...btn, padding: 4 }}
+            value=""
+            onFocus={() =>
+              invoke<typeof running>("running_apps")
+                .then(setRunning)
+                .catch(() => {})
+            }
+            onChange={(e) =>
+              e.target.value &&
+              setPrefs({ distractions: [...new Set([...prefs.distractions, e.target.value])] })
+            }
           >
-            {running.find((a) => a.bundle === id)?.name ?? id} ✕
-          </button>
-        ))}
-        {!prefs.distractions.length && <small style={{ color: T.dim }}>Ninguna.</small>}
-      </div>
-      <select
-        style={{ ...btn, padding: 4 }}
-        value=""
-        onFocus={() => invoke<typeof running>("running_apps").then(setRunning).catch(() => {})}
-        onChange={(e) =>
-          e.target.value &&
-          setPrefs({ distractions: [...new Set([...prefs.distractions, e.target.value])] })
-        }
-      >
-        <option value="">Agregar una app abierta…</option>
-        {running
-          .filter((a) => !prefs.distractions.includes(a.bundle))
-          .map((a) => (
-            <option key={a.bundle} value={a.bundle}>
-              {a.name}
-            </option>
-          ))}
-      </select>
-      <small style={{ opacity: 0.7 }}>
-        Solo macOS. Si abres una de estas apps en pleno foco, Candolita se queja; si te quedas más de 1 min,
-        avisa. El tiempo por app de cada foco se ve en la web (Foco).
-      </small>
+            <option value="">Agregar una app abierta…</option>
+            {running
+              .filter((a) => !prefs.distractions.includes(a.bundle))
+              .map((a) => (
+                <option key={a.bundle} value={a.bundle}>
+                  {a.name}
+                </option>
+              ))}
+          </select>
+          <small style={{ opacity: 0.7 }}>
+            Si abres una de estas apps en pleno foco, Candolita se queja; si te quedas más de 1 min, avisa. El
+            tiempo por app de cada foco se ve en la web (Foco).
+          </small>
+        </>
+      )}
 
       <h2 style={h}>Cámara durante el foco</h2>
       <label>
@@ -292,9 +318,9 @@ export function SettingsWindow() {
       )}
       <small style={{ opacity: 0.7 }}>
         Si miras el teléfono (cabeza abajo sin usar el computador, o teléfono a la vista), Candolita gruñe; si
-        sigues, ladra y cuenta como distracción. Si te vas, pausa el foco. Todo se procesa en tu Mac y no se guarda
-        ninguna imagen (solo las mediciones, para calibrarla); la cámara solo se enciende durante el foco. macOS pide permiso la primera vez (Ajustes del
-        Sistema → Privacidad → Cámara).
+        sigues, ladra y cuenta como distracción. Si te vas, pausa el foco. Todo se procesa en tu computador y
+        no se guarda ninguna imagen (solo las mediciones, para calibrarla); la cámara solo se enciende durante
+        el foco. El sistema pide permiso para la cámara la primera vez.
       </small>
 
       <h2 style={h}>Cierre del día</h2>
@@ -324,12 +350,14 @@ export function SettingsWindow() {
       <h2 style={h}>Atajos globales</h2>
       {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}
       {shortcutField("focus", "focusShortcut", "Iniciar/pausar foco", DEFAULT_FOCUS_SHORTCUT)}
-      {shortcutField("voice", "voiceShortcut", "Hablarle a la Candola", DEFAULT_VOICE_SHORTCUT)}
+      {!WIN && shortcutField("voice", "voiceShortcut", "Hablarle a la Candola", DEFAULT_VOICE_SHORTCUT)}
       {shortcutField("center", "centerShortcut", "Traer a Candolita al centro", DEFAULT_CENTER_SHORTCUT)}
-      <small style={{ opacity: 0.7 }}>
-        Mantén el atajo de la Candola mientras hablas (hasta 10 s) y suéltalo: la orden entra al chat. Usa el
-        micrófono y el modelo de voz de las reuniones (macOS).
-      </small>
+      {!WIN && (
+        <small style={{ opacity: 0.7 }}>
+          Mantén el atajo de la Candola mientras hablas (hasta 10 s) y suéltalo: la orden entra al chat. Usa
+          el micrófono y el modelo de voz de las reuniones.
+        </small>
+      )}
 
       <h2 style={h}>Calendario</h2>
       <input
@@ -365,11 +393,15 @@ export function SettingsWindow() {
         style={{ ...btn, padding: 4 }}
       />
       <small style={{ opacity: 0.7 }}>
-        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (tus docs de servidores, despliegues, etc.). Vacía = tu
-        home.
+        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (tus docs de servidores, despliegues,
+        etc.). Vacía = tu home.
       </small>
       <label>
-        <input type="checkbox" checked={prefs.voice} onChange={(e) => setPrefs({ voice: e.target.checked })} />{" "}
+        <input
+          type="checkbox"
+          checked={prefs.voice}
+          onChange={(e) => setPrefs({ voice: e.target.checked })}
+        />{" "}
         Leer en voz alta las respuestas a lo que le dices con el atajo
       </label>
 
