@@ -19,7 +19,7 @@ pub fn home() -> String {
 }
 
 /// Proceso hijo sin consola: en Windows cada `git`/`curl`/`claude` lanzado desde la app abriría una ventana negra.
-pub fn cmd(program: &str) -> std::process::Command {
+pub fn cmd(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     #[allow(unused_mut)]
     let mut c = std::process::Command::new(program);
     #[cfg(windows)]

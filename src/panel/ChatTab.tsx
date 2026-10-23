@@ -177,7 +177,7 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
             />
             <b>¡Guau! Soy la Candola</b>
             <span className="small muted" style={{ maxWidth: "22em" }}>
-              Tu mascota asistente. Reviso tu Mac, Docker y tus servidores; lo que cambie algo te lo pregunto
+              Tu mascota asistente. Reviso tu computador, Docker y tus servidores; lo que cambie algo te lo pregunto
               antes.
             </span>
             <div className="stack" style={{ width: "100%", gap: ".4em", marginTop: ".3em" }}>

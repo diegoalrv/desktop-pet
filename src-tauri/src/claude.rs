@@ -11,13 +11,14 @@ use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 use crate::db::Db;
 
-/// Lectura del Mac sin riesgo: lo que no esté aquí lo deniega Claude Code y vuelve como
+/// Lectura del equipo sin riesgo: lo que no esté aquí lo deniega Claude Code y vuelve como
 /// `permission_denials` en el resultado, que el panel muestra para confirmar.
 const READ_ONLY: &[&str] = &[
     "Read", "Glob", "Grep",
     "Bash(docker ps:*)", "Bash(docker stats:*)", "Bash(docker inspect:*)", "Bash(docker images:*)",
     "Bash(docker system df:*)", "Bash(docker compose ls:*)", "Bash(docker logs:*)",
     "Bash(ps:*)", "Bash(top -l:*)", "Bash(vm_stat:*)", "Bash(memory_pressure:*)", "Bash(df:*)",
+    "Bash(tasklist:*)", "Bash(systeminfo:*)", // Windows
 ];
 
 /// El `claude` en curso (uno a la vez): para cancelarlo desde el panel y matarlo al salir de la app.
@@ -46,11 +47,24 @@ pub fn claude_cancel(state: tauri::State<ClaudeChild>) {
 /// `claude` con el PATH del usuario: una app con bundle no hereda el del shell, así que va por un zsh de login
 /// (`claude install` deja el binario en ~/.local/bin, Homebrew en /opt/homebrew/bin…). `exec` hace que el pid del
 /// hijo sea el de `claude` mismo (`kill()` le llega directo) y "$@" evita problemas de quoting.
-/// En Windows las apps ya heredan el PATH del usuario: `claude.exe` directo (instalador nativo; el `claude.cmd` de
-/// npm no sirve sin pasar por `cmd`, que rompe el quoting del system prompt).
+/// En Windows, `claude.exe` sin shell: primero donde lo deja el instalador nativo (`~/.local/bin`, que puede no estar
+/// aún en el PATH heredado por la app), si no el `cli.js` de npm con `node` (el `claude.cmd` no sirve: pasar por `cmd`
+/// rompe el quoting del system prompt), y si no lo que haya en el PATH.
 pub fn command(args: &[String]) -> Command {
     #[cfg(windows)]
-    let mut c = crate::cmd("claude");
+    let mut c = {
+        let native = PathBuf::from(crate::home()).join(r".local\bin\claude.exe");
+        let npm = std::env::var("APPDATA").map(|a| PathBuf::from(a).join(r"npm\node_modules\@anthropic-ai\claude-code\cli.js"));
+        match npm {
+            _ if native.exists() => crate::cmd(native),
+            Ok(js) if js.exists() => {
+                let mut c = crate::cmd("node");
+                c.arg(js);
+                c
+            }
+            _ => crate::cmd("claude"),
+        }
+    };
     #[cfg(not(windows))]
     let mut c = {
         let mut c = Command::new("/bin/zsh");
@@ -127,7 +141,10 @@ pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => "no encontré Claude Code: instálalo (claude.ai/code) y reinicia la app".into(),
+            _ => e.to_string(),
+        })?;
     // El prompt va por stdin: así un texto que empiece con "-" no se confunde con un flag.
     child.stdin.take().unwrap().write_all(prompt.as_bytes()).map_err(|e| e.to_string())?;
     let out = child.stdout.take().unwrap();

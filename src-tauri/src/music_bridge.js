@@ -30,16 +30,29 @@
   const player = () => document.getElementById("movie_player"); // solo YTM
   const video = () => media ?? document.querySelector("video, audio");
   const txt = (el, sel) => el.querySelector(sel)?.textContent.trim().replace(/\s+/g, " ") ?? "";
-  const queueItems = () => [...document.querySelectorAll("ytmusic-player-queue-item")];
+  // Spotify: la cola vive en el panel lateral derecho; se abre una vez (la ventana está oculta, no molesta) y se leen sus filas.
+  // ponytail: selectores del DOM de Spotify sin API pública; si un rediseño los rompe, la lista vuelve a salir vacía.
+  let spOpened = false;
+  const spRows = () => {
+    const b = document.querySelector('[data-testid="control-button-queue"]');
+    if (b && !spOpened && b.getAttribute("aria-pressed") !== "true") (spOpened = true), b.click();
+    return [...document.querySelectorAll('aside [data-testid="tracklist-row"], aside [role="row"]')];
+  };
+  const spTitle = (el) =>
+    (el.querySelector('[data-testid="internal-track-link"], a[href*="/track/"]')?.textContent ?? "").trim();
+  const spArtist = (el) => [...el.querySelectorAll('a[href*="/artist/"]')].map((a) => a.textContent.trim()).join(", ");
+  const queueItems = () =>
+    site === "spotify" ? spRows().filter(spTitle) : [...document.querySelectorAll("ytmusic-player-queue-item")];
   // Los siguientes (hasta 12) tras el que suena; `i` es el índice absoluto para `jump`.
   const upNext = (title) => {
-    if (site !== "ytm") return local()?.queue() ?? []; // ponytail: la cola de Spotify vive en /queue, sin leer
+    if (site === "local") return local()?.queue() ?? [];
     const items = queueItems();
-    let cur = items.findIndex((el) => el.hasAttribute("selected"));
-    if (cur < 0) cur = items.findIndex((el) => txt(el, ".song-title") === title);
+    const t = site === "ytm" ? (el) => txt(el, ".song-title") : spTitle;
+    let cur = site === "ytm" ? items.findIndex((el) => el.hasAttribute("selected")) : -1;
+    if (cur < 0) cur = items.findIndex((el) => t(el) === title);
     return items.slice(cur + 1, cur + 13).map((el, k) => ({
-      t: txt(el, ".song-title"),
-      a: txt(el, ".byline"),
+      t: t(el),
+      a: site === "ytm" ? txt(el, ".byline") : spArtist(el),
       i: cur + 1 + k,
     }));
   };
@@ -72,8 +85,9 @@
     else if (cmd === "prev") actions.previoustrack?.({ action: "previoustrack" });
     else if (cmd === "jump") {
       if (site === "local") local()?.jump(arg);
-      const el = site === "ytm" && queueItems()[arg];
-      el && (el.querySelector("ytmusic-play-button-renderer") ?? el).click();
+      const el = site !== "local" && queueItems()[arg];
+      if (site === "spotify") el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); // filas de Spotify: doble clic = reproducir
+      else el && (el.querySelector("ytmusic-play-button-renderer") ?? el).click();
     } else if (cmd === "vol") p?.setVolume ? p.setVolume(arg) : v && (v.volume = arg / 100);
     else if (cmd === "seek")
       actions.seekto ? actions.seekto({ action: "seekto", seekTime: arg }) : v && (v.currentTime = arg);
