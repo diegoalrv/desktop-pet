@@ -96,6 +96,24 @@ pub fn open_window(app: AppHandle, label: String) -> Option<()> {
     w.set_focus().ok()
 }
 
+/// Ventana "Ver cámara" (demo de F17). Se crea al abrirla y se destruye al cerrarla, así su cámara se apaga.
+/// Async: crear ventanas desde un comando síncrono puede trabarse.
+#[tauri::command]
+pub async fn open_camview(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("camview") {
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    tauri::WebviewWindowBuilder::new(&app, "camview", tauri::WebviewUrl::App("index.html".into()))
+        .title("Cámara del foco")
+        .inner_size(1000.0, 560.0)
+        .min_inner_size(720.0, 420.0)
+        .center()
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Muestra a la mascota y la trae al centro de la pantalla principal (atajo o menú de la barra): para cuando quedó
 /// fuera de la vista. La posición la maneja el loop de `PetWindow`, así que solo se le avisa.
 pub fn center_pet(app: &AppHandle) {

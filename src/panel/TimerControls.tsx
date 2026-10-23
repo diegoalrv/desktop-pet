@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { timer, type Mode } from "../lib/ipc";
 import { fmt } from "../lib/time";
 import { MODE_COLOR } from "../pet/TimerPill";
@@ -259,6 +260,11 @@ export function TimerControls() {
             <Icon name="stop" size="1em" /> Terminar sesión
           </button>
         </div>
+      )}
+      {p.focusCam && (
+        <button className="b b-ghost b-sm" onClick={() => invoke("open_camview")}>
+          <Icon name="target" size="1em" /> Ver cámara
+        </button>
       )}
     </div>
   );

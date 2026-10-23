@@ -2,6 +2,7 @@
 // teléfono con MediaPipe (local, modelos en public/models) y aplica lo que decide `focusCam.step`.
 // Nada se guarda: cada frame se analiza y se descarta.
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import type { FaceLandmarker, ObjectDetector } from "@mediapipe/tasks-vision";
 // ponytail: solo el build SIMD (WebKit lo tiene desde macOS 13.3); agregar el nosimd si alguna vez falla al cargar
 import wasmLoaderPath from "@mediapipe/tasks-vision/vision_wasm_internal.js?url";
@@ -15,21 +16,35 @@ import { useSettings } from "../store/useSettings";
 import type { PetEvent } from "../pet/stateMachine";
 
 const SAMPLE_MS = 2000; // ponytail: 2 inferencias cada 2 s; si pesa en el Monitor de Actividad, subir a 4000
-const PHONE_SCORE = 0.5;
+export const PHONE_SCORE = 0.5;
 const LOG_SCORE = 0.2; // se guarda el score desde acá (cam_samples) para poder recalibrar PHONE_SCORE después
 
-interface Cam {
-  look(): {
-    face: boolean;
-    pitch: number | null;
-    yaw: number | null;
-    roll: number | null;
-    phoneScore: number;
-  };
+/** Rectángulo en fracciones del cuadro (0..1), sin espejar. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Seen {
+  face: boolean;
+  faceBox: Box | null;
+  pitch: number | null;
+  yaw: number | null;
+  roll: number | null;
+  phoneScore: number;
+  phoneBox: Box | null;
+}
+
+export interface Cam {
+  video: HTMLVideoElement;
+  look(): Seen;
   stop(): void;
 }
 
-async function openCam(): Promise<Cam> {
+/** Abre la webcam y los detectores. También la usa la ventana "Ver cámara" (camview), con su propio stream. */
+export async function openCam(): Promise<Cam> {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
   try {
     const video = document.createElement("video");
@@ -57,6 +72,7 @@ async function openCam(): Promise<Cam> {
       }),
     ]);
     return {
+      video,
       look() {
         const f = face.detect(video);
         const m = f.facialTransformationMatrixes[0]?.data;
@@ -66,8 +82,17 @@ async function openCam(): Promise<Cam> {
         const pitch = m ? deg(Math.atan2(m[6], m[10])) : null;
         const yaw = m ? deg(Math.asin(Math.max(-1, Math.min(1, -m[2])))) : null;
         const roll = m ? deg(Math.atan2(m[1], m[0])) : null;
-        const phoneScore = obj.detect(video).detections[0]?.categories[0]?.score ?? 0;
-        return { face: !!m, pitch, yaw, roll, phoneScore };
+        const lm = f.faceLandmarks[0];
+        const xs = lm?.map((p) => p.x) ?? [];
+        const ys = lm?.map((p) => p.y) ?? [];
+        const faceBox = lm
+          ? { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
+          : null;
+        const d = obj.detect(video).detections[0];
+        const b = d?.boundingBox;
+        const [vw, vh] = [video.videoWidth || 640, video.videoHeight || 480];
+        const phoneBox = b ? { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh } : null;
+        return { face: !!m, faceBox, pitch, yaw, roll, phoneScore: d?.categories[0]?.score ?? 0, phoneBox };
       },
       stop() {
         stream.getTracks().forEach((t) => t.stop()); // apaga el LED
@@ -182,6 +207,8 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     });
     seg = log.seg;
     save(log.done);
+    // Para la ventana "Ver cámara": lo que decidió la mascota (base, umbral, eventos).
+    void emit("cam://sample", { base: basePitch(st), down: prefs.headDownDeg, events: r.events.map((e) => e.type) });
     for (const ev of r.events) await handle(ev, ctx.meeting);
   };
 

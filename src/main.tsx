@@ -8,6 +8,7 @@ import { initTasksStore } from "./store/useTasks";
 import { initSettingsStore } from "./store/useSettings";
 import { initMusicStore } from "./store/useMusic";
 import { SettingsWindow } from "./settings/SettingsWindow";
+import { CamWindow } from "./camview/CamWindow";
 import { Dashboard } from "./web/Dashboard";
 import { IS_WEB } from "./lib/db";
 
@@ -20,7 +21,7 @@ if (!IS_WEB) {
 }
 const Root = IS_WEB
   ? Dashboard
-  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard }[getCurrentWindow().label] ??
+  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard, camview: CamWindow }[getCurrentWindow().label] ??
     PetWindow);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

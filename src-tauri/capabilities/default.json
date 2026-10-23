@@ -6,7 +6,8 @@
     "pet",
     "panel",
     "settings",
-    "tasks"
+    "tasks",
+    "camview"
   ],
   "permissions": [
     "core:default",
