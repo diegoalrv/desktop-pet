@@ -77,12 +77,26 @@ fn cursor_in_window(win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
 }
 
 // Click-through: polling del cursor (~60 ms). Fuera del rect -> ignora eventos.
+// En Windows, además, re-afirma "siempre encima" cada ~1 s: la barra de tareas y otras ventanas topmost le pasan
+// por encima al hacerles clic (salvo con el panel abierto, que también es topmost y quedaría tapado).
 fn spawn_cursor_poll(app: tauri::AppHandle) {
     thread::spawn(move || {
         let mut ignoring: Option<bool> = None;
+        #[allow(unused_variables, unused_mut)]
+        let mut tick = 0u32;
         loop {
             thread::sleep(Duration::from_millis(60));
             let Some(win) = app.get_webview_window("pet") else { continue };
+            #[cfg(windows)]
+            {
+                tick = tick.wrapping_add(1);
+                let panel = app.get_webview_window("panel").and_then(|p| p.is_visible().ok()).unwrap_or(false);
+                if tick % 16 == 0 && !panel {
+                    // tao solo llama SetWindowPos(HWND_TOPMOST) si el flag cambia: false -> true lo fuerza (sin robar foco).
+                    let _ = win.set_always_on_top(false);
+                    let _ = win.set_always_on_top(true);
+                }
+            }
             let [x, y, w, h] = *app.state::<HitRect>().0.lock().unwrap();
             let Some((lx, ly)) = cursor_in_window(&win) else { continue };
             let inside = lx >= x && lx <= x + w && ly >= y && ly <= y + h;

@@ -118,10 +118,20 @@ export function PetWindow() {
       .then(() => relayout.current());
   }, [skin, size]);
 
-  // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer).
+  // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer). Se re-mide cuando cambia el
+  // tamaño del sprite o de la ventana: al arrancar (sobre todo en Windows) el primer layout no es el final y un rect
+  // viejo deja a la mascota sin poder tomarse.
   useEffect(() => {
-    const r = (active ? hit : body).current!.getBoundingClientRect();
-    invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
+    const el = (active ? hit : body).current!;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
   }, [active, skin, overlap, size]);
 
   useEffect(() => {
