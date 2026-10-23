@@ -1,4 +1,4 @@
-# Instalador de Windows (NSIS, sin firmar): Actions → windows → el artefacto "Desktop-Pet-windows".
+# Instalador de Windows (NSIS, sin firmar; idioma, imágenes y nombre en src-tauri/tauri.windows.conf.json): Actions → windows → el artefacto "Desktop-Pet-windows".
 name: windows
 on:
   workflow_dispatch:
