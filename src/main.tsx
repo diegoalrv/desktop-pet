@@ -10,19 +10,23 @@ import { initMusicStore } from "./store/useMusic";
 import { SettingsWindow } from "./settings/SettingsWindow";
 import { CamWindow } from "./camview/CamWindow";
 import { Dashboard } from "./web/Dashboard";
+import { LocalPlayer } from "./music/LocalPlayer";
 import { IS_WEB } from "./lib/db";
 
-initTasksStore();
+const label = IS_WEB ? "" : getCurrentWindow().label;
+// "music" = reproductor local (music.rs): solo lee las prefs y no tiene permisos para más.
+if (label !== "music") initTasksStore();
 // En el navegador (web local servida por la app) solo existe el panel web.
-if (!IS_WEB) {
+if (!IS_WEB) initSettingsStore();
+if (!IS_WEB && label !== "music") {
   initTimerStore();
-  initSettingsStore();
   initMusicStore();
 }
 const Root = IS_WEB
   ? Dashboard
-  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard, camview: CamWindow }[getCurrentWindow().label] ??
-    PetWindow);
+  : ({ panel: PanelWindow, settings: SettingsWindow, tasks: Dashboard, camview: CamWindow, music: LocalPlayer }[
+      label
+    ] ?? PetWindow);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

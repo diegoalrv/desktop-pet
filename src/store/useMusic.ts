@@ -14,7 +14,7 @@ export interface MusicState {
   q?: { t: string; a: string; i: number }[];
 }
 
-// Estado de la ventana de YouTube Music (llega cada ~1 s vía `music://state`). null = ventana no abierta.
+// Estado de la ventana de música (llega cada ~1 s vía `music://state`). null = ventana no abierta o cambiando de proveedor.
 export const useMusic = create<{ s: MusicState | null }>(() => ({ s: null }));
 
 export const music = (cmd: string, arg?: number | string) => invoke("music_cmd", { cmd, arg });

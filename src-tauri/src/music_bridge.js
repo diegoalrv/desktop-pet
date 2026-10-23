@@ -1,8 +1,13 @@
-// Inyectado en la ventana de YouTube Music. La web NO tiene IPC con la app:
+// Inyectado en la ventana de música (YouTube Music, Spotify o el reproductor local). La web NO tiene IPC con la app:
 // el estado sale por document.title (Rust lo lee con on_document_title_changed)
 // y los comandos entran por eval() -> window.__pet(cmd, arg).
 (() => {
-  if (location.hostname !== "music.youtube.com" || window.__pet) return;
+  // localhost / tauri.localhost = la app (src/music/LocalPlayer.tsx, que expone window.__petLocal); fuera de esto, p. ej. el login, nada.
+  const site = { "music.youtube.com": "ytm", "open.spotify.com": "spotify", localhost: "local", "tauri.localhost": "local" }[
+    location.hostname
+  ];
+  if (!site || window.__pet) return;
+  const local = () => window.__petLocal;
   const P = "PETSTATE:";
   const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
   // YTM reescribe el título; se bloquea para que el canal sea solo nuestro.
@@ -15,12 +20,20 @@
   const setAH = ms?.setActionHandler?.bind(ms);
   if (setAH) ms.setActionHandler = (a, fn) => ((actions[a] = fn), setAH(a, fn));
 
-  const player = () => document.getElementById("movie_player");
-  const video = () => document.querySelector("video");
+  // Último <video>/<audio> que sonó: Spotify lo crea fuera del DOM.
+  let media;
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    media = this;
+    return play.apply(this, arguments);
+  };
+  const player = () => document.getElementById("movie_player"); // solo YTM
+  const video = () => media ?? document.querySelector("video, audio");
   const txt = (el, sel) => el.querySelector(sel)?.textContent.trim().replace(/\s+/g, " ") ?? "";
   const queueItems = () => [...document.querySelectorAll("ytmusic-player-queue-item")];
   // Los siguientes (hasta 12) tras el que suena; `i` es el índice absoluto para `jump`.
   const upNext = (title) => {
+    if (site !== "ytm") return local()?.queue() ?? []; // ponytail: la cola de Spotify vive en /queue, sin leer
     const items = queueItems();
     let cur = items.findIndex((el) => el.hasAttribute("selected"));
     if (cur < 0) cur = items.findIndex((el) => txt(el, ".song-title") === title);
@@ -51,15 +64,23 @@
   let duck;
   window.__pet = (cmd, arg) => {
     const v = video(), p = player();
-    if (cmd === "toggle") v && (v.paused ? v.play() : v.pause());
-    else if (cmd === "next") actions.nexttrack?.({ action: "nexttrack" });
+    if (cmd === "toggle") {
+      // Spotify quiere sus propios manejadores (antes del primer play no hay elemento que pausar).
+      const a = !v || v.paused ? "play" : "pause";
+      actions[a] ? actions[a]({ action: a }) : v && (v.paused ? v.play() : v.pause());
+    } else if (cmd === "next") actions.nexttrack?.({ action: "nexttrack" });
     else if (cmd === "prev") actions.previoustrack?.({ action: "previoustrack" });
     else if (cmd === "jump") {
-      const el = queueItems()[arg];
-      (el?.querySelector("ytmusic-play-button-renderer") ?? el)?.click();
+      if (site === "local") local()?.jump(arg);
+      const el = site === "ytm" && queueItems()[arg];
+      el && (el.querySelector("ytmusic-play-button-renderer") ?? el).click();
     } else if (cmd === "vol") p?.setVolume ? p.setVolume(arg) : v && (v.volume = arg / 100);
-    else if (cmd === "seek" && v) v.currentTime = arg;
-    else if (cmd === "search") location.href = "/search?q=" + encodeURIComponent(arg);
+    else if (cmd === "seek")
+      actions.seekto ? actions.seekto({ action: "seekto", seekTime: arg }) : v && (v.currentTime = arg);
+    else if (cmd === "search") {
+      if (site === "local") local()?.search(arg);
+      else location.href = (site === "spotify" ? "/search/" : "/search?q=") + encodeURIComponent(arg);
+    }
     else if (cmd === "duck" && v && !v.paused && !v.muted) {
       // Baja la música de a poco mientras suena la campanilla del cambio de ciclo y la vuelve a subir suave.
       clearInterval(duck?.i);

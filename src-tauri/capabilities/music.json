@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "music",
+  "description": "Reproductor local (ventana music con la app). Sin remote: YouTube Music y Spotify no tienen IPC.",
+  "windows": ["music"],
+  "permissions": [
+    "core:default",
+    "store:default",
+    "fs:allow-read-dir",
+    "fs:allow-read-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$HOME/**" }, { "path": "/Volumes/**" }]
+    }
+  ]
+}

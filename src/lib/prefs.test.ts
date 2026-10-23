@@ -37,6 +37,8 @@ describe("prefs", () => {
       dayEndHour: 18,
       dailyGoalMin: 120,
       petSize: 128,
+      musicProvider: "ytm",
+      musicFolder: "",
     });
     const p = normalizePrefs({ focusMin: "50", shortMin: -3, longMin: 9999, sound: "x" });
     expect([p.focusMin, p.shortMin, p.longMin, p.sound]).toEqual([50, 5, 15, true]);

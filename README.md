@@ -1,8 +1,8 @@
 # Desktop Pet
 
 Mascota animada sobre el escritorio que funciona como timer de foco (Pomodoro) y organizador de tareas. También
-escucha tus reuniones, las transcribe en local y te propone tareas, reproduce YouTube Music y tiene un chat con
-Claude Code. Tauri v2 (Rust) + React + Vite + TypeScript. macOS (prioridad) y Windows; Linux best effort.
+escucha tus reuniones, las transcribe en local y te propone tareas, reproduce música (YouTube Music, Spotify o una
+carpeta local) y tiene un chat con Claude Code. Tauri v2 (Rust) + React + Vite + TypeScript. macOS (prioridad) y Windows; Linux best effort.
 
 ## Requisitos
 

@@ -60,6 +60,9 @@ export const prefsSchema = z.object({
   dayEndHour: z.coerce.number().int().min(0).max(23).catch(18),
   dailyGoalMin: mins(120, 960),
   petSize: z.coerce.number().int().min(PET_SIZE.min).max(PET_SIZE.max).catch(PET_SIZE.def), // alto en pantalla (px lógicos)
+  // Pestaña Música: de dónde sale (music.rs lo lee de settings.json) y la carpeta del reproductor local
+  musicProvider: z.enum(["ytm", "spotify", "local"]).catch("ytm"),
+  musicFolder: z.string().trim().catch(""),
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 

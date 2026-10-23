@@ -1,10 +1,64 @@
 import { useState } from "react";
 import { fmt } from "../lib/time";
+import { open } from "@tauri-apps/plugin-dialog";
 import { music, openMusic, useMusic } from "../store/useMusic";
+import { useSettings } from "../store/useSettings";
 import { Icon } from "./icons";
 
+const PROVIDERS = [
+  ["ytm", "YouTube Music"],
+  ["spotify", "Spotify"],
+  ["local", "Local"],
+] as const;
+
 export function MusicPlayer() {
+  return (
+    <div className="stack" style={{ gap: "1em" }}>
+      <Source />
+      <Player />
+    </div>
+  );
+}
+
+function Source() {
+  const { prefs, setPrefs } = useSettings();
+  const pick = async () => {
+    const d = await open({ directory: true, defaultPath: prefs.musicFolder || undefined });
+    if (typeof d === "string") await setPrefs({ musicFolder: d });
+  };
+  return (
+    <>
+      <div className="seg" role="group" aria-label="De dónde sale la música">
+        {PROVIDERS.map(([id, label]) => (
+          <button
+            key={id}
+            aria-pressed={prefs.musicProvider === id}
+            onClick={async () => {
+              await setPrefs({ musicProvider: id });
+              await openMusic(false); // music.rs lleva la ventana al nuevo proveedor
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {prefs.musicProvider === "local" && (
+        <button className="b b-ghost" title={prefs.musicFolder} onClick={pick} style={{ minWidth: 0 }}>
+          <span className="ellipsis">
+            {prefs.musicFolder
+              ? `Carpeta: ${prefs.musicFolder.split(/[\\/]/).pop()}`
+              : "Elegir carpeta con música…"}
+          </span>
+        </button>
+      )}
+    </>
+  );
+}
+
+function Player() {
   const s = useMusic((m) => m.s);
+  const provider = useSettings((st) => st.prefs.musicProvider);
+  const name = provider === "local" ? "Música local" : PROVIDERS.find(([id]) => id === provider)![1];
   const [q, setQ] = useState("");
   // Mientras se arrastra un slider se muestra el valor local, no el que llega de la web.
   const [seek, setSeek] = useState<number | null>(null);
@@ -12,7 +66,7 @@ export function MusicPlayer() {
 
   if (!s)
     return (
-      <div className="card stack center" style={{ gap: ".8em", padding: "2em 1em", marginTop: "1em" }}>
+      <div className="card stack center" style={{ gap: ".8em", padding: "2em 1em" }}>
         <div
           style={{
             display: "grid",
@@ -26,10 +80,12 @@ export function MusicPlayer() {
         >
           <Icon name="music" size="1.6em" />
         </div>
-        <b>YouTube Music no está abierto</b>
-        <span className="small muted">La primera vez inicia sesión en la ventana que se abre.</span>
+        <b>{provider === "local" ? "Cargando el reproductor…" : `${name} no está abierto`}</b>
+        {provider !== "local" && (
+          <span className="small muted">La primera vez inicia sesión en la ventana que se abre.</span>
+        )}
         <button className="b b-primary" onClick={() => openMusic()}>
-          <Icon name="external" size="1em" /> Abrir YouTube Music
+          <Icon name="external" size="1em" /> Abrir {name}
         </button>
       </div>
     );
@@ -42,7 +98,7 @@ export function MusicPlayer() {
   };
 
   return (
-    <div className="stack" style={{ gap: "1em" }}>
+    <>
       <div className="card stack" style={{ gap: ".9em" }}>
         <div className="row" style={{ gap: ".8em" }}>
           {s.art ? (
@@ -152,8 +208,8 @@ export function MusicPlayer() {
         </div>
         <button
           className="b b-ghost b-sq"
-          title="Mostrar YouTube Music"
-          aria-label="Mostrar YouTube Music"
+          title={`Mostrar ${name}`}
+          aria-label={`Mostrar ${name}`}
           type="button"
           onClick={() => openMusic()}
         >
@@ -196,6 +252,6 @@ export function MusicPlayer() {
           </div>
         </section>
       )}
-    </div>
+    </>
   );
 }
