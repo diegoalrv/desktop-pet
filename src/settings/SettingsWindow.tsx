@@ -135,6 +135,7 @@ export function SettingsWindow() {
         font: "14px system-ui",
         padding: 20,
         display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)", // sin esto la columna toma el ancho del texto más largo y se sale
         gap: 10,
         color: T.text,
         background: `linear-gradient(160deg, #1f1f2b, ${T.bg} 60%)`,
