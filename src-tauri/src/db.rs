@@ -57,6 +57,12 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
                     .execute(&pool)
                     .await;
             }
+            if mode == "focus" {
+                let work = tauri::async_runtime::spawn_blocking(move || crate::worklog::collect(start, end)).await;
+                if let Ok(w) = work {
+                    save_work(&pool, session.last_insert_rowid(), &w).await;
+                }
+            }
         }
         if let Some(id) = pomodoro {
             let _ = sqlx::query("UPDATE tasks SET done_pomodoros = done_pomodoros + 1 WHERE id = ?")
@@ -66,6 +72,126 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
         }
         let _ = app.emit("db://changed", ());
     });
+}
+
+async fn save_work(pool: &SqlitePool, session: i64, w: &crate::worklog::Work) {
+    for (project, p) in &w.projects {
+        let _ = sqlx::query(
+            "INSERT INTO session_projects (session_id, project, secs, detail, commits, added, removed, features) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(session)
+        .bind(project)
+        .bind(p.secs)
+        .bind(&p.detail)
+        .bind(p.commits)
+        .bind(p.added)
+        .bind(p.removed)
+        .bind(p.features)
+        .execute(pool)
+        .await;
+    }
+    for ((project, model), t) in &w.tokens {
+        let _ = sqlx::query(
+            "INSERT INTO session_tokens (session_id, project, model, input, output, cache_read, cache_write) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(session)
+        .bind(project)
+        .bind(model)
+        .bind(t.input)
+        .bind(t.output)
+        .bind(t.cache_read)
+        .bind(t.cache_write)
+        .execute(pool)
+        .await;
+    }
+}
+
+/// Registro por hora del trabajo con Claude (migración 013): al arrancar rehace todo el historial que falte y después,
+/// cada 15 min, desde la última hora guardada (la última puede haber quedado a medias). Hilo propio: lee archivos y git.
+pub fn spawn_claude_hours(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30)); // las migraciones corren cuando carga el frontend
+        loop {
+            let pool = app.state::<Db>().0.clone();
+            let ok = tauri::async_runtime::block_on(sync_hours(&pool));
+            if matches!(ok, Ok(true)) {
+                let _ = app.emit("db://changed", ());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(if ok.is_ok() { 15 * 60 } else { 60 }));
+        }
+    });
+}
+
+/// Devuelve si guardó algo.
+async fn sync_hours(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    let last: Option<i64> = sqlx::query_scalar("SELECT MAX(hour) FROM claude_hours").fetch_one(pool).await?;
+    let from = last.map_or(0, |h| h - crate::worklog::HOUR_MS);
+    let to = Local::now().timestamp_millis();
+    let h = tauri::async_runtime::spawn_blocking(move || crate::worklog::hours(from, to)).await.unwrap_or_default();
+    save_hours(pool, from, &h).await?;
+    Ok(!h.work.is_empty() || !h.tokens.is_empty())
+}
+
+async fn save_hours(pool: &SqlitePool, from: i64, h: &crate::worklog::Hours) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM claude_hours WHERE hour >= ?").bind(from).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM claude_hour_tokens WHERE hour >= ?").bind(from).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM claude_hour_titles WHERE hour >= ?").bind(from).execute(&mut *tx).await?;
+    for ((hour, project, title), (you, claude)) in &h.titles {
+        sqlx::query("INSERT INTO claude_hour_titles (hour, project, title, you_secs, claude_secs) VALUES (?, ?, ?, ?, ?)")
+            .bind(hour)
+            .bind(project)
+            .bind(title)
+            .bind(you / 1000)
+            .bind(claude / 1000)
+            .execute(&mut *tx)
+            .await?;
+    }
+    for (project, path, remote) in &h.projects {
+        sqlx::query("INSERT OR REPLACE INTO claude_projects (project, path, remote) VALUES (?, ?, ?)")
+            .bind(project)
+            .bind(path)
+            .bind(remote)
+            .execute(&mut *tx)
+            .await?;
+    }
+    // Solo proyectos con horas o tokens: las carpetas por las que Claude pasó de largo (`cd 03/datos`) no tienen ficha.
+    sqlx::query("DELETE FROM claude_projects WHERE project NOT IN (SELECT project FROM claude_hours UNION SELECT project FROM claude_hour_tokens)")
+        .execute(&mut *tx)
+        .await?;
+    for ((hour, project), w) in &h.work {
+        sqlx::query(
+            "INSERT INTO claude_hours (hour, project, you_secs, claude_secs, unattended_secs, commits, unattended_commits, added, removed, features) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(hour)
+        .bind(project)
+        .bind(w.you / 1000)
+        .bind(w.claude / 1000)
+        .bind(w.unattended / 1000)
+        .bind(w.commits)
+        .bind(w.unattended_commits)
+        .bind(w.added)
+        .bind(w.removed)
+        .bind(w.features)
+        .execute(&mut *tx)
+        .await?;
+    }
+    for ((hour, project, model), (t, away)) in &h.tokens {
+        sqlx::query(
+            "INSERT INTO claude_hour_tokens (hour, project, model, input, output, cache_read, cache_write, unattended) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(hour)
+        .bind(project)
+        .bind(model)
+        .bind(t.input)
+        .bind(t.output)
+        .bind(t.cache_read)
+        .bind(t.cache_write)
+        .bind(away)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
 }
 
 fn query<'q>(sql: &'q str, args: &'q [Value]) -> sqlx::query::Query<'q, Sqlite, SqliteArguments<'q>> {
@@ -238,6 +364,55 @@ mod tests {
     fn sin_repeticion_no_hay_siguiente() {
         assert_eq!(next_due(dt("2026-10-22 09:30"), "none", dt("2026-10-22 10:00")), None);
         assert_eq!(next_due(dt("2026-10-22 09:30"), "cada-tanto", dt("2026-10-22 10:00")), None);
+    }
+
+    #[test]
+    fn guarda_el_trabajo_del_foco() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/012_session_work.sql")).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO sessions (id, start, end, mode) VALUES (7, 0, 1, 'focus')").execute(&pool).await.unwrap();
+            let mut w = crate::worklog::Work::default();
+            w.projects.insert("pet".into(), crate::worklog::ProjectWork { secs: 600, commits: 2, added: 40, features: 1, ..Default::default() });
+            w.tokens.insert(("pet".into(), "claude-opus-5-5".into()), crate::worklog::Tokens { output: 900, ..Default::default() });
+            save_work(&pool, 7, &w).await;
+            let p = select(&pool, "SELECT session_id, project, secs, commits, added, features FROM session_projects", &[]).await.unwrap();
+            assert_eq!(Value::from(p[0].clone()), serde_json::json!({"session_id":7,"project":"pet","secs":600,"commits":2,"added":40,"features":1}));
+            let t = select(&pool, "SELECT model, output FROM session_tokens", &[]).await.unwrap();
+            assert_eq!(Value::from(t[0].clone()), serde_json::json!({"model":"claude-opus-5-5","output":900}));
+        });
+    }
+
+    #[test]
+    fn el_registro_por_hora_rehace_desde_from() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/013_claude_hours.sql")).execute(&pool).await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/014_claude_projects.sql")).execute(&pool).await.unwrap();
+            let hr = crate::worklog::HOUR_MS;
+            let mut h = crate::worklog::Hours::default();
+            let w = crate::worklog::Hour { claude: 1_800_000, unattended: 600_000, commits: 2, ..Default::default() };
+            h.work.insert((0, "pet".into()), w.clone());
+            h.work.insert((hr, "pet".into()), w);
+            h.tokens.insert((hr, "pet".into(), "opus".into()), (crate::worklog::Tokens { output: 5, ..Default::default() }, 5));
+            h.titles.insert((hr, "pet".into(), "Rastreo de horas".into()), (60_000, 120_000));
+            h.projects.push(("pet".into(), "/x/pet".into(), "github.com/a/pet".into()));
+            h.projects.push(("pet/03".into(), "/x/pet/03".into(), "".into())); // sin horas: no se guarda
+            save_hours(&pool, 0, &h).await.unwrap();
+            // segunda pasada desde la hora 1: la 0 queda, la 1 se reemplaza (sin duplicar la clave)
+            h.work.remove(&(0, "pet".into()));
+            save_hours(&pool, hr, &h).await.unwrap();
+            let rows = select(&pool, "SELECT hour, claude_secs, unattended_secs FROM claude_hours ORDER BY hour", &[]).await.unwrap();
+            assert_eq!(Value::from(rows.into_iter().map(Value::Object).collect::<Vec<_>>()), serde_json::json!([
+                {"hour":0,"claude_secs":1800,"unattended_secs":600},
+                {"hour":hr,"claude_secs":1800,"unattended_secs":600}]));
+            let t = select(&pool, "SELECT title, you_secs, claude_secs FROM claude_hour_titles", &[]).await.unwrap();
+            assert_eq!(Value::from(t[0].clone()), serde_json::json!({"title":"Rastreo de horas","you_secs":60,"claude_secs":120}));
+            save_hours(&pool, hr, &h).await.unwrap(); // el proyecto se reemplaza, no choca con la clave
+            let p = select(&pool, "SELECT project, remote FROM claude_projects", &[]).await.unwrap();
+            assert_eq!(p.len(), 1);
+        });
     }
 
     #[test]

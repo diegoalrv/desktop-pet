@@ -174,6 +174,8 @@ export const listSessions = (since: number) =>
   select<SessionRow>("SELECT * FROM sessions WHERE start >= $1 ORDER BY start DESC", [since]);
 export const deleteSession = async (id: number) => {
   await exec("DELETE FROM session_apps WHERE session_id = $1", [id]);
+  await exec("DELETE FROM session_projects WHERE session_id = $1", [id]);
+  await exec("DELETE FROM session_tokens WHERE session_id = $1", [id]);
   await exec("DELETE FROM sessions WHERE id = $1", [id]);
 };
 
@@ -184,3 +186,68 @@ export const listAppUse = (since: number) =>
     "SELECT a.*, s.start FROM session_apps a JOIN sessions s ON s.id = a.session_id WHERE s.start >= $1",
     [since],
   );
+
+/** Trabajo con Claude en cada foco (worklog.rs): tiempo por proyecto según tus mensajes en Code/Cowork, y git. */
+export type WorkRow = {
+  session_id: number;
+  project: string;
+  secs: number;
+  detail: string;
+  commits: number;
+  added: number;
+  removed: number;
+  features: number;
+};
+export const listWork = (since: number) =>
+  select<WorkRow>(
+    "SELECT w.* FROM session_projects w JOIN sessions s ON s.id = w.session_id WHERE s.start >= $1",
+    [since],
+  );
+export type TokenRow = {
+  session_id: number;
+  project: string;
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+};
+export const listTokens = (since: number) =>
+  select<TokenRow>(
+    "SELECT t.* FROM session_tokens t JOIN sessions s ON s.id = t.session_id WHERE s.start >= $1",
+    [since],
+  );
+
+/** Registro por hora del trabajo con Claude, con o sin foco (worklog.rs `hours`, migración 013). */
+export type ClaudeHourRow = {
+  hour: number;
+  project: string;
+  you_secs: number;
+  claude_secs: number;
+  unattended_secs: number;
+  commits: number;
+  unattended_commits: number;
+  added: number;
+  removed: number;
+  features: number;
+};
+export const listClaudeHours = (from: number, to: number) =>
+  select<ClaudeHourRow>("SELECT * FROM claude_hours WHERE hour >= $1 AND hour < $2", [from, to]);
+export type ClaudeTokenRow = {
+  hour: number;
+  project: string;
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  unattended: number;
+};
+export const listClaudeTokens = (from: number, to: number) =>
+  select<ClaudeTokenRow>("SELECT * FROM claude_hour_tokens WHERE hour >= $1 AND hour < $2", [from, to]);
+/** Tiempo por sesión de Claude (su título o tu primer mensaje) y carpeta/remoto de cada proyecto (migración 014). */
+export type ClaudeTitleRow = { hour: number; project: string; title: string; you_secs: number; claude_secs: number };
+export const listClaudeTitles = (from: number, to: number) =>
+  select<ClaudeTitleRow>("SELECT * FROM claude_hour_titles WHERE hour >= $1 AND hour < $2", [from, to]);
+export type ClaudeProjectRow = { project: string; path: string; remote: string };
+export const listClaudeProjects = () => select<ClaudeProjectRow>("SELECT * FROM claude_projects");

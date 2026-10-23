@@ -15,6 +15,7 @@ import type { MusicState } from "../store/useMusic";
 import { Bars, DASH_CSS, download, fmtDate, fmtDay, HBars, Head, Heatmap, Hl, usePoll } from "./kit";
 import { Meetings, Suggestions } from "./Meetings";
 import { Report } from "./Report";
+import { Claude, fmtTok, projCtx, projHref, projName } from "./Claude";
 
 const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: "home", label: "Resumen", icon: "home" },
@@ -22,6 +23,7 @@ const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: "meetings", label: "Reuniones", icon: "mic" },
   { id: "suggestions", label: "Sugerencias", icon: "inbox" },
   { id: "focus", label: "Foco", icon: "chart" },
+  { id: "claude", label: "Claude", icon: "zap" },
   { id: "report", label: "Informe", icon: "chart" },
   { id: "chat", label: "Chat", icon: "terminal" },
 ];
@@ -103,6 +105,7 @@ export function Dashboard() {
         {view === "meetings" && <Meetings id={param ? Number(param) : undefined} tab={sub} />}
         {view === "suggestions" && <Suggestions />}
         {view === "focus" && <Focus />}
+        {view === "claude" && <Claude project={param ? decodeURIComponent(param) : undefined} />}
         {view === "report" && <Report />}
         {view === "chat" && <ChatLog id={param ? Number(param) : undefined} />}
       </main>
@@ -375,6 +378,10 @@ function Focus() {
   const rows = useLive(() => db.listSessions(dayStart(n - 1)), [n]) ?? [];
   const year = useLive(() => db.listSessions(dayStart(371))) ?? [];
   const apps = useLive(() => db.listAppUse(dayStart(n - 1)), [n]) ?? [];
+  const work = useLive(() => db.listWork(dayStart(n - 1)), [n]) ?? [];
+  const toks = useLive(() => db.listTokens(dayStart(n - 1)), [n]) ?? [];
+  const workOf = new Map<number, db.WorkRow[]>(); // por sesión
+  work.forEach((w) => workOf.set(w.session_id, [...(workOf.get(w.session_id) ?? []), w]));
   const appSecs = new Map<string, number>(); // por nombre de app, todo el período
   const appsOf = new Map<number, db.AppUseRow[]>(); // por sesión
   const hitsDay = new Map<number, number>(); // distracciones por día
@@ -512,6 +519,7 @@ function Focus() {
           </div>
         </div>
       )}
+      {!!work.length && <ClaudeWork work={work} toks={toks} />}
       <div className="d-card">
         <span className="d-label">Sesiones</span>
         <table className="d-table">
@@ -537,6 +545,17 @@ function Focus() {
                         .join(" · ")}
                     </small>
                   )}
+                  {!!workOf.get(r.id)?.some((w) => w.secs) && (
+                    <small className="d-dim" style={{ display: "block" }}>
+                      {"Claude: "}
+                      {workOf
+                        .get(r.id)!
+                        .filter((w) => w.secs)
+                        .sort((a, b) => b.secs - a.secs)
+                        .map((w) => `${projName(w.project)} ${fmtDur(w.secs)}`)
+                        .join(" · ")}
+                    </small>
+                  )}
                 </td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                   {fmtDur(secs(r))}
@@ -557,6 +576,86 @@ function Focus() {
         {!rows.length && <span className="d-empty">Sin sesiones en este período.</span>}
       </div>
     </>
+  );
+}
+
+/** Por proyecto en el período: tiempo atribuido por tus mensajes a Claude, tokens por modelo y lo que dejó git. */
+function ClaudeWork({ work, toks }: { work: db.WorkRow[]; toks: db.TokenRow[] }) {
+  type P = Omit<db.WorkRow, "session_id" | "detail" | "project"> & {
+    tokens: number;
+    models: Map<string, number>;
+  };
+  const by = new Map<string, P>();
+  const get = (k: string) => {
+    if (!by.has(k))
+      by.set(k, { secs: 0, commits: 0, added: 0, removed: 0, features: 0, tokens: 0, models: new Map() });
+    return by.get(k)!;
+  };
+  work.forEach((w) => {
+    const p = get(w.project);
+    (["secs", "commits", "added", "removed", "features"] as const).forEach((k) => (p[k] += w[k]));
+  });
+  toks.forEach((t) => {
+    const p = get(t.project);
+    const n = t.input + t.output + t.cache_read + t.cache_write;
+    p.tokens += n;
+    const m = t.model.replace("claude-", "");
+    p.models.set(m, (p.models.get(m) ?? 0) + n);
+  });
+  const rows = [...by].sort((a, b) => b[1].secs - a[1].secs || b[1].tokens - a[1].tokens);
+  const num = { textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } as const;
+  return (
+    <div className="d-card">
+      <span className="d-label">Trabajo con Claude</span>
+      <table className="d-table">
+        <thead>
+          <tr className="d-dim">
+            <td>Proyecto</td>
+            <td style={num}>Tiempo</td>
+            <td style={num}>Tokens</td>
+            <td style={num}>Commits</td>
+            <td style={num}>Líneas</td>
+            <td style={num}>Features</td>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([k, p]) => (
+            <tr key={k}>
+              <td style={{ width: "100%" }}>
+                <a href={projHref(k)}>{projName(k)}</a>
+                {projCtx(k) && <small className="d-dim"> · {projCtx(k)}</small>}
+                {!!p.tokens && (
+                  <small className="d-dim" style={{ display: "block" }}>
+                    {[...p.models]
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([m, n]) => `${m} ${Math.round((n / p.tokens) * 100)}%`)
+                      .join(" · ")}
+                  </small>
+                )}
+              </td>
+              <td style={num}>{p.secs ? fmtDur(p.secs) : "—"}</td>
+              <td style={num}>{p.tokens ? fmtTok(p.tokens) : "—"}</td>
+              <td style={num}>{p.commits || "—"}</td>
+              <td style={num}>
+                {p.added || p.removed ? (
+                  <>
+                    <span style={{ color: "var(--ok)" }}>+{p.added}</span>{" "}
+                    <span style={{ color: "var(--err)" }}>−{p.removed}</span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td style={num}>{p.features || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <small className="d-dim">
+        Tiempo: desde cada mensaje tuyo en Claude Code o Cowork hasta el siguiente (máx. 10 min). Tokens
+        incluyen caché. Features: commits o merges que llegaron a main/master.
+      </small>
+    </div>
   );
 }
 

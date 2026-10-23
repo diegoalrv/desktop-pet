@@ -8,6 +8,7 @@ mod tray;
 mod voice;
 mod windows;
 mod web;
+mod worklog;
 
 use std::{sync::Mutex, thread, time::Duration};
 use tauri::{Emitter, Manager, State};
@@ -158,6 +159,24 @@ pub fn run() {
                             sql: include_str!("../migrations/011_cam_segments.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 12,
+                            description: "session_work",
+                            sql: include_str!("../migrations/012_session_work.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 13,
+                            description: "claude_hours",
+                            sql: include_str!("../migrations/013_claude_hours.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 14,
+                            description: "claude_projects",
+                            sql: include_str!("../migrations/014_claude_projects.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -237,6 +256,7 @@ pub fn run() {
             timer::restore(app.handle());
             timer::spawn(app.handle().clone());
             web::spawn(app.handle().clone());
+            db::spawn_claude_hours(app.handle().clone());
             // Indexa para preguntarle a las reuniones lo que falte (sin Ollama no hace nada). Espera a que el
             // frontend corra las migraciones (tauri-plugin-sql), que crean meeting_chunks.
             let h = app.handle().clone();

@@ -40,7 +40,7 @@ pub struct Cfg {
 }
 
 /// Tiempo y distracciones de una app durante un foco (se vuelca en `session_apps`).
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct AppUse {
     pub bundle: String,
     pub name: String,
@@ -75,8 +75,8 @@ pub struct Timer {
     last_task: Option<i64>, // tarea del último foco, para continuar el ciclo
     #[serde(skip)]
     cfg: Cfg,
-    // Apps al frente durante el foco en curso (F11); se pierde si la app se cierra a mitad de foco.
-    #[serde(skip)]
+    // Apps al frente durante el foco en curso (F11); va en timer.json para sobrevivir a un cierre a mitad de foco.
+    #[serde(default)]
     apps: HashMap<String, AppUse>,
     #[serde(skip)]
     front: Option<String>, // bundle al frente en la última mirada
@@ -337,6 +337,10 @@ fn state_file(app: &AppHandle) -> Option<std::path::PathBuf> {
 /// Cambio de estado: avisa a las ventanas y lo deja en disco para sobrevivir a un cierre.
 fn changed(app: &AppHandle, t: &Timer) {
     emit_tick(app, t);
+    save(app, t);
+}
+
+fn save(app: &AppHandle, t: &Timer) {
     if let (Some(path), Ok(json)) = (state_file(app), serde_json::to_vec(t)) {
         let _ = std::fs::write(path, json);
     }
@@ -387,6 +391,7 @@ pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
         let mut last = String::new(); // lo último escrito en la barra; solo lo usa este hilo
         let mut polled = Instant::now(); // última mirada a la app al frente (F11)
+        let mut saved = Instant::now(); // último volcado de las apps del foco a timer.json
         let own = app.config().identifier.clone();
         loop {
             thread::sleep(Duration::from_millis(250));
@@ -423,6 +428,11 @@ pub fn spawn(app: AppHandle) {
                         let _ = app.notification().builder().title("Sigues distraído").body(format!("Llevas más de 1 min en {name}.")).show();
                     }
                     None => {}
+                }
+                // ponytail: cada 30 s; si la app se cierra de golpe se pierde como mucho eso del tiempo por app
+                if saved.elapsed() >= Duration::from_secs(30) {
+                    saved = Instant::now();
+                    save(&app, &app.state::<TimerState>().lock().unwrap());
                 }
             }
         }
@@ -682,6 +692,19 @@ mod tests {
         let back: Timer = serde_json::from_slice(&serde_json::to_vec(&t).unwrap()).unwrap();
         let s = back.snap(300_000); // 5 min después, con la app recién abierta
         assert_eq!((s.status, s.remaining, s.task_id), (Status::Running, 1200, Some(9)));
+    }
+
+    #[test]
+    fn las_apps_del_foco_sobreviven_a_un_cierre() {
+        let mut t = Timer::new();
+        t.start(Mode::Focus, 1500, None, 0);
+        t.watch(Some(("com.app.x".into(), "X".into())), 1000);
+        t.watch(Some(("com.app.x".into(), "X".into())), 4000);
+        let mut back: Timer = serde_json::from_slice(&serde_json::to_vec(&t).unwrap()).unwrap();
+        assert_eq!(back.take_apps().first().map(|a| (a.bundle.as_str(), a.ms)), Some(("com.app.x", 5000)));
+        // timer.json de antes de este cambio (sin "apps") sigue cargando
+        let old = r#"{"mode":"focus","status":"idle","total":0,"left":0,"end":0,"count":0,"task_id":null,"last_task":null}"#;
+        assert!(serde_json::from_str::<Timer>(old).is_ok());
     }
 }
 
