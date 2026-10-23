@@ -34,9 +34,9 @@ struct Cmd {
 pub fn token() -> &'static str {
     static TOKEN: OnceLock<String> = OnceLock::new();
     TOKEN.get_or_init(|| {
-        let mut b = [0u8; 16];
-        std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom").expect("urandom"), &mut b).expect("urandom");
-        b.iter().map(|x| format!("{x:02x}")).collect()
+        // ponytail: RandomState se siembra del RNG del SO (también en Windows, sin /dev/urandom); 2×64 bits
+        use std::hash::{BuildHasher, RandomState};
+        (0..2).map(|_| format!("{:016x}", RandomState::new().hash_one(0u8))).collect()
     })
 }
 
@@ -44,7 +44,11 @@ pub fn token() -> &'static str {
 #[tauri::command]
 pub fn open_web() {
     let origin = if cfg!(debug_assertions) { "http://localhost:1420".to_string() } else { format!("http://127.0.0.1:{PORT}") };
-    let _ = std::process::Command::new("open").arg(format!("{origin}/?t={}", token())).spawn();
+    let url = format!("{origin}/?t={}", token());
+    #[cfg(windows)]
+    let _ = crate::cmd("cmd").args(["/C", "start", "", &url]).spawn();
+    #[cfg(not(windows))]
+    let _ = std::process::Command::new("open").arg(url).spawn();
 }
 
 pub fn spawn(app: AppHandle) {

@@ -143,6 +143,9 @@ pub fn shortcut_kind(app: &AppHandle, pressed: &tauri_plugin_global_shortcut::Sh
 pub fn set_quick_shortcut(kind: String, accel: String, app: AppHandle, cur: State<Shortcuts>) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let kind = KINDS.into_iter().find(|k| *k == kind).ok_or("Tipo de atajo desconocido")?;
+    if kind == "voice" && !cfg!(target_os = "macos") {
+        return Ok(()); // el dictado es solo macOS: no robarle Alt+Space a Windows
+    }
     let new: Shortcut = accel.parse().map_err(|e| format!("Atajo inválido: {e}"))?;
     let gs = app.global_shortcut();
     let mut map = cur.0.lock().unwrap();

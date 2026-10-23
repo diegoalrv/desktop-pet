@@ -46,9 +46,18 @@ pub fn claude_cancel(state: tauri::State<ClaudeChild>) {
 /// `claude` con el PATH del usuario: una app con bundle no hereda el del shell, así que va por un zsh de login
 /// (`claude install` deja el binario en ~/.local/bin, Homebrew en /opt/homebrew/bin…). `exec` hace que el pid del
 /// hijo sea el de `claude` mismo (`kill()` le llega directo) y "$@" evita problemas de quoting.
+/// En Windows las apps ya heredan el PATH del usuario: `claude.exe` directo (instalador nativo; el `claude.cmd` de
+/// npm no sirve sin pasar por `cmd`, que rompe el quoting del system prompt).
 pub fn command(args: &[String]) -> Command {
-    let mut c = Command::new("/bin/zsh");
-    c.args(["-lc", "exec claude \"$@\"", "claude"]).args(args);
+    #[cfg(windows)]
+    let mut c = crate::cmd("claude");
+    #[cfg(not(windows))]
+    let mut c = {
+        let mut c = Command::new("/bin/zsh");
+        c.args(["-lc", "exec claude \"$@\"", "claude"]);
+        c
+    };
+    c.args(args);
     c
 }
 
@@ -86,7 +95,7 @@ fn tool_label(t: &Value) -> String {
 /// (p. ej. `Bash(docker stop abc)`). `god`: sin permisos.
 #[tauri::command]
 pub fn claude_ask(app: AppHandle, prompt: String, session: Option<String>, allow: Vec<String>, god: bool, cwd: String) -> Result<(), String> {
-    let home = std::env::var("HOME").unwrap_or("/".into());
+    let home = crate::home();
     let dir = match cwd.trim() {
         "" => PathBuf::from(&home),
         c => PathBuf::from(c.strip_prefix("~").map(|r| format!("{home}{r}")).unwrap_or(c.into())),

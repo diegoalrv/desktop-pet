@@ -365,7 +365,7 @@ export function SettingsWindow() {
         style={{ ...btn, padding: 4 }}
       />
       <small style={{ opacity: 0.7 }}>
-        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (docs del VPS, Coolify, etc.). Vacía = tu
+        Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (tus docs de servidores, despliegues, etc.). Vacía = tu
         home.
       </small>
       <label>

@@ -5,7 +5,6 @@
 //! claude.ai viven en el servidor y no se ven.
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 use chrono::{DateTime, SecondsFormat};
@@ -193,12 +192,12 @@ fn iso(ms: i64) -> String {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
+    let out = crate::cmd("git").arg("-C").arg(dir).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Carpeta → (raíz del repo, proyecto, ¿git?). Los worktrees cuentan como su repo; sin git, la carpeta misma. El
-/// proyecto es la raíz relativa a ~ ("lab/pet", "Documents/USM/2026-2/Machine Learning/Laboratorios"): dos carpetas
+/// proyecto es la raíz relativa a ~ ("lab/pet", "Documents/U/Curso/Laboratorios"): dos carpetas
 /// con el mismo nombre no se mezclan y la ruta dice de qué es (un curso, un cliente).
 #[derive(Default)]
 struct Roots(HashMap<String, (PathBuf, String, bool)>);
@@ -213,7 +212,7 @@ impl Roots {
             Some(r) => (r.to_path_buf(), true),
             None => (PathBuf::from(dir.split("/.claude/worktrees/").next().unwrap_or(dir)), false),
         };
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = crate::home();
         let name = if root == Path::new(&home) {
             "~".to_string()
         } else if root.starts_with(Path::new(&home).join("Library/Application Support/Claude/scratch-workspaces")) {
@@ -246,7 +245,7 @@ impl Roots {
 }
 
 /// Carpetas sin git que se mudaron a un repo: se unen al repo git que termina en las mismas 3 carpetas, si hay uno
-/// solo ("Documents/USM/2026-2/ML/Laboratorios" → ".../OneDrive-X/2026-2/ML/Laboratorios"). El repo manda.
+/// solo ("Documents/U/2026-2/ML/Laboratorios" → ".../OneDrive-X/2026-2/ML/Laboratorios"). El repo manda.
 /// ponytail: solo ve los repos del rango escaneado; si la carpeta vieja vuelve a usarse sin el repo, queda aparte.
 pub fn moved(projects: &[(String, bool)]) -> HashMap<String, String> {
     fn tail(k: &str) -> Vec<&str> {
@@ -295,7 +294,7 @@ struct Scan {
 impl Scan {
     fn new(from: i64, to: i64) -> Self {
         let mut sc = Scan { from, to, ..Default::default() };
-        let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        let home = PathBuf::from(crate::home());
         let mut code = vec![];
         files(&home.join(".claude/projects"), 3, "jsonl", from - CAP_MS, &mut code);
         code.iter().for_each(|f| sc.code(f));
@@ -603,15 +602,15 @@ mod tests {
     fn la_carpeta_vieja_se_une_a_su_repo() {
         let p = |k: &str, git: bool| (k.to_string(), git);
         let m = moved(&[
-            p("Documents/USM/2026-2/ML/Laboratorios", false),
+            p("Documents/U/2026-2/ML/Laboratorios", false),
             p("Library/OneDrive-X/2026-2/ML/Laboratorios", true),
-            p("Documents/USM/Estructuras/Laboratorios", false), // sin repo: queda aparte
+            p("Documents/U/Estructuras/Laboratorios", false), // sin repo: queda aparte
             p("Documents/a/b/c", false),
             p("x/a/b/c", true),
             p("y/a/b/c", true), // dos repos candidatos: no adivina
             p("~", false),
         ]);
-        assert_eq!(m, HashMap::from([("Documents/USM/2026-2/ML/Laboratorios".into(), "Library/OneDrive-X/2026-2/ML/Laboratorios".into())]));
+        assert_eq!(m, HashMap::from([("Documents/U/2026-2/ML/Laboratorios".into(), "Library/OneDrive-X/2026-2/ML/Laboratorios".into())]));
     }
 
     #[test]

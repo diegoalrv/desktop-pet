@@ -1429,12 +1429,12 @@ mod tests {
         assert!(parse_actions("{\"tareas\":[]}", &[]).is_err());
         let input = manage_input(
             "martes 2026-10-20",
-            &[Pending { id: 14, title: "Enviar propuesta".into(), project: Some("Spadelab".into()), priority: 2, due: Some("2026-10-20".into()), pomodoros: 2 }],
+            &[Pending { id: 14, title: "Enviar propuesta".into(), project: Some("Acme".into()), priority: 2, due: Some("2026-10-20".into()), pomodoros: 2 }],
             &[Line { who: "Yo", text: "pásala al jueves".into() }],
         );
         assert_eq!(
             input,
-            "Hoy es martes 2026-10-20.\nTareas pendientes:\n- [14] Enviar propuesta (proyecto: Spadelab; prioridad: alta; vence: 2026-10-20; 2 pomodoros)\nTranscripción:\nYo: pásala al jueves"
+            "Hoy es martes 2026-10-20.\nTareas pendientes:\n- [14] Enviar propuesta (proyecto: Acme; prioridad: alta; vence: 2026-10-20; 2 pomodoros)\nTranscripción:\nYo: pásala al jueves"
         );
     }
 
@@ -1448,8 +1448,8 @@ mod tests {
         assert_eq!(body, "Yo: hola\nOtros: chao");
         assert_eq!(parse_lines(&md).len(), 2); // la cabecera no son líneas de la reunión
         assert_eq!(parse_head("Yo: sin cabecera"), (None, "Yo: sin cabecera"));
-        let p = prompt(&parse_lines(body), Some(&ctx), "Diego");
-        assert!(p.contains("Reunión: Daily: equipo \"pet\". Participantes: Ana Pérez, bob@x.dev. \"Yo\" es Diego."));
+        let p = prompt(&parse_lines(body), Some(&ctx), "Luis");
+        assert!(p.contains("Reunión: Daily: equipo \"pet\". Participantes: Ana Pérez, bob@x.dev. \"Yo\" es Luis."));
         assert!(!p.contains("OJO"));
         assert!(prompt(&[], None, "").ends_with("revisará cada una."));
     }

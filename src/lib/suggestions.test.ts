@@ -6,7 +6,7 @@ const task: Task = {
   id: 14,
   title: "Enviar propuesta",
   category_id: null,
-  project: "Spadelab",
+  project: "Acme",
   priority: 1,
   done: 0,
   due_at: new Date(2026, 9, 20, 9).getTime(),

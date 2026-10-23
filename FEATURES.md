@@ -256,4 +256,4 @@ Commit: `Cámara durante el foco: gruñe y ladra si miras el teléfono, pausa si
 ## F16. Sincronizar entre dispositivos — POSTERGADA
 El timer ya guarda estado en epoch pensando en esto. Opción simple: la web local accesible en la LAN (bind
 `0.0.0.0` solo si pref, HTTPS autofirmado, mismo token) para ver el timer y las tareas desde el celular. Opción
-completa: sync de `pet.db` por un servidor propio (Hetzner) con CRDT o last-write-wins por fila.
+completa: sync de `pet.db` por un servidor propio con CRDT o last-write-wins por fila.

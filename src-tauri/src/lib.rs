@@ -13,6 +13,20 @@ mod worklog;
 use std::{sync::Mutex, thread, time::Duration};
 use tauri::{Emitter, Manager, State};
 
+/// Carpeta del usuario: `HOME` en macOS, `USERPROFILE` en Windows.
+pub fn home() -> String {
+    std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
+}
+
+/// Proceso hijo sin consola: en Windows cada `git`/`curl`/`claude` lanzado desde la app abriría una ventana negra.
+pub fn cmd(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut c = std::process::Command::new(program);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000); // CREATE_NO_WINDOW
+    c
+}
+
 /// Zona opaca (px lógicos, relativa a la ventana) donde la ventana captura el mouse.
 #[derive(Default)]
 struct HitRect(Mutex<[f64; 4]>); // x, y, w, h
@@ -23,7 +37,7 @@ pub fn download_ical(url: &str) -> Result<String, String> {
     if !url.starts_with("https://") {
         return Err("la URL debe empezar con https://".into());
     }
-    let out = std::process::Command::new("curl")
+    let out = cmd("curl")
         .args(["-fsSL", "--max-time", "20", "--max-filesize", "20000000", url])
         .output()
         .map_err(|e| e.to_string())?;
