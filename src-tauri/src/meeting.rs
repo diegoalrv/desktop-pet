@@ -883,8 +883,13 @@ pub mod local {
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
     use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
-    const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
-    const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin";
+    #[cfg(target_os = "macos")]
+    const MODEL: (&str, &str) = ("ggml-large-v3-turbo-q5_0.bin", "~550 MB");
+    /// En Windows corre en CPU: el encoder de turbo (el de large, 32 capas sobre una ventana fija de 30 s) tarda más
+    /// que el audio en un laptop y la reunión se atrasa sin fin. small tiene ~7x menos cómputo.
+    /// ponytail: small fijo; un modelo elegible en Ajustes si hay PCs con GPU o CPUs sobrados.
+    #[cfg(target_os = "windows")]
+    const MODEL: (&str, &str) = ("ggml-small-q5_1.bin", "~190 MB");
     /// Silero VAD de whisper.cpp (~1 MB): dónde hay voz, para cortar en pausas reales y no transcribir ruido.
     const VAD_MODEL: &str = "ggml-silero-v5.1.2.bin";
     const VAD_URL: &str = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin";
@@ -979,7 +984,7 @@ pub mod local {
     }
 
     /// El modelo de voz se carga una vez y queda en memoria: la reunión y el dictado a la Candola (voice.rs) lo
-    /// comparten, así una frase no espera los segundos que tarda cargar ~550 MB.
+    /// comparten, así una frase no espera los segundos que tarda cargarlo.
     /// ponytail: no se libera nunca (~1 GB de RAM/GPU tras el primer uso); soltarlo tras N min sin uso si molesta.
     fn whisper(app: &AppHandle) -> Result<Arc<WhisperContext>, String> {
         static CTX: Mutex<Option<Arc<WhisperContext>>> = Mutex::new(None);
@@ -987,7 +992,8 @@ pub mod local {
         if let Some(c) = g.as_ref() {
             return Ok(c.clone());
         }
-        let path = model_path(app, MODEL, MODEL_URL, "el modelo de voz (~550 MB)")?;
+        let url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", MODEL.0);
+        let path = model_path(app, MODEL.0, &url, &format!("el modelo de voz ({})", MODEL.1))?;
         whisper_rs::install_logging_hooks(); // sin logger, silencia el log de whisper.cpp en la consola
         let c = Arc::new(WhisperContext::new_with_params(&path, WhisperContextParameters::default()).map_err(|e| format!("whisper: {e}"))?);
         *g = Some(c.clone());
