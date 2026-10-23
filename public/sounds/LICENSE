@@ -1,3 +1,4 @@
 growl.m4a: 3,6 s de "Dog 2.wav" (un gruñido largo) de "dog sounds" de pauliuw, CC0 — https://opengameart.org/content/dog-sounds
 bark.m4a: "Dog Bark.wav" + "Dog Bark 2.wav" del mismo paquete, CC0.
 Recortados, convertidos a AAC y normalizados con ffmpeg (loudnorm I=-16).
+growl.m4a además: pasa-bajos 900 Hz (x3) para quitar el chirrido/gemido agudo, fundido de 40 ms al inicio y 100 ms al final (loop sin clic).
