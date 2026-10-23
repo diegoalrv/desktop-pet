@@ -26,9 +26,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ggml-avx2 # whisper-rs-sys no se recompila si cambian las GGML_*: cambiar la llave al tocarlas
       - run: pnpm install --frozen-lockfile
       - uses: tauri-apps/tauri-action@v0
         env:
+          # whisper.cpp con MSVC detecta el CPU del runner (puede salir AVX-512, que se cae en la mayoría de los PCs,
+          # o nada, que lo deja decenas de veces más lento). Sin NATIVE compila AVX2+FMA+F16C: cualquier x86 desde 2013.
+          GGML_NATIVE: 'OFF'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''

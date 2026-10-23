@@ -1142,7 +1142,8 @@ pub mod local {
         p.set_language(Some(LANG));
         p.set_no_context(true); // sin arrastrar texto: evita bucles de repetición entre fragmentos
         p.set_suppress_blank(true);
-        p.set_n_threads(4);
+        // ponytail: hasta 8 hilos; en Windows (CPU, sin Metal) 4 fijos se quedaban cortos para el modelo turbo
+        p.set_n_threads(std::thread::available_parallelism().map_or(4, |n| n.get().clamp(1, 8)) as i32);
         p.set_print_progress(false);
         p.set_print_realtime(false);
         p.set_print_special(false);
