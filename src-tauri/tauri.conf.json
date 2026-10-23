@@ -91,6 +91,15 @@
       "preload": [
         "sqlite:pet.db"
       ]
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3OThFREVGMTEyNTQ5QzQKUldURVNTVVI3KzJZdDJjQTlNZEZ5c1dzc0lCaHFCTUg1eHVtdG1wKzUvK0o1c2FNRUpFMDVzQVYK",
+      "endpoints": [
+        "https://github.com/diegoalrv/desktop-pet/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

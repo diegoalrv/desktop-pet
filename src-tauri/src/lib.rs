@@ -95,12 +95,36 @@ fn spawn_cursor_poll(app: tauri::AppHandle) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Al arrancar mira el latest.json de la última release de GitHub; si hay versión nueva pregunta y la instala.
+/// Sin red, en dev o en macOS (la release solo trae Windows) no hace nada.
+fn check_update(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri_plugin_updater::UpdaterExt;
+    if cfg!(debug_assertions) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater) = app.updater() else { return };
+        let Ok(Some(update)) = updater.check().await else { return };
+        let ok = app
+            .dialog()
+            .message(format!("Hay una versión nueva de Candola ({}). ¿Actualizar ahora?", update.version))
+            .title("Actualización")
+            .buttons(MessageDialogButtons::OkCancelCustom("Actualizar".into(), "Ahora no".into()))
+            .blocking_show();
+        if ok && update.download_and_install(|_, _| {}, || {}).await.is_ok() {
+            app.restart();
+        }
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -287,6 +311,7 @@ pub fn run() {
             tray::build(app.handle())?;
             // YouTube Music listo desde el arranque (oculto, sin reproducir).
             let _ = music::ensure(app.handle());
+            check_update(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -1,9 +1,14 @@
-# Instalador de Windows (NSIS, sin firmar; idioma, imágenes y nombre en src-tauri/tauri.windows.conf.json): Actions → windows → el artefacto "Desktop-Pet-windows".
+# Instalador de Windows (NSIS, sin firmar; idioma, imágenes y nombre en src-tauri/tauri.windows.conf.json).
+# Para publicar: subir "version" en src-tauri/tauri.conf.json, commit y `git tag vX.Y.Z && git push --tags`.
+# Crea la release v<version> con el .exe y el latest.json que la app consulta al arrancar para auto-actualizarse.
 name: windows
 on:
   workflow_dispatch:
   push:
-    branches: [windows]
+    tags: ['v*']
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,8 +27,13 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tauri build --bundles nsis
-      - uses: actions/upload-artifact@v4
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
-          name: Desktop-Pet-windows
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          tagName: v__VERSION__
+          releaseName: Candola v__VERSION__
+          releaseDraft: false
+          args: --bundles nsis

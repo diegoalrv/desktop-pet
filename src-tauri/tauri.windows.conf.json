@@ -4,11 +4,14 @@
   "bundle": {
     "windows": {
       "nsis": {
-        "languages": ["Spanish"],
+        "languages": [
+          "Spanish"
+        ],
         "headerImage": "icons/installer-header.bmp",
         "sidebarImage": "icons/installer-sidebar.bmp",
         "installerIcon": "icons/icon.ico"
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   }
 }
