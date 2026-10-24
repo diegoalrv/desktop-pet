@@ -1,6 +1,6 @@
 import type { PetState } from "./stateMachine";
 import type { Skin } from "../skins/loader";
-import { pickAnim, topInset } from "../skins/schema";
+import { pickAnim, topInset, type Anim } from "../skins/schema";
 
 // Animación CSS por estado: zorro SVG integrado y skins de imagen única (1 frame).
 const ANIM: Record<PetState, string> = {
@@ -111,10 +111,38 @@ function Pack({
         }}
       />
     );
-  const name = `sheet_${skin.manifest.id.replace(/\W/g, "_")}_${key}`;
+  return (
+    <Sheet
+      key={`${skin.manifest.id}-${key}`}
+      id={skin.manifest.id}
+      anim={anim}
+      animKey={key}
+      url={url}
+      w={w}
+      h={h}
+    />
+  );
+}
+
+/** Tira horizontal animada con CSS steps(). `key` del padre reinicia la animación (celebrate no loop). */
+export function Sheet({
+  id,
+  animKey,
+  anim,
+  url,
+  w,
+  h,
+}: {
+  id: string;
+  animKey: string;
+  anim: Anim;
+  url: string;
+  w: number;
+  h: number;
+}) {
+  const name = `sheet_${id.replace(/\W/g, "_")}_${animKey}`;
   return (
     <div
-      key={`${skin.manifest.id}-${key}`} // reinicia la animación al cambiar de estado (celebrate no loop)
       style={{
         width: w,
         height: h,

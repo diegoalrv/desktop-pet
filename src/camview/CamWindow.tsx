@@ -7,6 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { openCam, PHONE_SCORE, type Box, type Cam, type Seen } from "../lib/camera";
 import { T } from "../panel/ui";
+import { loadManifest } from "../skins/loader";
+import { DEFAULT_VOICE } from "../skins/schema";
+import { useSettings } from "../store/useSettings";
 
 const FRAME_MS = 150; // ~6 detecciones por segundo
 const SPAN_MS = 60_000; // historia de los gráficos
@@ -88,13 +91,20 @@ export function CamWindow() {
   const [error, setError] = useState("");
   const decidedRef = useRef<Decided | null>(null);
   decidedRef.current = decided;
+  const voice = useRef(DEFAULT_VOICE);
+  const skin = useSettings((s) => s.skin);
+  useEffect(() => {
+    loadManifest(skin)
+      .then((m) => (voice.current = { ...DEFAULT_VOICE, ...m?.voice }))
+      .catch(() => {});
+  }, [skin]);
 
   // Lo que decide la mascota: base/umbral y gruñidos/ladridos (llega cada 2 s mientras vigila un foco).
   useEffect(() => {
     const un = listen<{ base: number; down: number; events: string[] }>("cam://sample", ({ payload: p }) => {
       setDecided({ base: p.base, down: p.down, at: Date.now() });
-      if (p.events.includes("bark")) setShout({ text: "¡GUAU GUAU!", color: RED, at: Date.now() });
-      else if (p.events.includes("growl")) setShout({ text: "GRRRRR", color: AMBER, at: Date.now() });
+      if (p.events.includes("bark")) setShout({ text: voice.current.bark, color: RED, at: Date.now() });
+      else if (p.events.includes("growl")) setShout({ text: voice.current.growl, color: AMBER, at: Date.now() });
       else if (p.events.includes("calm") || p.events.includes("back")) setShout(null);
     });
     return () => void un.then((f) => f());

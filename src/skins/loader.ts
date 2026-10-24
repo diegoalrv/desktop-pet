@@ -1,4 +1,4 @@
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 import { join } from "@tauri-apps/api/path";
 import {
   BaseDirectory,
@@ -15,6 +15,7 @@ import candolitaManifest from "../../examples/candolita/manifest.json";
 
 const base = { baseDir: BaseDirectory.AppData };
 const IMG = /\.(png|webp|gif|jpe?g)$/i;
+const AUDIO_MIME: Record<string, string> = { m4a: "audio/mp4", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg" };
 
 export const BUILTIN = "zorro-default";
 /** Skin por defecto, empaquetada con la app (examples/candolita). */
@@ -50,6 +51,30 @@ export async function listSkins(): Promise<{ id: string; name: string }[]> {
 const readManifest = async (id: string) =>
   parseManifest(JSON.parse(await readTextFile(`skins/${id}/manifest.json`, base)));
 
+/** Imágenes y sonidos que usa un manifest. */
+const filesOf = (m: Manifest) =>
+  new Set([...Object.values(m.animations).map((a) => a.file), ...Object.values(m.sounds)]);
+
+/** Solo el manifest (sin cargar imágenes); null para el zorro integrado. */
+export async function loadManifest(id: string): Promise<Manifest | null> {
+  if (id === BUILTIN) return null;
+  return id === DEFAULT ? parseManifest(candolitaManifest) : readManifest(id);
+}
+
+/** El skin como .zip listo para compartir e importar en otro equipo. */
+export async function exportSkin(id: string): Promise<Uint8Array> {
+  const out: Record<string, Uint8Array> = {};
+  if (id === DEFAULT) {
+    out["manifest.json"] = new TextEncoder().encode(JSON.stringify(candolitaManifest, null, 2));
+    for (const [f, url] of Object.entries(candolitaUrls))
+      out[f] = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  } else {
+    const m = await readManifest(id);
+    for (const f of ["manifest.json", ...filesOf(m)]) out[f] = await readFile(`skins/${id}/${f}`, base);
+  }
+  return zipSync({ [id]: out }); // carpeta raíz: normalizeZipPaths la quita al importar
+}
+
 /** Carga un skin; las imágenes pasan a blob URLs (sin configurar asset protocol/CSP). */
 export async function loadSkin(id: string): Promise<Skin> {
   if (id === BUILTIN) return { kind: "builtin" };
@@ -57,8 +82,9 @@ export async function loadSkin(id: string): Promise<Skin> {
     return { kind: "pack", manifest: parseManifest(candolitaManifest), urls: candolitaUrls };
   const manifest = await readManifest(id);
   const urls: Record<string, string> = {};
-  for (const f of new Set(Object.values(manifest.animations).map((a) => a.file))) {
-    urls[f] = URL.createObjectURL(new Blob([await readFile(`skins/${id}/${f}`, base)]));
+  for (const f of filesOf(manifest)) {
+    const type = AUDIO_MIME[f.split(".").pop()!.toLowerCase()] ?? ""; // WebKit no reproduce audio de un blob sin tipo
+    urls[f] = URL.createObjectURL(new Blob([await readFile(`skins/${id}/${f}`, base)], { type }));
   }
   return { kind: "pack", manifest, urls };
 }
@@ -76,9 +102,9 @@ export async function installFiles(files: Record<string, Uint8Array>): Promise<s
   if (raw) {
     manifest = parseManifest(JSON.parse(new TextDecoder().decode(raw)));
     out = { "manifest.json": raw };
-    for (const a of Object.values(manifest.animations)) {
-      if (!files[a.file]) throw new Error(`Falta el archivo ${a.file}`);
-      out[a.file] = files[a.file];
+    for (const f of filesOf(manifest)) {
+      if (!files[f]) throw new Error(`Falta el archivo ${f}`);
+      out[f] = files[f];
     }
   } else {
     const img = Object.keys(files).find((n) => IMG.test(n));

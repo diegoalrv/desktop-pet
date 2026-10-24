@@ -273,6 +273,7 @@ pub fn run() {
             windows::open_window,
             windows::open_panel_tab,
             windows::open_camview,
+            windows::open_privacy,
             web::open_web,
             meeting::meeting_start,
             meeting::meeting_stop,

@@ -169,3 +169,28 @@ pub fn set_quick_shortcut(kind: String, accel: String, app: AppHandle, cur: Stat
     map.insert(kind, accel);
     Ok(())
 }
+
+/// Abre el panel de privacidad del sistema para un permiso (Ajustes → Permisos). Lista cerrada: no abre URLs ajenas.
+#[tauri::command]
+pub fn open_privacy(pane: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let url = match pane.as_str() {
+        "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        "mic" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        "screen" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        "notifications" => "x-apple.systempreferences:com.apple.preference.notifications",
+        _ => return Err(format!("permiso desconocido: {pane}")),
+    };
+    #[cfg(windows)]
+    let url = match pane.as_str() {
+        "camera" => "ms-settings:privacy-webcam",
+        "mic" => "ms-settings:privacy-microphone",
+        "notifications" => "ms-settings:notifications",
+        _ => return Err(format!("permiso desconocido: {pane}")),
+    };
+    #[cfg(windows)]
+    let r = crate::cmd("cmd").args(["/C", "start", "", url]).spawn();
+    #[cfg(not(windows))]
+    let r = std::process::Command::new("open").arg(url).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
+}

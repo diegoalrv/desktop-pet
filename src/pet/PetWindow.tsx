@@ -6,7 +6,7 @@ import { currentMonitor, getCurrentWindow, primaryMonitor } from "@tauri-apps/ap
 import { headroom, Sprite, spriteSize } from "./Sprite";
 import { BUILTIN, loadSkin, revokeSkin, type Skin } from "../skins/loader";
 import { useSettings } from "../store/useSettings";
-import { chime } from "../lib/sound";
+import { chime, skinClips } from "../lib/sound";
 import { watchFocusCam } from "../lib/camera";
 import { PILL_H, TimerPill } from "./TimerPill";
 import { notify, togglePanel } from "../lib/ipc";
@@ -17,7 +17,7 @@ import { closeMessage, dayKey, shouldClose, summarize } from "../lib/standup";
 import { dueMeetings, meetingsBetween, type Meeting } from "../lib/calendar";
 import { useTimer } from "../store/useTimer";
 import { useMusic } from "../store/useMusic";
-import { MOOD_S } from "../skins/schema";
+import { CALLS, MOOD_S } from "../skins/schema";
 import { clamp, fallStep, groundY, walkStep, type Rect } from "./physics";
 import { initial, transition, type ClaudeOutcome, type PetEvent, type PetState } from "./stateMachine";
 
@@ -41,6 +41,8 @@ export function PetWindow() {
       .catch(() => loadSkin(BUILTIN))
       .then((next) => {
         if (cancelled) return revokeSkin(next);
+        for (const c of CALLS)
+          skinClips[c] = next.kind === "pack" ? next.urls[next.manifest.sounds[c] ?? ""] : undefined;
         cfg.current =
           next.kind === "pack"
             ? { walkSpeed: next.manifest.walkSpeed, groundOffset: next.manifest.groundOffset }

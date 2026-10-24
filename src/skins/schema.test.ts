@@ -34,6 +34,14 @@ describe("manifest", () => {
     expect(() => parseManifest({ ...base, animations: { idle: a("a/b.png") } })).toThrow();
     expect(() => parseManifest({ ...base, frameWidth: 0 })).toThrow();
   });
+  it("voz y sonidos propios; sin ellos, vacíos (la app usa los de perro)", () => {
+    expect(parseManifest(base)).toMatchObject({ voice: {}, sounds: {} });
+    const m = parseManifest({ ...base, voice: { bark: "¡MIAU!" }, sounds: { growl: "bufido.m4a" } });
+    expect(m.voice.bark).toBe("¡MIAU!");
+    expect(m.sounds.growl).toBe("bufido.m4a");
+    expect(() => parseManifest({ ...base, sounds: { bark: "../x.m4a" } })).toThrow();
+    expect(() => parseManifest({ ...base, sounds: { bark: "x.exe" } })).toThrow();
+  });
   it("resolveAnim: respaldo a idle y mapeos", () => {
     const m = parseManifest(base);
     expect(resolveAnim(m, "walk").key).toBe("walk");

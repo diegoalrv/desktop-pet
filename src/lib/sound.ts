@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Call } from "../skins/schema";
 
 // Campanillas suaves con WebAudio (sin assets), inspiradas en las de Toggl Track:
 // "work" (a trabajar) = arpegio tipo marimba que sube; "rest" (descansa) = baja y resuelve en un acorde grave.
@@ -64,11 +65,14 @@ export async function chime(kind: Kind = "rest") {
 
 const CLIP_GAIN = 0.6; // ponytail: a oído, como GAIN; las grabaciones ya vienen normalizadas (loudnorm -16)
 
-/** Gruñido / ladridos de la cámara del foco (F17): grabaciones CC0 en public/sounds (ver su LICENSE).
- *  `loop`: el gruñido (~3,5 s) sigue hasta que lo callen. Devuelve la función que lo calla. */
-export function clip(name: "growl" | "bark", loop = false): () => void {
+/** Sonidos del skin activo (blob URLs); la mascota los fija al cargar el skin. */
+export const skinClips: Partial<Record<Call, string>> = {};
+
+/** Gruñido / ladridos de la cámara del foco (F17): los del skin o las grabaciones CC0 en public/sounds (ver su
+ *  LICENSE). `loop`: el gruñido (~3,5 s) sigue hasta que lo callen. Devuelve la función que lo calla. */
+export function clip(name: Call, loop = false, url = skinClips[name]): () => void {
   void invoke("music_cmd", { cmd: "duck", arg: loop ? 5 : 2 }); // gruñido + ladrido / solo ladrido (< 1 s)
-  const a = new Audio(`/sounds/${name}.m4a`);
+  const a = new Audio(url ?? `/sounds/${name}.m4a`);
   a.volume = CLIP_GAIN;
   a.loop = loop;
   let on = true;

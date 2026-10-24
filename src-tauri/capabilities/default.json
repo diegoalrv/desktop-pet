@@ -17,6 +17,7 @@
     "sql:default",
     "sql:allow-execute",
     "dialog:allow-open",
+    "dialog:allow-save",
     "dialog:allow-ask",
     "store:default",
     "fs:allow-exists",

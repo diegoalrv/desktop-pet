@@ -3,12 +3,20 @@ import type { PetState } from "../pet/stateMachine";
 
 // Nombres planos: sin "/" ni "..", así un zip no puede escribir fuera de la carpeta del skin.
 const file = z.string().regex(/^[\w.-]+\.(png|webp|gif|jpe?g)$/i);
+const audio = z.string().regex(/^[\w.-]+\.(m4a|mp3|wav|ogg)$/i);
 const anim = z.object({
   file,
   frames: z.number().int().min(1),
   fps: z.number().positive().default(8),
   loop: z.boolean().default(true),
+  prompt: z.string().max(2000).optional(), // cómo se generó: solo informativo (se ve en Ajustes)
 });
+
+/** Llamados de atención de la cámara del foco: texto en pantalla y sonido, propios de cada mascota. */
+export const CALLS = ["growl", "bark"] as const;
+export type Call = (typeof CALLS)[number];
+/** Lo que usa un skin que no trae `voice` (los de perro de antes). */
+export const DEFAULT_VOICE: Record<Call, string> = { growl: "GRRRRR", bark: "¡GUAU GUAU!" };
 
 export const manifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
@@ -19,6 +27,11 @@ export const manifestSchema = z.object({
   animations: z.record(z.string(), anim).refine((a) => "idle" in a, { message: "falta la animación idle" }),
   walkSpeed: z.number().positive().default(40),
   groundOffset: z.number().default(0),
+  /** Ficha base del personaje (especie, rasgos, estilo) con la que se generaron las animaciones. */
+  character: z.string().max(4000).optional(),
+  voice: z.object({ growl: z.string().max(40), bark: z.string().max(40) }).partial().default({}),
+  /** Archivos de audio en la carpeta del skin; los que falten usan los de public/sounds. */
+  sounds: z.object({ growl: audio, bark: audio }).partial().default({}),
 });
 export type Manifest = z.infer<typeof manifestSchema>;
 export type Anim = z.infer<typeof anim>;
