@@ -6,6 +6,7 @@ import { clip } from "../lib/sound";
 import { Sheet } from "../pet/Sprite";
 import {
   BUILTIN,
+  clearSkinSound,
   DEFAULT,
   exportSkin,
   importFile,
@@ -14,7 +15,10 @@ import {
   loadSkin,
   removeSkin,
   revokeSkin,
+  setSkinSound,
+  soundOverrides,
   type Skin,
+  type Sounds,
 } from "../skins/loader";
 import { CALLS, DEFAULT_VOICE, type Call } from "../skins/schema";
 import { useSettings } from "../store/useSettings";
@@ -27,16 +31,20 @@ const CALL_LABEL: Record<Call, string> = {
   bark: "Llamado de atención (distracción)",
 };
 const TILE = 56;
+const AUDIO_EXT = ["m4a", "mp3", "wav", "ogg"];
 
 export const sub = { margin: "6px 0 0", fontSize: 12, color: T.dim, fontWeight: 600 } as const;
 const small = { ...btn, padding: "2px 8px" } as const;
 
 /** Personaliza tu mascota: elegir/importar/exportar skins, ver sus animaciones y llamados, y cómo crear una propia. */
 export function PetSection() {
-  const { skin, setSkin, reloadSkin, prefs, setPrefs } = useSettings();
+  const { skin, skinRev, setSkin, reloadSkin, prefs, setPrefs } = useSettings();
   const [skins, setSkins] = useState<{ id: string; name: string }[]>([]);
-  const [loaded, setLoaded] = useState<Skin>({ kind: "builtin" });
+  const [loaded, setLoaded] = useState<Skin>({ kind: "builtin", sounds: {} });
+  const [own, setOwn] = useState<Sounds>({}); // sonidos cargados aquí (los que se pueden quitar)
+  const [rev, setRev] = useState(0); // recarga local tras cambiar un sonido
   const [msg, setMsg] = useState("");
+  const [soundMsg, setSoundMsg] = useState("");
   const refresh = useCallback(() => listSkins().then(setSkins), []);
   useEffect(() => void refresh(), [refresh]);
 
@@ -51,11 +59,26 @@ export function PetSection() {
         mine = s;
         setLoaded(s);
       });
+    soundOverrides(skin)
+      .then((o) => !cancelled && setOwn(o))
+      .catch(() => {});
     return () => {
       cancelled = true;
       if (mine) revokeSkin(mine);
     };
-  }, [skin]);
+  }, [skin, skinRev, rev]);
+
+  /** Cambia un sonido de la mascota activa y recarga el skin aquí y en la mascota. */
+  const changeSound = async (done: string, change: () => Promise<boolean>) => {
+    try {
+      if (!(await change())) return;
+      setRev((r) => r + 1);
+      await reloadSkin();
+      setSoundMsg(done);
+    } catch (e) {
+      setSoundMsg(`No se pudo cambiar el sonido: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   const fail = (what: string, e: unknown) => setMsg(`${what}: ${e instanceof Error ? e.message : String(e)}`);
 
@@ -225,24 +248,54 @@ export function PetSection() {
 
       <h3 style={sub}>Llamados de atención</h3>
       {CALLS.map((c) => (
-        <div key={c} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ flex: 1 }}>
-            {CALL_LABEL[c]} <b style={{ color: c === "bark" ? "#e34948" : "#eda100" }}>{voice[c]}</b>{" "}
+        <div key={c} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ flex: "1 1 220px" }}>
+            {CALL_LABEL[c]} <b style={{ color: c === "bark" ? "#e34948" : "#eda100" }}>{voice[c]}</b>
+            <br />
             <small style={{ color: T.dim }}>
-              {pack?.manifest.sounds[c] ? "sonido propio" : "sonido por defecto"}
+              {own[c]
+                ? "Tu sonido"
+                : pack?.manifest.sounds[c]
+                  ? "Sonido de la mascota"
+                  : "Sonido por defecto"}
             </small>
           </span>
-          <button
-            style={small}
-            onClick={() => {
-              const stop = clip(c, false, pack ? pack.urls[pack.manifest.sounds[c] ?? ""] : undefined);
-              setTimeout(stop, 4000);
-            }}
-          >
-            Probar
-          </button>
+          <span style={{ display: "flex", gap: 6 }}>
+            <button style={small} onClick={() => setTimeout(clip(c, false, loaded.sounds[c]), 4000)}>
+              Probar
+            </button>
+            <button
+              style={small}
+              onClick={() =>
+                changeSound("Sonido cargado.", async () => {
+                  const p = (await open({ filters: [{ name: "Audio", extensions: AUDIO_EXT }] })) as
+                    string | null;
+                  if (p) await setSkinSound(skin, c, p);
+                  return !!p;
+                })
+              }
+            >
+              Cargar sonido…
+            </button>
+            {own[c] && (
+              <button
+                style={small}
+                title="Vuelve al sonido de la mascota o al por defecto"
+                onClick={() =>
+                  changeSound("Sonido quitado.", async () => (await clearSkinSound(skin, c), true))
+                }
+              >
+                Quitar
+              </button>
+            )}
+          </span>
         </div>
       ))}
+      <small style={{ opacity: 0.7 }}>
+        Carga un audio corto (.m4a, .mp3, .wav u .ogg, hasta 5 MB), por ejemplo un maullido grabado con el
+        teléfono. Queda guardado solo para esta mascota y viaja con ella al exportarla.
+      </small>
+      {soundMsg && <div style={{ fontSize: 12, color: T.dim }}>{soundMsg}</div>}
 
       <h3 style={sub}>Crea tu propia mascota</h3>
       <ol style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 4, lineHeight: 1.4 }}>
@@ -262,8 +315,8 @@ export function PetSection() {
         </li>
       </ol>
       <small style={{ opacity: 0.7 }}>
-        Si quieres que suene propia (un maullido en vez de ladrido), el final del prompt explica cómo
-        agregarle sonidos al .zip.
+        Después, en “Llamados de atención”, puedes cargarle sus propios sonidos (un maullido en vez de
+        ladrido).
       </small>
     </>
   );

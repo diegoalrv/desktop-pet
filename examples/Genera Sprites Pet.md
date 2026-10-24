@@ -103,4 +103,4 @@ Entrega el `.zip` para descargar y, aparte, una imagen de vista previa con un cu
 
 ---
 
-**Sonidos (opcional, lo agrego yo):** la app usa un ladrido y un gruñido por defecto. Para que tu mascota suene propia, pon dentro del zip dos audios cortos (`.m4a`, `.mp3`, `.wav` u `.ogg`) y agrega al manifest: `"sounds": { "bark": "llamado.m4a", "growl": "advertencia.m4a" }`.
+**Sonidos (no los generes):** los cargo yo después en la app (Ajustes → Personaliza tu mascota → Llamados de atención).

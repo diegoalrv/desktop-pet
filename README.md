@@ -101,7 +101,7 @@ Una sola imagen también sirve: se anima con efectos CSS. Hay ejemplos en `examp
 ```
 
 Animaciones: `idle` (obligatoria), `walk`, `focus`, `celebrate`, `sleep`, `dragged`; las que falten usan `idle`.
-Opcionales: `voice` (texto de los llamados, ej. `{ "bark": "¡MIAU!", "growl": "FFFSSS" }`), `sounds` (audios `.m4a/.mp3/.wav/.ogg` del pack para `bark`/`growl`; sin ellos suenan los de `public/sounds`), `character` y `prompt` por animación (cómo se generó; se ven en Ajustes).
+Opcionales: `voice` (texto de los llamados, ej. `{ "bark": "¡MIAU!", "growl": "FFFSSS" }`), `sounds` (audios `.m4a/.mp3/.wav/.ogg` del pack para `bark`/`growl`; sin ellos suenan los de `public/sounds`. Más fácil: Ajustes → Llamados de atención → "Cargar sonido…", que lo guarda por mascota en `sounds/<id>/` y lo mete al exportar), `character` y `prompt` por animación (cómo se generó; se ven en Ajustes).
 Para crear una mascota propia con una IA de imágenes: Ajustes → Personaliza tu mascota → "Descargar Genera Sprites Pet.md" (es [`examples/Genera Sprites Pet.md`](examples/Genera%20Sprites%20Pet.md)).
 Los skins se guardan en el directorio de datos de la app (`~/Library/Application Support/xyz.spadelab.pet/skins/` en macOS).
 La app no incluye personajes de terceros.

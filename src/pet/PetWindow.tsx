@@ -30,7 +30,7 @@ export function PetWindow() {
 
   const skinId = useSettings((s) => s.skin);
   const skinRev = useSettings((s) => s.skinRev);
-  const [skin, setSkin] = useState<Skin>({ kind: "builtin" });
+  const [skin, setSkin] = useState<Skin>({ kind: "builtin", sounds: {} });
   // Valores del skin que lee el loop de animación (walkSpeed px lógicos/s, groundOffset px lógicos).
   const cfg = useRef({ walkSpeed: 40, groundOffset: 0 });
 
@@ -41,8 +41,7 @@ export function PetWindow() {
       .catch(() => loadSkin(BUILTIN))
       .then((next) => {
         if (cancelled) return revokeSkin(next);
-        for (const c of CALLS)
-          skinClips[c] = next.kind === "pack" ? next.urls[next.manifest.sounds[c] ?? ""] : undefined;
+        for (const c of CALLS) skinClips[c] = next.sounds[c];
         cfg.current =
           next.kind === "pack"
             ? { walkSpeed: next.manifest.walkSpeed, groundOffset: next.manifest.groundOffset }
