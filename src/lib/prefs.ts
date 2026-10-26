@@ -46,6 +46,7 @@ export const prefsSchema = z.object({
   distractions: z.array(z.string().trim().min(1)).catch([]), // bundle ids que cuentan como distracción durante un foco (macOS)
   // Cámara durante el foco (F17, lib/camera.ts): gruñe/ladra si miras el teléfono, pausa si te vas
   focusCam: z.boolean().catch(false),
+  camId: z.string().catch(""), // deviceId de la cámara elegida; vacía = la del sistema
   // grados sobre tu postura normal = mirando abajo; medido: monitor ≈ 12°, cabeza abajo ≈ 30° (+18), techo ≈ −40°
   headDownDeg: z.coerce.number().int().min(5).max(60).catch(12),
   barkAfterSec: z.coerce.number().int().min(2).max(300).catch(3), // gruñe seguido; pasado esto ladra (y cuenta)

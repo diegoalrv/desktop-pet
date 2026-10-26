@@ -45,7 +45,11 @@ export interface Cam {
 
 /** Abre la webcam y los detectores. También la usa la ventana "Ver cámara" (camview), con su propio stream. */
 export async function openCam(): Promise<Cam> {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+  const camId = useSettings.getState().prefs.camId;
+  // `ideal`: si la elegida no está conectada, usa la del sistema en vez de fallar.
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480, deviceId: camId ? { ideal: camId } : undefined },
+  });
   try {
     const video = document.createElement("video");
     video.muted = video.playsInline = true;
@@ -120,6 +124,7 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
   let ext: { seen: Seen; at: number } | null = null;
   const unExt = listen<Seen>("cam://seen", (e) => (ext = { seen: e.payload, at: Date.now() }));
   let opening: Promise<void> | null = null;
+  let camOf = ""; // camId con el que se abrió `cam`: si cambia en Ajustes, se reabre con la nueva
   const stopGrowl = () => {
     hush?.();
     hush = null;
@@ -174,13 +179,14 @@ export function watchFocusCam(send: (ev: PetEvent) => void): () => void {
     )
       return close();
     const lent = ext && Date.now() - ext.at < 1500 ? ext.seen : null;
-    if (lent && cam) {
+    if ((lent || camOf !== prefs.camId) && cam) {
       cam.stop(); // sin cerrar el tramo ni perder el estado: solo la cámara
       cam = null;
     }
     // Abrir la cámara propia sin esperarla en el tick: si WebKit la deja colgada (otra ventana la tiene), el loop
     // sigue y puede usar las muestras de "Ver cámara".
     if (!lent && !cam && !opening) {
+      camOf = prefs.camId;
       opening = openCam()
         .then((c) => {
           if (ext && Date.now() - ext.at < 1500) c.stop();
