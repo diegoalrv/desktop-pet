@@ -6,7 +6,7 @@ use sqlx::{
 use chrono::{Datelike, Days, Local, Months, NaiveDateTime, TimeZone};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::timer::{Done, Mode};
+use crate::timer::{Done, Mode, Step};
 
 /// Pool propio sobre la misma pet.db que usa el frontend (tauri-plugin-sql); WAL permite ambos.
 /// Lo usan el timer (registrar sesiones aunque no haya ventana escuchando) y la web local.
@@ -35,15 +35,17 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
     let (start, end) = ((end_ms - d.elapsed * 1000) as i64, end_ms as i64);
     let pomodoro = (d.mode == Mode::Focus && !d.skipped).then_some(d.task_id).flatten();
     let task = d.task_id;
+    let activity = d.activity_id;
     let apps = d.apps.clone();
     let pool = app.state::<Db>().0.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let session = sqlx::query("INSERT INTO sessions (start, end, mode, task_id) VALUES (?, ?, ?, ?)")
+        let session = sqlx::query("INSERT INTO sessions (start, end, mode, task_id, activity_id) VALUES (?, ?, ?, ?, ?)")
             .bind(start)
             .bind(end)
             .bind(mode)
             .bind(task)
+            .bind(activity)
             .execute(&pool)
             .await;
         if let Ok(session) = session {
@@ -72,6 +74,21 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
         }
         let _ = app.emit("db://changed", ());
     });
+}
+
+/// Bloques de la rutina activa (F18), con los minutos de cada paso o los de su actividad. Vacía si no hay
+/// rutina activa o si no tiene ningún foco (una rutina de puras pausas no sirve: manda la clásica).
+pub async fn active_routine(pool: &SqlitePool) -> Result<Vec<Step>, sqlx::Error> {
+    let rows: Vec<(i64, String, String, String, i64)> = sqlx::query_as(
+        "SELECT a.id, a.kind, a.name, a.emoji, COALESCE(rs.min, a.min) FROM routine_steps rs
+         JOIN routines r ON r.id = rs.routine_id AND r.active = 1
+         JOIN activities a ON a.id = rs.activity_id
+         ORDER BY rs.pos",
+    )
+    .fetch_all(pool)
+    .await?;
+    let steps: Vec<Step> = rows.into_iter().map(|(id, kind, name, emoji, min)| Step::new(&kind, min.max(1) as u64, id, name, emoji)).collect();
+    Ok(if steps.iter().any(|s| s.mode == Mode::Focus) { steps } else { vec![] })
 }
 
 async fn save_work(pool: &SqlitePool, session: i64, w: &crate::worklog::Work) {
@@ -381,6 +398,32 @@ mod tests {
             assert_eq!(Value::from(p[0].clone()), serde_json::json!({"session_id":7,"project":"pet","secs":600,"commits":2,"added":40,"features":1}));
             let t = select(&pool, "SELECT model, output FROM session_tokens", &[]).await.unwrap();
             assert_eq!(Value::from(t[0].clone()), serde_json::json!({"model":"claude-opus-5-5","output":900}));
+        });
+    }
+
+    #[test]
+    fn la_rutina_activa_con_sus_minutos() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.unwrap();
+            sqlx::raw_sql(include_str!("../migrations/015_routines.sql")).execute(&pool).await.unwrap();
+            assert!(active_routine(&pool).await.unwrap().is_empty()); // sin rutina: la clásica
+            // Constanza: Foco 25 · Descanso 5 · Foco 25 · Pausa activa (10 por defecto, aquí 12)
+            sqlx::raw_sql(
+                "INSERT INTO routines (id, name, active) VALUES (1, 'Constanza', 1), (2, 'Pausas', 0);
+                 INSERT INTO routine_steps (routine_id, pos, activity_id, min) VALUES
+                   (1, 0, 1, NULL), (1, 1, 2, NULL), (1, 2, 1, NULL), (1, 3, 4, 12), (2, 0, 2, NULL);",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            let r = active_routine(&pool).await.unwrap();
+            let v: Vec<_> = r.iter().map(|s| (s.mode, s.secs / 60, s.label.as_str())).collect();
+            assert_eq!(v, [(Mode::Focus, 25, "Foco"), (Mode::Short, 5, "Descanso"), (Mode::Focus, 25, "Foco"), (Mode::Short, 12, "Pausa activa")]);
+            // una sola activa, y una rutina sin focos no sirve
+            assert!(sqlx::query("UPDATE routines SET active = 1 WHERE id = 2").execute(&pool).await.is_err());
+            sqlx::raw_sql("UPDATE routines SET active = 0; UPDATE routines SET active = 1 WHERE id = 2;").execute(&pool).await.unwrap();
+            assert!(active_routine(&pool).await.unwrap().is_empty());
         });
     }
 

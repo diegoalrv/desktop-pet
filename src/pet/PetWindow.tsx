@@ -9,7 +9,7 @@ import { useSettings } from "../store/useSettings";
 import { chime, skinClips } from "../lib/sound";
 import { watchFocusCam } from "../lib/camera";
 import { PILL_H, TimerPill } from "./TimerPill";
-import { notify, togglePanel } from "../lib/ipc";
+import { notify, timer, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
 import { load } from "@tauri-apps/plugin-store";
 import { needsReminder, startOfDay } from "../lib/tasks";
@@ -75,6 +75,13 @@ export function PetWindow() {
     invoke("set_quick_shortcut", { kind: "voice", accel: prefs.voiceShortcut }).catch(() => {});
     invoke("set_quick_shortcut", { kind: "center", accel: prefs.centerShortcut }).catch(() => {});
   }, [prefs]);
+
+  // Rutina activa (F18): Rust la relee en cada db://changed; al abrir, tras la primera consulta (que corre las migraciones).
+  useEffect(() => {
+    db.query("SELECT 1")
+      .then(() => timer.routine())
+      .catch((e) => console.warn("rutina:", e));
+  }, []);
 
   // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
   const meetings = useRef<Meeting[]>([]);

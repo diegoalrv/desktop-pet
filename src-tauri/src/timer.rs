@@ -37,6 +37,30 @@ pub struct Cfg {
     pub tray_timer: bool,
     /// Bundle ids de las apps que cuentan como distracción durante un foco.
     pub distractions: Vec<String>,
+    /// Bloques de la rutina activa (F18); vacío = esquema clásico (foco/corta/larga cada `long_every`).
+    pub steps: Vec<Step>,
+}
+
+/// Un bloque de la rutina: una actividad con sus minutos ya resueltos.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Step {
+    pub mode: Mode,
+    pub secs: u64,
+    pub activity_id: i64,
+    pub label: String,
+    pub emoji: String,
+}
+
+impl Step {
+    /// Las pausas de 15 min o más cuentan como `Long`: stats y la barra de menú siguen con los tres modos.
+    pub fn new(kind: &str, min: u64, activity_id: i64, label: String, emoji: String) -> Self {
+        let mode = match kind {
+            "focus" => Mode::Focus,
+            _ if min >= 15 => Mode::Long,
+            _ => Mode::Short,
+        };
+        Self { mode, secs: min.max(1) * 60, activity_id, label, emoji }
+    }
 }
 
 /// Tiempo y distracciones de una app durante un foco (se vuelca en `session_apps`).
@@ -73,6 +97,10 @@ pub struct Timer {
     count: u32,
     task_id: Option<i64>,
     last_task: Option<i64>, // tarea del último foco, para continuar el ciclo
+    #[serde(default)]
+    step: usize, // bloque de la rutina en curso (o el siguiente, en reposo)
+    #[serde(default)]
+    activity: Option<i64>, // actividad del bloque en curso; None fuera de una rutina
     #[serde(skip)]
     cfg: Cfg,
     // Apps al frente durante el foco en curso (F11); va en timer.json para sobrevivir a un cierre a mitad de foco.
@@ -97,6 +125,7 @@ pub struct Done {
     pub task_id: Option<i64>,
     pub elapsed: u64, // s realmente transcurridos
     pub skipped: bool,
+    pub activity_id: Option<i64>,
     #[serde(skip)]
     pub apps: Vec<AppUse>,
 }
@@ -109,6 +138,12 @@ pub struct Snap {
     total: u64,
     count: u32,
     task_id: Option<i64>,
+    // Rutina (F18): posición, total de bloques y nombres del actual y el siguiente ("" sin rutina o fuera de ella).
+    step: usize,
+    steps: usize,
+    label: String,
+    emoji: String,
+    next_label: String,
 }
 
 impl Timer {
@@ -122,7 +157,9 @@ impl Timer {
             count: 0,
             task_id: None,
             last_task: None,
-            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false, tray_timer: true, distractions: vec![] },
+            step: 0,
+            activity: None,
+            cfg: Cfg { focus_s: 1500, short_s: 300, long_s: 900, long_every: 4, auto_cycle: false, tray_timer: true, distractions: vec![], steps: vec![] },
             apps: HashMap::new(),
             front: None,
             away_ms: 0,
@@ -141,11 +178,38 @@ impl Timer {
     pub fn start(&mut self, mode: Mode, secs: u64, task_id: Option<i64>, now: u64) {
         self.mode = mode;
         self.task_id = task_id;
+        self.activity = None;
         self.apps.clear();
         self.front = None;
         self.total = secs * 1000;
         self.status = Status::Running;
         self.end = Some(now + self.total);
+    }
+
+    /// Arranca el bloque `i` de la rutina; los focos siguen con la última tarea.
+    fn start_step(&mut self, i: usize, now: u64) {
+        let s = self.cfg.steps[i].clone();
+        let task = (s.mode == Mode::Focus).then_some(self.last_task).flatten();
+        self.start(s.mode, s.secs, task, now);
+        self.step = i;
+        self.activity = Some(s.activity_id);
+    }
+
+    /// Rutina nueva (o editada): aplica desde el próximo bloque; el que corre termina como empezó.
+    pub fn set_steps(&mut self, steps: Vec<Step>) {
+        if steps != self.cfg.steps {
+            self.step = 0;
+            self.cfg.steps = steps;
+        }
+    }
+
+    /// Reposo → siguiente bloque: el de la rutina, o un foco con la duración de Ajustes.
+    fn start_next(&mut self, now: u64) {
+        if self.cfg.steps.is_empty() {
+            self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now);
+        } else {
+            self.start_step(self.step.min(self.cfg.steps.len() - 1), now);
+        }
     }
 
     pub fn pause(&mut self, now: u64) {
@@ -171,6 +235,7 @@ impl Timer {
             task_id: self.task_id,
             elapsed: self.elapsed(now),
             skipped: true,
+            activity_id: self.activity,
             apps: self.take_apps(),
         });
         self.status = Status::Idle;
@@ -247,7 +312,24 @@ impl Timer {
         let mode = self.mode;
         let task_id = self.task_id;
         let elapsed = self.elapsed(now);
+        let activity_id = self.activity;
         let apps = self.take_apps();
+        if !self.cfg.steps.is_empty() {
+            // Rutina: tras un foco sigue siempre (como el clásico); tras una pausa, solo con auto_cycle.
+            let next = (self.step + 1) % self.cfg.steps.len();
+            if mode == Mode::Focus {
+                self.count += 1;
+                self.last_task = task_id;
+            }
+            return Some(if mode == Mode::Focus || self.cfg.auto_cycle {
+                self.start_step(next, now);
+                Done { mode, next: Some(self.mode), task_id, elapsed, skipped, activity_id, apps }
+            } else {
+                self.reset(now);
+                self.step = next;
+                Done { mode, next: None, task_id, elapsed, skipped, activity_id, apps }
+            });
+        }
         if mode == Mode::Focus {
             self.count += 1;
             self.last_task = task_id;
@@ -257,13 +339,13 @@ impl Timer {
                 (Mode::Short, self.cfg.short_s)
             };
             self.start(next, secs, None, now);
-            Some(Done { mode, next: Some(next), task_id, elapsed, skipped, apps })
+            Some(Done { mode, next: Some(next), task_id, elapsed, skipped, activity_id, apps })
         } else if self.cfg.auto_cycle {
             self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now);
-            Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped, apps })
+            Some(Done { mode, next: Some(Mode::Focus), task_id, elapsed, skipped, activity_id, apps })
         } else {
             self.reset(now);
-            Some(Done { mode, next: None, task_id, elapsed, skipped, apps })
+            Some(Done { mode, next: None, task_id, elapsed, skipped, activity_id, apps })
         }
     }
 
@@ -283,10 +365,10 @@ impl Timer {
         Some((done, end))
     }
 
-    /// Botón principal: reposo → foco con la duración de Ajustes y la última tarea; corriendo → pausa; pausa → reanuda.
+    /// Botón principal: reposo → siguiente bloque (foco de Ajustes o el de la rutina); corriendo → pausa; pausa → reanuda.
     pub fn toggle(&mut self, now: u64) {
         match self.status {
-            Status::Idle => self.start(Mode::Focus, self.cfg.focus_s, self.last_task, now),
+            Status::Idle => self.start_next(now),
             Status::Running => self.pause(now),
             Status::Paused => self.resume(now),
         }
@@ -302,6 +384,14 @@ impl Timer {
     }
 
     pub fn snap(&self, now: u64) -> Snap {
+        let steps = &self.cfg.steps;
+        let cur = (self.status != Status::Idle && self.activity.is_some()).then(|| steps.get(self.step)).flatten();
+        // en reposo, `step` ya apunta al siguiente; corriendo, el siguiente es step + 1
+        let next = match self.status {
+            _ if steps.is_empty() => None,
+            Status::Idle => steps.get(self.step),
+            _ => steps.get((self.step + 1) % steps.len()),
+        };
         Snap {
             mode: self.mode,
             status: self.status,
@@ -309,6 +399,11 @@ impl Timer {
             total: self.total / 1000,
             count: self.count,
             task_id: self.task_id,
+            step: self.step,
+            steps: steps.len(),
+            label: cur.map(|s| s.label.clone()).unwrap_or_default(),
+            emoji: cur.map(|s| s.emoji.clone()).unwrap_or_default(),
+            next_label: next.map(|s| s.label.clone()).unwrap_or_default(),
         }
     }
 }
@@ -365,7 +460,13 @@ pub fn restore(app: &AppHandle) {
 }
 
 fn notify(app: &AppHandle, done: &Done, t: &Timer) {
-    let mins = t.snap(now_ms()).total / 60;
+    let s = t.snap(now_ms());
+    let mins = s.total / 60;
+    if done.next.is_some() && !s.label.is_empty() {
+        let title = if s.mode == Mode::Focus { "¡A trabajar!" } else { "¡Foco terminado!" };
+        let _ = app.notification().builder().title(title).body(format!("{} {} · {mins} min", s.emoji, s.label).trim()).show();
+        return;
+    }
     let (title, body) = match (done.mode, done.next) {
         (Mode::Focus, _) => ("¡Foco terminado! Descansa".to_string(), format!("Suelta el trabajo: pausa de {mins} min.")),
         (_, Some(_)) => ("¡A trabajar!".to_string(), format!("La pausa terminó. Arranca un foco de {mins} min.")),
@@ -442,7 +543,21 @@ pub fn spawn(app: AppHandle) {
 #[tauri::command]
 pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, auto_cycle: bool, tray_timer: bool, distractions: Vec<String>, s: State<TimerState>) {
     let mut t = s.lock().unwrap();
-    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer, distractions };
+    let steps = std::mem::take(&mut t.cfg.steps); // la rutina viene de la base (timer_routine), no de Ajustes
+    t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer, distractions, steps };
+}
+
+/// Relee la rutina activa de la base (F18). Lo llama el panel al abrir y cada `db://changed` (lib.rs).
+#[tauri::command]
+pub async fn timer_routine(app: AppHandle) -> Result<usize, String> {
+    let pool = app.state::<crate::db::Db>().0.clone();
+    let steps = crate::db::active_routine(&pool).await.map_err(|e| e.to_string())?;
+    let n = steps.len();
+    let state = app.state::<TimerState>();
+    let mut t = state.lock().unwrap();
+    t.set_steps(steps);
+    emit_tick(&app, &t);
+    Ok(n)
 }
 
 /// La cámara vio el teléfono durante el foco (F17): `hit` = primer ladrido, cuenta como distracción de F11.
@@ -458,9 +573,7 @@ pub fn focus_phone(ms: u64, hit: bool, app: AppHandle, s: State<TimerState>) {
 pub fn start_focus(app: &AppHandle) {
     let state = app.state::<TimerState>();
     let mut t = state.lock().unwrap();
-    let secs = t.cfg.focus_s;
-    let task = t.last_task;
-    t.start(Mode::Focus, secs, task, now_ms());
+    t.start_next(now_ms());
     changed(app, &t);
 }
 
@@ -506,6 +619,7 @@ pub fn timer_reset(app: AppHandle, s: State<TimerState>) {
         crate::db::record_session(&app, &partial, now);
     }
     t.count = 0; // terminar sesión: el ciclo de pausas largas vuelve a empezar
+    t.step = 0; // y la rutina, desde su primer bloque
     changed(&app, &t);
 }
 
@@ -583,7 +697,7 @@ mod tests {
             assert_eq!(t.status, Status::Running);
         }
         now += 901000;
-        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false, apps: vec![] }));
+        assert_eq!(t.due(now), Some(Done { mode: Mode::Long, next: None, task_id: None, elapsed: 900, skipped: false, activity_id: None, apps: vec![] }));
         assert_eq!(t.status, Status::Idle);
     }
 
@@ -624,6 +738,77 @@ mod tests {
         assert_eq!((t.status, t.remaining(99_000)), (Status::Paused, 40_000));
         t.toggle(100_000);
         assert_eq!((t.status, t.remaining(110_000)), (Status::Running, 30_000));
+    }
+
+    fn rutina(bloques: &[(&str, u64, &str)]) -> Vec<Step> {
+        bloques.iter().enumerate().map(|(i, &(k, m, l))| Step::new(k, m, i as i64, l.into(), String::new())).collect()
+    }
+
+    /// Recorre `n` bloques dejando vencer cada uno; devuelve (modo, minutos, actividad) del que arrancó tras cada uno.
+    fn vueltas(t: &mut Timer, n: usize) -> Vec<(Mode, u64, Option<i64>)> {
+        let mut now = 0;
+        t.toggle(now);
+        let mut out = vec![(t.mode, t.total / 60_000, t.activity)];
+        for _ in 1..n {
+            now += t.total + 1000;
+            assert!(t.due(now).is_some());
+            if t.status == Status::Idle {
+                t.toggle(now);
+            }
+            out.push((t.mode, t.total / 60_000, t.activity));
+        }
+        out
+    }
+
+    #[test]
+    fn rutina_de_diego_25_5_x4_con_pausa_de_20() {
+        let mut t = Timer::new();
+        t.cfg.auto_cycle = true;
+        let mut b = vec![];
+        for _ in 0..3 {
+            b.extend([("focus", 25, "Foco"), ("break", 5, "Descanso")]);
+        }
+        b.extend([("focus", 25, "Foco"), ("break", 20, "Descanso largo")]);
+        t.set_steps(rutina(&b));
+        let v = vueltas(&mut t, 9);
+        let modos: Vec<_> = v.iter().map(|&(m, min, _)| (m, min)).collect();
+        use Mode::*;
+        assert_eq!(modos, [(Focus, 25), (Short, 5), (Focus, 25), (Short, 5), (Focus, 25), (Short, 5), (Focus, 25), (Long, 20), (Focus, 25)]);
+        assert_eq!(v[8].2, Some(0)); // vuelve al primer bloque
+        assert_eq!(t.count, 4); // focos completados; el quinto está corriendo
+    }
+
+    #[test]
+    fn rutina_de_constanza_con_pausa_activa_sin_auto_ciclo() {
+        let mut t = Timer::new();
+        t.last_task = Some(3);
+        t.set_steps(rutina(&[("focus", 25, "Foco"), ("break", 5, "Descanso"), ("focus", 25, "Foco"), ("break", 10, "Pausa activa")]));
+        let v = vueltas(&mut t, 5);
+        use Mode::*;
+        assert_eq!(v, [(Focus, 25, Some(0)), (Short, 5, Some(1)), (Focus, 25, Some(2)), (Short, 10, Some(3)), (Focus, 25, Some(0))]);
+        assert_eq!(t.task_id, Some(3)); // los focos siguen con la última tarea
+        // sin auto_cycle la pausa termina en reposo, y el panel ya sabe qué viene
+        let mut now = t.end.unwrap();
+        t.due(now); // → Descanso
+        let s = t.snap(now);
+        assert_eq!((s.label.as_str(), s.next_label.as_str(), s.step, s.steps), ("Descanso", "Foco", 1, 4));
+        now += t.total + 1000;
+        assert_eq!(t.due(now).unwrap().activity_id, Some(1));
+        let s = t.snap(now);
+        assert_eq!((s.status, s.label.as_str(), s.next_label.as_str()), (Status::Idle, "", "Foco"));
+    }
+
+    #[test]
+    fn cambiar_de_rutina_vuelve_al_primer_bloque_y_vacia_es_la_clasica() {
+        let mut t = Timer::new();
+        let r = rutina(&[("focus", 50, "Foco"), ("break", 10, "Pausa")]);
+        t.set_steps(r.clone());
+        t.step = 1;
+        t.set_steps(r.clone()); // la misma (otro db://changed): no toca la posición
+        assert_eq!(t.step, 1);
+        t.set_steps(vec![]);
+        t.toggle(0);
+        assert_eq!((t.mode, t.total, t.activity, t.snap(0).label), (Mode::Focus, 1_500_000, None, String::new()));
     }
 
     fn front(b: &str) -> Option<(String, String)> {

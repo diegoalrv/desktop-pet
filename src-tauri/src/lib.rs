@@ -11,7 +11,7 @@ mod web;
 mod worklog;
 
 use std::{sync::Mutex, thread, time::Duration};
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Listener, Manager, State};
 
 /// Carpeta del usuario: `HOME` en macOS, `USERPROFILE` en Windows.
 pub fn home() -> String {
@@ -229,6 +229,12 @@ pub fn run() {
                             sql: include_str!("../migrations/014_claude_projects.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 15,
+                            description: "routines",
+                            sql: include_str!("../migrations/015_routines.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -295,6 +301,7 @@ pub fn run() {
             timer::timer_set_task,
             timer::send_notification,
             timer::focus_phone,
+            timer::timer_routine,
             apps::running_apps,
             apps::focus_cam_ctx
         ])
@@ -308,6 +315,15 @@ pub fn run() {
             db::init(app.handle())?;
             timer::restore(app.handle());
             timer::spawn(app.handle().clone());
+            // Rutina activa (F18): se relee con cada cambio en la base, venga del panel, la web o la Candola.
+            // ponytail: una consulta chica por cada db://changed; un evento propio si algún día pesa.
+            let h = app.handle().clone();
+            app.listen("db://changed", move |_| {
+                let h = h.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = timer::timer_routine(h).await;
+                });
+            });
             web::spawn(app.handle().clone());
             db::spawn_claude_hours(app.handle().clone());
             // Indexa para preguntarle a las reuniones lo que falte (sin Ollama no hace nada). Espera a que el

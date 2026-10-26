@@ -249,6 +249,50 @@ con poca luz falla la cara → `awayPauseSec` generoso. CPU: 2 inferencias cada 
 de Actividad y, si pesa, bajar a 1 cada 4 s.
 Commit: `Cámara durante el foco: gruñe y ladra si miras el teléfono, pausa si te vas`
 
+## F18. Rutinas: ciclos propios con actividades
+Qué: cada usuario arma sus propios ciclos para el modo Foco como una secuencia de bloques, en vez del esquema fijo
+foco/corta/larga cada N. Los bloques salen de un catálogo de **actividades** que el usuario también crea (nombre,
+tipo, minutos por defecto, emoji/color). Al terminar la secuencia vuelve a empezar (o para, si `autoCycle` está
+apagado). Ejemplos:
+- Diego: `Foco 25 · Descanso 5` ×3 + `Foco 25 · Descanso largo 20`.
+- Constanza: `Foco 25 · Descanso 5 · Foco 25 · Pausa activa 10`.
+Varias rutinas guardadas con nombre y una activa. Si no hay ninguna activa, manda el esquema clásico de Ajustes
+(`focusMin`/`shortMin`/`longMin`/`longEvery`), así nada cambia para quien no las use.
+Datos (migración `015_routines.sql`):
+- `activities(id, name, kind 'focus'|'break', min, emoji, color, archived)`: catálogo propio. Seed con "Foco 25",
+  "Descanso 5", "Descanso largo 15" y "Pausa activa 10" (editables). Borrar = archivar, para no romper rutinas ni
+  historial.
+- `routines(id, name, active)`: a lo más una con `active = 1` (índice único parcial `WHERE active = 1`).
+- `routine_steps(routine_id, pos, activity_id, min)`: `min` nulo = usa el de la actividad; con valor, lo pisa solo
+  en esa rutina ("Pausa activa" de 10 en una, de 5 en otra).
+- `sessions.activity_id` (nullable): qué actividad fue cada bloque, para ver en Foco/Informe cuántas pausas
+  activas hiciste. Agregar las tablas nuevas al respaldo JSON de `Dashboard.tsx`.
+Timer:
+- `timer.rs`: `Cfg` pasa de `short_s/long_s/long_every` a `steps: Vec<Step {mode, secs, activity_id, label}>` +
+  índice actual. `timer_routine(steps)` lo recibe ya resuelto: el front lee la rutina activa
+  (`lib/routine.ts::resolve`, aplica los `min` y expande la clásica si no hay rutina; con test) y lo vuelve a mandar
+  al guardar cambios. `due()` avanza al paso siguiente en vez de `count % long_every`; un cambio de rutina con un
+  bloque corriendo aplica desde el próximo. `Mode` sigue `Focus`/`Short`/`Long` para no tocar stats ni la barra de
+  menú: pausa ≥ 15 min = `Long`. Tests: las secuencias de Diego y Constanza dan los modos, duraciones y
+  `activity_id` esperados y vuelven al inicio.
+- La actividad viaja en el evento de fin de paso: notificación y globito de la mascota ("Pausa activa · 10 min").
+  Pausa con actividad → anim `stretch` en `stateMachine` (skins sin ella caen a `idle` vía `SECOND`), con test.
+- MCP / `web.rs::invoke`: comandos para listar rutinas y activar una, así la Candola entiende "pon la rutina de
+  Constanza".
+UI web (vista nueva `#routines`, en la nav del Dashboard junto a Foco):
+- Izquierda, catálogo de actividades como tarjetas (emoji, nombre, minutos, color): crear, editar en línea,
+  archivar.
+- Derecha, la rutina: lista de rutinas arriba (crear, renombrar, duplicar, borrar, ★ activar) y el editor de
+  bloques. Arrastrar una actividad del catálogo a la secuencia la agrega; arrastrar dentro reordena (drag & drop
+  nativo de HTML, sin librería; ↑↓ con teclado por accesibilidad); clic en los minutos del bloque los pisa; × lo
+  quita.
+- Debajo, la línea de tiempo: barra horizontal con un segmento por bloque, ancho proporcional a los minutos y del
+  color de la actividad, con el total ("1 h 05 min por vuelta"). Es lo que hace legible la rutina de un vistazo.
+- Ajustes (ventana) y panel de la mascota: solo un selector de la rutina activa + link "Editar en la web". El panel
+  muestra el paso actual y el siguiente ("Foco 2/4 · luego Pausa activa").
+Commits: 1) `Rutinas: tablas y timer por pasos` (migración, `timer.rs`, `routine.ts`, tests), 2) `Rutinas: editor
+en la web` (vista `#routines`, selector en Ajustes y panel), 3) `Rutinas: actividad en la mascota y la Candola`.
+
 ---------------------------------------------------------------------------------------------------------------
 ## Postergadas — no hacer por ahora
 ---------------------------------------------------------------------------------------------------------------

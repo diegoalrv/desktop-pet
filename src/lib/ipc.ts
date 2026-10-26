@@ -55,6 +55,12 @@ export interface TimerSnap {
   total: number; // s
   count: number; // focos completados
   task_id: number | null;
+  // Rutina activa (F18): bloque actual / total y nombres; "" y 0 con el esquema clásico.
+  step: number;
+  steps: number;
+  label: string;
+  emoji: string;
+  next_label: string;
 }
 
 export const timer = {
@@ -67,6 +73,7 @@ export const timer = {
   restart: () => invoke("timer_restart"),
   skip: () => invoke("timer_skip"),
   setTask: (taskId: number | null) => invoke("timer_set_task", { taskId }),
+  routine: () => invoke<number>("timer_routine"),
 };
 export const togglePanel = () => invoke("toggle_panel");
 export const notify = (title: string, body: string) => invoke("send_notification", { title, body });
