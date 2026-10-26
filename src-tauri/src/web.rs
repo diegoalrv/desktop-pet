@@ -55,6 +55,7 @@ pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
         // Solo loopback. Si el puerto está ocupado (otra instancia de la app), simplemente no hay web.
         let Ok(server) = Server::http(("127.0.0.1", PORT)) else { return };
+        write_token_file(&app);
         #[cfg(debug_assertions)] // para probar /api y el servidor MCP con curl en `tauri dev`
         eprintln!("[web] http://127.0.0.1:{PORT} token {}", token());
         for mut req in server.incoming_requests() {
@@ -69,6 +70,20 @@ pub fn spawn(app: AppHandle) {
             });
         }
     });
+}
+
+/// Deja el token en `<app_data>/web-<PORT>.token` (solo legible por el usuario) para que `mcp/pet-mcp.mjs` lanzado
+/// desde fuera de la app (Claude Code, Claude Desktop/Cowork) lo encuentre sin PET_TOKEN. Se reescribe en cada arranque.
+fn write_token_file(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    if let Ok(mut f) = opts.open(dir.join(format!("web-{PORT}.token"))) {
+        use std::io::Write;
+        let _ = f.write_all(token().as_bytes());
+    }
 }
 
 fn header<'a>(req: &'a Request, name: &'static str) -> Option<&'a str> {
