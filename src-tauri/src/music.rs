@@ -61,6 +61,19 @@ pub fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             }
         })
         .build()?;
+    // Oculta y sin audio, WebKit congela la página: al cambiar de proveedor la nueva carga sin publicar estado
+    // y el panel muestra "inicia sesión" hasta que se abre la ventana. WKInactiveSchedulingPolicyNone (macOS 14+).
+    #[cfg(target_os = "macos")]
+    let _ = w.with_webview(|wv| unsafe {
+        use objc2::{msg_send, runtime::{AnyObject, Bool}, sel};
+        let wk = &*(wv.inner() as *mut AnyObject);
+        let cfg: &AnyObject = msg_send![wk, configuration];
+        let prefs: &AnyObject = msg_send![cfg, preferences];
+        let ok: Bool = msg_send![prefs, respondsToSelector: sel!(setInactiveSchedulingPolicy:)];
+        if ok.as_bool() {
+            let _: () = msg_send![prefs, setInactiveSchedulingPolicy: 2isize];
+        }
+    });
     // Cerrar = ocultar: la música sigue sonando.
     let win = w.clone();
     w.on_window_event(move |e| {
