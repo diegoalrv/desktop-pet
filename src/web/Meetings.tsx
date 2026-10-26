@@ -398,12 +398,19 @@ export function Suggestions() {
       </div>
       {meetings.map((m) => (
         <div key={m} className="d-card">
-          <div className="d-row">
-            <Icon name="mic" size="1em" /> <b>{fmtDate(m * 1000)}</b>
-            <a href={`#meetings/${m}`} className="d-more">
-              ver transcripción →
-            </a>
-          </div>
+          {/* meeting 0: propuestas de Claude (suggest_task del MCP), no de una reunión */}
+          {m === 0 ? (
+            <div className="d-row">
+              <b>Desde Claude</b>
+            </div>
+          ) : (
+            <div className="d-row">
+              <Icon name="mic" size="1em" /> <b>{fmtDate(m * 1000)}</b>
+              <a href={`#meetings/${m}`} className="d-more">
+                ver transcripción →
+              </a>
+            </div>
+          )}
           <div className="d-list">
             {sugs
               .filter((s) => s.meeting === m)

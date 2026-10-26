@@ -76,6 +76,25 @@ export const TOOLS = [
     ),
   },
   {
+    name: "suggest_task",
+    description:
+      'Propone un cambio en las tareas sin hacerlo: queda en "Propuestas" de la app y el usuario lo aprueba o descarta. op: crear (por defecto), editar o completar (estos dos con id de list_tasks). title: la tarea nueva o la existente; new_title solo al editar. date: "AAAA-MM-DD". priority: 0 baja, 1 media, 2 alta. detail: de dónde salió, en una línea.',
+    inputSchema: obj(
+      {
+        op: { type: "string", enum: ["crear", "editar", "completar"] },
+        id: int,
+        title: str,
+        new_title: str,
+        project: str,
+        priority: { type: "integer", minimum: 0, maximum: 2 },
+        date: str,
+        pomodoros: { type: "integer", minimum: 1 },
+        detail: str,
+      },
+      ["title"],
+    ),
+  },
+  {
     name: "complete_task",
     description: "Marca una tarea como hecha (si se repite, la app crea la siguiente).",
     inputSchema: id,
@@ -137,6 +156,12 @@ export const TOOLS = [
   },
 ];
 
+// Fuera de la app (sin PET_TOKEN: Claude Code, Claude Desktop/Cowork) no toca las tareas directo: solo las propone con
+// suggest_task y el usuario las revisa en la app. La Candola del chat de la app sí puede crear y completar.
+const DIRECT = ["add_task", "complete_task", "suggestion_set"];
+const EXTERNAL = !process.env.PET_TOKEN;
+export const toolsFor = (external) => (external ? TOOLS.filter((t) => !DIRECT.includes(t.name)) : TOOLS);
+
 /** "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" en hora local → epoch ms. Sin hora, 09:00 (como las fechas del modo Gestión). */
 export function parseDue(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/.exec(String(s).trim());
@@ -178,6 +203,8 @@ const timer = async (cmd, args) => (cmd && (await invoke(cmd, args)), invoke("ti
 
 /** Ejecuta una herramienta; el resultado va como texto JSON para que la Candola lo lea. */
 export async function call(name, a = {}) {
+  if (EXTERNAL && DIRECT.includes(name))
+    throw new Error(`${name} no está disponible fuera de la app: usa suggest_task`);
   switch (name) {
     case "list_tasks": {
       const rows = await select(
@@ -187,13 +214,11 @@ export async function call(name, a = {}) {
       const keep =
         { all: () => true, today: (t) => !t.done && t.due_at != null && t.due_at <= endOfDay }[a.filter] ??
         ((t) => !t.done);
-      return rows
-        .filter(keep)
-        .map(({ due_at, done, ...t }) => ({
-          ...t,
-          done: !!done,
-          due: due_at == null ? null : fmtMs(due_at),
-        }));
+      return rows.filter(keep).map(({ due_at, done, ...t }) => ({
+        ...t,
+        done: !!done,
+        due: due_at == null ? null : fmtMs(due_at),
+      }));
     }
     case "add_task": {
       const title = String(a.title ?? "").trim();
@@ -207,6 +232,41 @@ export async function call(name, a = {}) {
         [title, a.project?.trim() || null, prio, due, Math.max(1, a.est_pomodoros ?? 1), repeat, Date.now()],
       );
       return { id: r.lastInsertId, title, due: due == null ? null : fmtMs(due) };
+    }
+    case "suggest_task": {
+      const op = a.op ?? "crear";
+      if (!["crear", "editar", "completar"].includes(op))
+        throw new Error("op debe ser crear, editar o completar");
+      const title = String(a.title ?? "").trim();
+      if (!title) throw new Error("falta title");
+      if (op !== "crear") {
+        if (!Number.isInteger(a.id)) throw new Error(`${op} necesita el id de la tarea (list_tasks)`);
+        if (!(await select("SELECT id FROM tasks WHERE id = $1", [a.id])).length)
+          throw new Error(`no existe la tarea ${a.id}`);
+      }
+      const date = a.date?.trim() || undefined;
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('date va como "AAAA-MM-DD"');
+      if (date) parseDue(date);
+      // Mismo JSON que el modo Gestión (src/lib/suggestions.ts `Action`); meeting 0 = no vino de una reunión.
+      const action = {
+        op,
+        id: op === "crear" ? undefined : a.id,
+        titulo: op === "crear" ? title : a.new_title?.trim() || undefined,
+        proyecto: a.project?.trim() || undefined,
+        prioridad: a.priority,
+        fecha: date,
+        pomodoros: a.pomodoros,
+      };
+      const r = await execute(
+        "INSERT INTO meeting_tasks (meeting, title, detail, action) VALUES (0, $1, $2, $3)",
+        [title, String(a.detail ?? "").trim(), JSON.stringify(action)],
+      );
+      return {
+        suggestion: r.lastInsertId,
+        op,
+        title,
+        note: "queda en Propuestas para que el usuario la revise",
+      };
     }
     case "complete_task": {
       if (!Number.isInteger(a.id)) throw new Error("falta id");
@@ -292,7 +352,7 @@ export async function rpc(req, run = call) {
     case "ping":
       return ok({});
     case "tools/list":
-      return ok({ tools: TOOLS });
+      return ok({ tools: toolsFor(EXTERNAL) });
     case "tools/call":
       try {
         const out = await run(req.params?.name, req.params?.arguments ?? {});
