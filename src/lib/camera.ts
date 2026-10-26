@@ -46,10 +46,12 @@ export interface Cam {
 /** Abre la webcam y los detectores. También la usa la ventana "Ver cámara" (camview), con su propio stream. */
 export async function openCam(): Promise<Cam> {
   const camId = useSettings.getState().prefs.camId;
-  // `ideal`: si la elegida no está conectada, usa la del sistema en vez de fallar.
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 640, height: 480, deviceId: camId ? { ideal: camId } : undefined },
-  });
+  // `exact` (WebKit puede ignorar `ideal`); si la elegida no está conectada, la del sistema.
+  const open = (deviceId?: string) =>
+    navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, deviceId: deviceId ? { exact: deviceId } : undefined },
+    });
+  const stream = await (camId ? open(camId).catch(() => open()) : open());
   try {
     const video = document.createElement("video");
     video.muted = video.playsInline = true;

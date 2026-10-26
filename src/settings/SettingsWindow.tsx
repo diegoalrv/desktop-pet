@@ -12,6 +12,7 @@ import {
 import { chime } from "../lib/sound";
 import { useSettings } from "../store/useSettings";
 import { LlmEditor } from "./LlmEditor";
+import { CamSelect } from "../camview/CamSelect";
 import { PetSection, sub } from "./PetSection";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 import { listen } from "@tauri-apps/api/event";
@@ -279,7 +280,7 @@ export function SettingsWindow() {
         </label>
         {prefs.focusCam && (
           <>
-            <CamSelect value={prefs.camId} onChange={(camId) => setPrefs({ camId })} />
+            <CamSelect />
             {num("headDownDeg", "Cabeza abajo desde (grados bajo tu postura normal)")}
             {num("barkAfterSec", "Llamar la atención tras advertir (s)")}
             {num("awayPauseSec", "Pausar si no te ve por (s)")}
@@ -530,41 +531,5 @@ function RoutinePicker({ children }: { children: React.ReactNode }) {
         )}
       </div>
     </>
-  );
-}
-
-/** Cámaras conectadas (se actualiza al enchufar/desenchufar). Sin permiso WebKit no da nombres: se pide una vez. */
-function CamSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
-  useEffect(() => {
-    const md = navigator.mediaDevices;
-    const list = () => md.enumerateDevices().then((d) => d.filter((x) => x.kind === "videoinput"));
-    const refresh = async () => {
-      let v = await list();
-      if (v.length && !v[0].label) {
-        const s = await md.getUserMedia({ video: true }).catch(() => null);
-        s?.getTracks().forEach((t) => t.stop());
-        if (s) v = await list();
-      }
-      setCams(v);
-    };
-    void refresh();
-    md.addEventListener("devicechange", refresh);
-    return () => md.removeEventListener("devicechange", refresh);
-  }, []);
-  const missing = value && !cams.some((c) => c.deviceId === value);
-  return (
-    <label>
-      Cámara{" "}
-      <select style={{ ...btn, padding: 4 }} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">La del sistema</option>
-        {cams.map((c, i) => (
-          <option key={c.deviceId} value={c.deviceId}>
-            {c.label || `Cámara ${i + 1}`}
-          </option>
-        ))}
-        {missing && <option value={value}>Desconectada (usa la del sistema)</option>}
-      </select>
-    </label>
   );
 }

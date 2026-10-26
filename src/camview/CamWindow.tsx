@@ -10,6 +10,7 @@ import { T } from "../panel/ui";
 import { loadManifest } from "../skins/loader";
 import { DEFAULT_VOICE } from "../skins/schema";
 import { useSettings } from "../store/useSettings";
+import { CamSelect } from "./CamSelect";
 
 const FRAME_MS = 150; // ~6 detecciones por segundo
 const SPAN_MS = 60_000; // historia de los gráficos
@@ -93,6 +94,8 @@ export function CamWindow() {
   decidedRef.current = decided;
   const voice = useRef(DEFAULT_VOICE);
   const skin = useSettings((s) => s.skin);
+  const loaded = useSettings((s) => s.loaded);
+  const camId = useSettings((s) => s.prefs.camId);
   useEffect(() => {
     loadManifest(skin)
       .then((m) => (voice.current = { ...DEFAULT_VOICE, ...m?.voice }))
@@ -110,7 +113,10 @@ export function CamWindow() {
     return () => void un.then((f) => f());
   }, []);
 
+  // Espera las prefs (si no, abre la del sistema) y se reabre al cambiar de cámara aquí o en Ajustes.
   useEffect(() => {
+    if (!loaded) return;
+    setError("");
     let cam: Cam | null = null;
     let alive = true;
     let id: ReturnType<typeof setInterval> | undefined;
@@ -161,9 +167,12 @@ export function CamWindow() {
     return () => {
       alive = false;
       clearInterval(id);
-      cam?.stop();
+      if (cam) {
+        cam.video.remove();
+        cam.stop();
+      }
     };
-  }, []);
+  }, [loaded, camId]);
 
   const live = shout && Date.now() - shout.at < 6000 ? shout : null;
   const d = decided && Date.now() - decided.at < 5000 ? decided : null; // sin muestras: la mascota dejó de vigilar
@@ -230,6 +239,7 @@ export function CamWindow() {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
         <div style={{ background: T.card, borderRadius: 14, padding: 14, display: "grid", gap: 10 }}>
+          <CamSelect />
           <div style={{ fontSize: 13, color: d ? "#1baf7a" : T.dim }}>
             {d
               ? "● La mascota está vigilando el foco"
