@@ -82,7 +82,7 @@ La transcripción se guarda igual que una reunión (empieza con `# gestión`) y 
 ## Skins
 
 Un skin es una carpeta o `.zip` con `manifest.json` y sprite sheets horizontales. Importa desde Ajustes → "Importar carpeta…" / "Importar .zip / imagen…".
-Una sola imagen también sirve: se anima con efectos CSS. Hay ejemplos en `examples/`: `tortu` (tortuga original con las 6 animaciones; `generate.py` la regenera), `candolita` (perrita negra con pañoleta, mismas animaciones) y `slime-demo`.
+Una sola imagen también sirve: se anima con efectos CSS. Hay ejemplos en `examples/`: `tortu` (tortuga original con las 6 animaciones; `generate.py` la regenera), `candolita` (perrita negra con pañoleta, mismas animaciones), `pug` (pug fawn con pañoleta rosada, mismas animaciones que Candolita) y `slime-demo`.
 
 ```json
 {
