@@ -325,6 +325,8 @@ export async function call(name, a = {}) {
       // Una sola activa (índice único parcial): primero se apagan todas. La app relee la rutina con el cambio.
       await execute("UPDATE routines SET active = 0 WHERE active = 1");
       if (a.id != null) await execute("UPDATE routines SET active = 1 WHERE id = $1", [a.id]);
+      // La app relee la rutina con db://changed, pero en segundo plano: antes de arrancar hay que esperarla.
+      await invoke("timer_routine");
       if (a.start && (await invoke("timer_get")).status === "idle") await invoke("timer_toggle");
       return timer();
     }

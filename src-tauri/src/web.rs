@@ -127,6 +127,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "timer_restart" => ok(timer::timer_restart(app.clone(), app.state())),
         "timer_skip" => ok(timer::timer_skip(app.clone(), app.state())),
         "timer_toggle" => ok(timer::timer_toggle(app.clone())),
+        "timer_routine" => block_on(timer::timer_routine(app.clone())).map(Value::from),
         "meeting_state" => Ok(json!(meeting::meeting_state(app.state()))),
         "meetings_list" => Ok(json!(meeting::meetings_list(app.clone()))),
         "meeting_start" => {
