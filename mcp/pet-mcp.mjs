@@ -123,6 +123,18 @@ export const TOOLS = [
     inputSchema: obj(),
   },
   {
+    name: "routines_list",
+    description:
+      "Rutinas del modo Foco (ciclos propios hechos de actividades): id, nombre, si está activa y sus bloques en orden con minutos. Sin rutina activa el timer usa el ciclo clásico de Ajustes.",
+    inputSchema: obj(),
+  },
+  {
+    name: "routine_activate",
+    description:
+      "Activa una rutina por id (de routines_list); sin id vuelve al ciclo clásico. start: true arranca además el bloque que toca si el timer está en reposo.",
+    inputSchema: obj({ id: int, start: { type: "boolean" } }),
+  },
+  {
     name: "meetings_list",
     description: "Reuniones grabadas, la más reciente primero: id, fecha, título, participantes y resumen.",
     inputSchema: obj({ limit: { type: "integer", minimum: 1 } }),
@@ -200,6 +212,16 @@ async function notes(id) {
 }
 
 const timer = async (cmd, args) => (cmd && (await invoke(cmd, args)), invoke("timer_get"));
+
+/** Filas rutina × bloque (LEFT JOIN, en orden) → una entrada por rutina con sus bloques como texto. */
+export function groupRoutines(rows) {
+  const out = new Map();
+  for (const r of rows) {
+    if (!out.has(r.id)) out.set(r.id, { id: r.id, name: r.name, active: !!r.active, blocks: [] });
+    if (r.activity) out.get(r.id).blocks.push(`${r.activity} ${r.min}`);
+  }
+  return [...out.values()].map((r) => ({ ...r, blocks: r.blocks.join(" · ") }));
+}
 
 /** Ejecuta una herramienta; el resultado va como texto JSON para que la Candola lo lea. */
 export async function call(name, a = {}) {
@@ -289,6 +311,23 @@ export async function call(name, a = {}) {
       return timer("timer_resume");
     case "timer_stop":
       return timer("timer_reset");
+    case "routines_list":
+      return groupRoutines(
+        await select(
+          `SELECT r.id, r.name, r.active, a.name AS activity, COALESCE(rs.min, a.min) AS min FROM routines r
+           LEFT JOIN routine_steps rs ON rs.routine_id = r.id LEFT JOIN activities a ON a.id = rs.activity_id
+           ORDER BY r.id, rs.pos`,
+        ),
+      );
+    case "routine_activate": {
+      if (a.id != null && !(await select("SELECT id FROM routines WHERE id = $1", [a.id])).length)
+        throw new Error(`no existe la rutina ${a.id} (routines_list)`);
+      // Una sola activa (índice único parcial): primero se apagan todas. La app relee la rutina con el cambio.
+      await execute("UPDATE routines SET active = 0 WHERE active = 1");
+      if (a.id != null) await execute("UPDATE routines SET active = 1 WHERE id = $1", [a.id]);
+      if (a.start && (await invoke("timer_get")).status === "idle") await invoke("timer_toggle");
+      return timer();
+    }
     case "meetings_list": {
       const ms = (await invoke("meetings_list")).slice(0, a.limit ?? 10);
       return Promise.all(

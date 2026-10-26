@@ -22,6 +22,7 @@ export function TimerPill({ snap }: { snap: TimerSnap }) {
           }}
         >
           <style>{`@keyframes blink{50%{opacity:.35}}`}</style>
+          {snap.emoji && `${snap.emoji} `}
           {fmt(snap.remaining)}
         </span>
       )}

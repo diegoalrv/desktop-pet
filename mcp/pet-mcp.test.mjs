@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtMs, parseDue, rpc, search, TOOLS, toolsFor } from "./pet-mcp.mjs";
+import { fmtMs, groupRoutines, parseDue, rpc, search, TOOLS, toolsFor } from "./pet-mcp.mjs";
 
 describe("pet-mcp", () => {
   it("JSON-RPC: initialize, notificaciones, tools/list y métodos desconocidos", async () => {
@@ -52,5 +52,20 @@ describe("pet-mcp", () => {
     expect(search(ms, "acme")).toEqual(["1 · Yo: el plazo de Acme", "2 · Otros: Acme se atrasa"]);
     expect(search(ms, "acme", 1)).toHaveLength(1);
     expect(search(ms, "  ")).toEqual([]);
+  });
+});
+
+describe("rutinas", () => {
+  it("agrupa los bloques por rutina, en orden", () => {
+    const rows = [
+      { id: 1, name: "Constanza", active: 1, activity: "Foco", min: 25 },
+      { id: 1, name: "Constanza", active: 1, activity: "Descanso", min: 5 },
+      { id: 1, name: "Constanza", active: 1, activity: "Pausa activa", min: 10 },
+      { id: 2, name: "Vacía", active: 0, activity: null, min: null },
+    ];
+    expect(groupRoutines(rows)).toEqual([
+      { id: 1, name: "Constanza", active: true, blocks: "Foco 25 · Descanso 5 · Pausa activa 10" },
+      { id: 2, name: "Vacía", active: false, blocks: "" },
+    ]);
   });
 });
