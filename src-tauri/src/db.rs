@@ -79,15 +79,15 @@ pub fn record_session(app: &AppHandle, d: &Done, end_ms: u64) {
 /// Bloques de la rutina activa (F18), con los minutos de cada paso o los de su actividad. Vacía si no hay
 /// rutina activa o si no tiene ningún foco (una rutina de puras pausas no sirve: manda la clásica).
 pub async fn active_routine(pool: &SqlitePool) -> Result<Vec<Step>, sqlx::Error> {
-    let rows: Vec<(i64, String, String, String, i64)> = sqlx::query_as(
-        "SELECT a.id, a.kind, a.name, a.emoji, COALESCE(rs.min, a.min) FROM routine_steps rs
+    let rows: Vec<(i64, String, String, String, String, i64)> = sqlx::query_as(
+        "SELECT a.id, a.kind, a.name, a.emoji, a.color, COALESCE(rs.min, a.min) FROM routine_steps rs
          JOIN routines r ON r.id = rs.routine_id AND r.active = 1
          JOIN activities a ON a.id = rs.activity_id
          ORDER BY rs.pos",
     )
     .fetch_all(pool)
     .await?;
-    let steps: Vec<Step> = rows.into_iter().map(|(id, kind, name, emoji, min)| Step::new(&kind, min.max(1) as u64, id, name, emoji)).collect();
+    let steps: Vec<Step> = rows.into_iter().map(|(id, kind, name, emoji, color, min)| Step::new(&kind, min.max(1) as u64, id, name, emoji, color)).collect();
     Ok(if steps.iter().any(|s| s.mode == Mode::Focus) { steps } else { vec![] })
 }
 
@@ -418,8 +418,11 @@ mod tests {
             .await
             .unwrap();
             let r = active_routine(&pool).await.unwrap();
-            let v: Vec<_> = r.iter().map(|s| (s.mode, s.secs / 60, s.label.as_str())).collect();
-            assert_eq!(v, [(Mode::Focus, 25, "Foco"), (Mode::Short, 5, "Descanso"), (Mode::Focus, 25, "Foco"), (Mode::Short, 12, "Pausa activa")]);
+            let v: Vec<_> = r.iter().map(|s| (s.mode, s.secs / 60, s.label.as_str(), s.color.as_str())).collect();
+            assert_eq!(
+                v,
+                [(Mode::Focus, 25, "Foco", "#e8523c"), (Mode::Short, 5, "Descanso", "#3cb371"), (Mode::Focus, 25, "Foco", "#e8523c"), (Mode::Short, 12, "Pausa activa", "#e8a33c")]
+            );
             // una sola activa, y una rutina sin focos no sirve
             assert!(sqlx::query("UPDATE routines SET active = 1 WHERE id = 2").execute(&pool).await.is_err());
             sqlx::raw_sql("UPDATE routines SET active = 0; UPDATE routines SET active = 1 WHERE id = 2;").execute(&pool).await.unwrap();

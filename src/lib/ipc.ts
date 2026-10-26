@@ -60,6 +60,7 @@ export interface TimerSnap {
   steps: number;
   label: string;
   emoji: string;
+  color: string; // "#rrggbb" de la actividad del bloque; "" fuera de una rutina
   next_label: string;
 }
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { timer, type Mode } from "../lib/ipc";
 import { fmt } from "../lib/time";
-import { MODE_COLOR } from "../pet/TimerPill";
+import { MODE_COLOR, snapColor } from "../pet/TimerPill";
 import { useTimer } from "../store/useTimer";
 import { useTasks } from "../store/useTasks";
 import * as db from "../lib/db";
@@ -82,7 +82,7 @@ export function TimerControls() {
   const [custom, setCustom] = useState("");
   const active = snap.status !== "idle";
   const shown = active ? snap.mode : mode;
-  const color = MODE_COLOR[shown];
+  const color = active ? snapColor(snap) : MODE_COLOR[shown];
   const defMin = MINS[mode];
   const pending = tasks.filter((t) => !t.done).sort(compareTasks);
   // La elegida puede haberse terminado desde Tareas: entonces no cuenta.

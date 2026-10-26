@@ -20,7 +20,10 @@ const CSS = `
   .r-act .d-b{margin-left:auto}
   .r-form{display:grid;gap:8px;padding:12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-2)}
   .r-form .d-row>.d-in{flex:1}
-  .r-form input[type=color]{width:38px;height:34px;padding:2px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface-2)}
+  .r-sw{gap:6px}
+  .r-sw button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+  .r-sw button[aria-checked=true]{border-color:var(--text);transform:scale(1.12)}
+  .r-sw input[type=color]{width:30px;height:28px;padding:1px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface-2);cursor:pointer}
   .r-tabs{display:flex;gap:6px;flex-wrap:wrap}
   .r-tl{display:flex;height:46px;border-radius:12px;overflow:hidden;gap:2px;background:var(--line)}
   .r-tl>div{position:relative;display:flex;align-items:center;justify-content:center;gap:4px;min-width:0;overflow:hidden;background:var(--c);color:#fff;font-size:12px;font-weight:600;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.35)}
@@ -42,6 +45,17 @@ const CSS = `
 `;
 
 const KIND_LABEL: Record<Kind, string> = { focus: "Foco", break: "Pausa" };
+// Los tres primeros son los del ciclo clásico (MODE_COLOR): foco, pausa corta y pausa larga.
+const SWATCHES = [
+  ["#e8523c", "Rojo (foco)"],
+  ["#3cb371", "Verde (pausa corta)"],
+  ["#3c78e8", "Azul (pausa larga)"],
+  ["#e8a33c", "Naranjo"],
+  ["#9b59d0", "Morado"],
+  ["#e84c8b", "Rosado"],
+  ["#1fb5a8", "Turquesa"],
+  ["#d4b21f", "Amarillo"],
+] as const;
 const ACT = "application/x-activity";
 const STEP = "application/x-step";
 
@@ -104,7 +118,27 @@ function ActivityForm({ init, onDone }: { init: Draft; onDone: () => void }) {
           onChange={(e) => setA({ ...a, min: Number(e.target.value) })}
         />
         <span className="d-dim">min</span>
-        <input type="color" aria-label="Color" value={a.color} onChange={(e) => setA({ ...a, color: e.target.value })} />
+      </div>
+      <div className="d-row r-sw" role="radiogroup" aria-label="Color del ciclo">
+        {SWATCHES.map(([c, n]) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={a.color === c}
+            aria-label={n}
+            title={n}
+            style={{ background: c }}
+            onClick={() => setA({ ...a, color: c })}
+          />
+        ))}
+        <input
+          type="color"
+          title="Otro color"
+          aria-label="Otro color"
+          value={a.color}
+          onChange={(e) => setA({ ...a, color: e.target.value })}
+        />
       </div>
       <div className="d-row">
         <button className="d-b sm pri" disabled={!ok}>

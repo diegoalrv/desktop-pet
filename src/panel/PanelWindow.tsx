@@ -10,7 +10,7 @@ import { ChatTab, type VoicePrompt } from "./ChatTab";
 import { Icon, type IconName } from "./icons";
 import { PN_CSS } from "./ui";
 import { fmt } from "../lib/time";
-import { MODE_COLOR } from "../pet/TimerPill";
+import { snapColor } from "../pet/TimerPill";
 import { useTimer } from "../store/useTimer";
 import { useTasks } from "../store/useTasks";
 import idleSprite from "../../examples/candolita/idle.png";
@@ -36,7 +36,7 @@ function Status() {
       </span>
     );
   return (
-    <span className="pn-sub" style={{ color: MODE_COLOR[snap.mode] }}>
+    <span className="pn-sub" style={{ color: snapColor(snap) }}>
       <span
         className="dot"
         style={{

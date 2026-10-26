@@ -49,17 +49,18 @@ pub struct Step {
     pub activity_id: i64,
     pub label: String,
     pub emoji: String,
+    pub color: String, // "#rrggbb" de la actividad: la píldora y el panel se pintan con él
 }
 
 impl Step {
     /// Las pausas de 15 min o más cuentan como `Long`: stats y la barra de menú siguen con los tres modos.
-    pub fn new(kind: &str, min: u64, activity_id: i64, label: String, emoji: String) -> Self {
+    pub fn new(kind: &str, min: u64, activity_id: i64, label: String, emoji: String, color: String) -> Self {
         let mode = match kind {
             "focus" => Mode::Focus,
             _ if min >= 15 => Mode::Long,
             _ => Mode::Short,
         };
-        Self { mode, secs: min.max(1) * 60, activity_id, label, emoji }
+        Self { mode, secs: min.max(1) * 60, activity_id, label, emoji, color }
     }
 }
 
@@ -143,6 +144,7 @@ pub struct Snap {
     steps: usize,
     label: String,
     emoji: String,
+    color: String,
     next_label: String,
 }
 
@@ -403,6 +405,7 @@ impl Timer {
             steps: steps.len(),
             label: cur.map(|s| s.label.clone()).unwrap_or_default(),
             emoji: cur.map(|s| s.emoji.clone()).unwrap_or_default(),
+            color: cur.map(|s| s.color.clone()).unwrap_or_default(),
             next_label: next.map(|s| s.label.clone()).unwrap_or_default(),
         }
     }
@@ -747,7 +750,7 @@ mod tests {
     }
 
     fn rutina(bloques: &[(&str, u64, &str)]) -> Vec<Step> {
-        bloques.iter().enumerate().map(|(i, &(k, m, l))| Step::new(k, m, i as i64, l.into(), String::new())).collect()
+        bloques.iter().enumerate().map(|(i, &(k, m, l))| Step::new(k, m, i as i64, l.into(), String::new(), format!("#00000{i}"))).collect()
     }
 
     /// Recorre `n` bloques dejando vencer cada uno; devuelve (modo, minutos, actividad) del que arrancó tras cada uno.
@@ -797,11 +800,11 @@ mod tests {
         let mut now = t.end.unwrap();
         t.due(now); // → Descanso
         let s = t.snap(now);
-        assert_eq!((s.label.as_str(), s.next_label.as_str(), s.step, s.steps), ("Descanso", "Foco", 1, 4));
+        assert_eq!((s.label.as_str(), s.color.as_str(), s.next_label.as_str(), s.step, s.steps), ("Descanso", "#000001", "Foco", 1, 4));
         now += t.total + 1000;
         assert_eq!(t.due(now).unwrap().activity_id, Some(1));
         let s = t.snap(now);
-        assert_eq!((s.status, s.label.as_str(), s.next_label.as_str()), (Status::Idle, "", "Foco"));
+        assert_eq!((s.status, s.label.as_str(), s.color.as_str(), s.next_label.as_str()), (Status::Idle, "", "", "Foco"));
     }
 
     #[test]

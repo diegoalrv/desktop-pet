@@ -6,7 +6,7 @@ import { byHour, byWeekday, dayStart, perDay, streak } from "../lib/stats";
 import { fmt, fmtDur } from "../lib/time";
 import { useLive, useTasks } from "../store/useTasks";
 import { useSettings } from "../store/useSettings";
-import { MODE_COLOR } from "../pet/TimerPill";
+import { MODE_COLOR, snapColor } from "../pet/TimerPill";
 import idleSprite from "../../examples/candolita/idle.png";
 import { Icon, type IconName } from "../panel/icons";
 import { PANEL_CSS } from "../panel/ui";
@@ -133,13 +133,15 @@ function TimerCard() {
       taskId: mode === "focus" ? taskId : null,
       ...(db.IS_WEB ? {} : { seconds: mins[mode] * 60 }),
     });
-  const color = active ? MODE_COLOR[snap.mode] : undefined;
+  const color = active ? snapColor(snap) : undefined;
   return (
     <div className="d-card" style={{ gap: 18, padding: 22 }}>
       <div className="d-row">
         <span className="d-label">Timer</span>
         <span className="d-pill" style={{ marginLeft: "auto", color }}>
-          {active ? `${MODE_LABEL[snap.mode]}${snap.status === "paused" ? " · en pausa" : ""}` : "En reposo"}
+          {active
+            ? `${snap.label ? `${snap.emoji} ${snap.label}` : MODE_LABEL[snap.mode]}${snap.status === "paused" ? " · en pausa" : ""}`
+            : "En reposo"}
         </span>
       </div>
       <div style={{ display: "grid", gap: 6 }}>

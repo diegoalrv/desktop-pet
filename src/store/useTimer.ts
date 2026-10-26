@@ -13,6 +13,7 @@ const idle: TimerSnap = {
   steps: 0,
   label: "",
   emoji: "",
+  color: "",
   next_label: "",
 };
 
