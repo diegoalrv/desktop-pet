@@ -302,6 +302,7 @@ pub fn run() {
             timer::send_notification,
             timer::focus_phone,
             timer::timer_routine,
+            timer::timer_toggle,
             apps::running_apps,
             apps::focus_cam_ctx
         ])

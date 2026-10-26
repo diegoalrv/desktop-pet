@@ -53,7 +53,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 windows::show_panel(app);
                 let _ = app.emit_to("panel", "panel://quick-capture", ());
             }
-            "web" => web::open_web(),
+            "web" => web::open_web(None),
             "manager" => { windows::open_window(app.clone(), "tasks".into()); }
             "settings" => { windows::open_window(app.clone(), "settings".into()); }
             "quit" => app.exit(0),

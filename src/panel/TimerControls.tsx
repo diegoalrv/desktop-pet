@@ -101,11 +101,16 @@ export function TimerControls() {
   const start = (min: number) =>
     min > 0 && timer.start(mode, Math.round(min * 60), mode === "focus" ? sel : null);
   const reached = task && !task.done && task.done_pomodoros >= task.est_pomodoros;
+  const routine = snap.steps > 0; // rutina activa (F18): el siguiente bloque lo decide Rust
   const caption = !active
-    ? `${snap.count} ${snap.count === 1 ? "foco" : "focos"} en este ciclo`
+    ? routine
+      ? `Sigue: ${snap.next_label}`
+      : `${snap.count} ${snap.count === 1 ? "foco" : "focos"} en este ciclo`
     : snap.status === "paused"
       ? "En pausa"
-      : LABELS.find((l) => l.mode === snap.mode)!.label;
+      : snap.label
+        ? `${snap.emoji} ${snap.label} · ${snap.step + 1}/${snap.steps}`
+        : LABELS.find((l) => l.mode === snap.mode)!.label;
 
   return (
     <div className="stack" style={{ gap: "1.1em" }}>
@@ -128,6 +133,11 @@ export function TimerControls() {
         time={fmt(active ? snap.remaining : defMin * 60)}
         caption={caption}
       />
+      {active && routine && snap.next_label && (
+        <div className="small muted center" style={{ marginTop: "-.6em" }}>
+          Luego: {snap.next_label}
+        </div>
+      )}
 
       {!active && mode === "focus" ? (
         <div className="row">
@@ -195,9 +205,9 @@ export function TimerControls() {
           <button
             className="b b-primary b-block"
             style={{ background: color, boxShadow: `0 6px 20px -8px ${color}`, padding: ".75em" }}
-            onClick={() => start(defMin)}
+            onClick={() => (routine ? timer.toggle() : start(defMin))}
           >
-            <Icon name="play" /> Iniciar {defMin} min
+            <Icon name="play" /> {routine ? `Seguir rutina: ${snap.next_label}` : `Iniciar ${defMin} min`}
           </button>
           <form
             className="row"

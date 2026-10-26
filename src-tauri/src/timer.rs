@@ -585,6 +585,12 @@ pub fn toggle_focus(app: &AppHandle) {
     changed(app, &t);
 }
 
+/// Botón "Seguir rutina" del panel: en reposo arranca el bloque que toca (como el atajo global).
+#[tauri::command]
+pub fn timer_toggle(app: AppHandle) {
+    toggle_focus(&app);
+}
+
 #[tauri::command]
 pub fn timer_get(s: State<TimerState>) -> Snap {
     s.lock().unwrap().snap(now_ms())

@@ -40,11 +40,13 @@ pub fn token() -> &'static str {
     })
 }
 
-/// Abre la web local en el navegador por defecto (macOS). En dev, vite (1420) hace proxy de /api a PORT.
+/// Abre la web local en el navegador por defecto (macOS), en la vista `view` si viene (`routines` → `#routines`).
+/// En dev, vite (1420) hace proxy de /api a PORT.
 #[tauri::command]
-pub fn open_web() {
+pub fn open_web(view: Option<String>) {
     let origin = if cfg!(debug_assertions) { "http://localhost:1420".to_string() } else { format!("http://127.0.0.1:{PORT}") };
-    let url = format!("{origin}/?t={}", token());
+    let hash = view.filter(|v| v.chars().all(|c| c.is_ascii_alphanumeric())).map(|v| format!("#{v}")).unwrap_or_default();
+    let url = format!("{origin}/?t={}{hash}", token());
     #[cfg(windows)]
     let _ = crate::cmd("cmd").args(["/C", "start", "", &url]).spawn();
     #[cfg(not(windows))]
@@ -124,6 +126,7 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
         "timer_reset" => ok(timer::timer_reset(app.clone(), app.state())),
         "timer_restart" => ok(timer::timer_restart(app.clone(), app.state())),
         "timer_skip" => ok(timer::timer_skip(app.clone(), app.state())),
+        "timer_toggle" => ok(timer::timer_toggle(app.clone())),
         "meeting_state" => Ok(json!(meeting::meeting_state(app.state()))),
         "meetings_list" => Ok(json!(meeting::meetings_list(app.clone()))),
         "meeting_start" => {

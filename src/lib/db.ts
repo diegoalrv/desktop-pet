@@ -5,6 +5,7 @@ import { updateSql, type Category, type Repeat, type Task } from "./tasks";
 import { dueFromDate, parseAction } from "./suggestions";
 import { call, post } from "./ipc";
 import type { Segment } from "./focusCam";
+import type { Activity, Routine, Step } from "./routine";
 
 /** En el navegador (web local) no hay Tauri: el mismo SQL viaja a la app por HTTP (src-tauri/src/web.rs). */
 export const IS_WEB = !isTauri();
@@ -251,3 +252,50 @@ export const listClaudeTitles = (from: number, to: number) =>
   select<ClaudeTitleRow>("SELECT * FROM claude_hour_titles WHERE hour >= $1 AND hour < $2", [from, to]);
 export type ClaudeProjectRow = { project: string; path: string; remote: string };
 export const listClaudeProjects = () => select<ClaudeProjectRow>("SELECT * FROM claude_projects");
+
+// Rutinas (F18, migración 015). Cada escritura dispara db://changed y Rust relee la rutina activa.
+export const listActivities = () =>
+  select<Activity>("SELECT * FROM activities WHERE archived = 0 ORDER BY sort, id");
+export const allActivities = () => select<Activity>("SELECT * FROM activities");
+export const saveActivity = (a: Omit<Activity, "id" | "archived" | "sort"> & { id?: number }) =>
+  a.id
+    ? exec("UPDATE activities SET name = $1, kind = $2, min = $3, emoji = $4, color = $5 WHERE id = $6", [
+        a.name, a.kind, a.min, a.emoji, a.color, a.id,
+      ])
+    : exec(
+        `INSERT INTO activities (name, kind, min, emoji, color, sort)
+         VALUES ($1, $2, $3, $4, $5, (SELECT COALESCE(MAX(sort), 0) + 1 FROM activities))`,
+        [a.name, a.kind, a.min, a.emoji, a.color],
+      );
+/** Archivar, no borrar: las rutinas que la usan y el historial (`sessions.activity_id`) quedan intactos. */
+export const archiveActivity = (id: number) => exec("UPDATE activities SET archived = 1 WHERE id = $1", [id]);
+
+export const listRoutines = () => select<Routine>("SELECT * FROM routines ORDER BY id");
+export const routineSteps = (id: number) =>
+  select<Step>("SELECT activity_id, min FROM routine_steps WHERE routine_id = $1 ORDER BY pos", [id]);
+export const addRoutine = async (name: string, steps: Step[] = []) => {
+  await exec("INSERT INTO routines (name) VALUES ($1)", [name]);
+  const [{ id }] = await select<{ id: number }>("SELECT MAX(id) AS id FROM routines");
+  await saveSteps(id, steps);
+  return id;
+};
+export const renameRoutine = (id: number, name: string) =>
+  exec("UPDATE routines SET name = $1 WHERE id = $2", [name, id]);
+export const deleteRoutine = async (id: number) => {
+  await exec("DELETE FROM routine_steps WHERE routine_id = $1", [id]);
+  await exec("DELETE FROM routines WHERE id = $1", [id]);
+};
+/** Reemplaza los bloques. ponytail: borra y reinserta, sin transacción (la web manda un SQL por request);
+ *  el timer puede ver un estado a medias por un instante y vuelve al primer bloque, que es lo esperable al editar. */
+export const saveSteps = async (id: number, steps: Step[]) => {
+  await exec("DELETE FROM routine_steps WHERE routine_id = $1", [id]);
+  for (const [pos, s] of steps.entries())
+    await exec("INSERT INTO routine_steps (routine_id, pos, activity_id, min) VALUES ($1, $2, $3, $4)", [
+      id, pos, s.activity_id, s.min,
+    ]);
+};
+/** Una sola activa (índice único parcial): primero se apagan todas. null = esquema clásico de Ajustes. */
+export const setActiveRoutine = async (id: number | null) => {
+  await exec("UPDATE routines SET active = 0 WHERE active = 1");
+  if (id != null) await exec("UPDATE routines SET active = 1 WHERE id = $1", [id]);
+};

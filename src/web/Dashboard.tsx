@@ -15,6 +15,7 @@ import type { MusicState } from "../store/useMusic";
 import { Bars, DASH_CSS, download, fmtDate, fmtDay, HBars, Head, Heatmap, Hl, usePoll } from "./kit";
 import { Meetings, Suggestions } from "./Meetings";
 import { Report } from "./Report";
+import { Routines } from "./Routines";
 import { Claude, fmtTok, projCtx, projHref, projName } from "./Claude";
 
 const VIEWS: { id: string; label: string; icon: IconName }[] = [
@@ -23,6 +24,7 @@ const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: "meetings", label: "Reuniones", icon: "mic" },
   { id: "suggestions", label: "Sugerencias", icon: "inbox" },
   { id: "focus", label: "Foco", icon: "chart" },
+  { id: "routines", label: "Rutinas", icon: "repeat" },
   { id: "claude", label: "Claude", icon: "zap" },
   { id: "report", label: "Informe", icon: "chart" },
   { id: "chat", label: "Chat", icon: "terminal" },
@@ -105,6 +107,7 @@ export function Dashboard() {
         {view === "meetings" && <Meetings id={param ? Number(param) : undefined} tab={sub} />}
         {view === "suggestions" && <Suggestions />}
         {view === "focus" && <Focus />}
+        {view === "routines" && <Routines />}
         {view === "claude" && <Claude project={param ? decodeURIComponent(param) : undefined} />}
         {view === "report" && <Report />}
         {view === "chat" && <ChatLog id={param ? Number(param) : undefined} />}

@@ -14,6 +14,9 @@ import { useSettings } from "../store/useSettings";
 import { LlmEditor } from "./LlmEditor";
 import { PetSection, sub } from "./PetSection";
 import { btn, T, PANEL_CSS } from "../panel/ui";
+import { listen } from "@tauri-apps/api/event";
+import * as db from "../lib/db";
+import type { Routine } from "../lib/routine";
 
 // Distracciones por app y dictado a la Candola aún no existen en Windows (apps.rs, voice.rs): no se muestran.
 const WIN = navigator.userAgent.includes("Windows");
@@ -169,6 +172,7 @@ export function SettingsWindow() {
 
       <Section title="Modo Foco" hint="timer, distracciones y cuándo te llama la atención">
         <h3 style={sub}>Timer</h3>
+        <RoutinePicker />
         {num("focusMin", "Foco (min)")}
         {num("shortMin", "Pausa corta (min)")}
         {num("longMin", "Pausa larga (min)")}
@@ -400,6 +404,39 @@ export function SettingsWindow() {
           Iniciar al encender el equipo
         </label>
       </Section>
+    </div>
+  );
+}
+
+/** Rutina activa (F18). Se arman en la web (vista Rutinas); sin rutina mandan los tiempos de abajo. */
+function RoutinePicker() {
+  const [rs, setRs] = useState<Routine[]>([]);
+  useEffect(() => {
+    const load = () => db.listRoutines().then(setRs, () => {});
+    load();
+    const un = listen("db://changed", load);
+    return () => void un.then((f) => f());
+  }, []);
+  const active = rs.find((r) => r.active);
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <label htmlFor="routine">Rutina</label>
+      <select
+        id="routine"
+        style={{ ...btn, padding: 4, flex: 1 }}
+        value={active?.id ?? ""}
+        onChange={(e) => db.setActiveRoutine(e.target.value ? Number(e.target.value) : null)}
+      >
+        <option value="">Clásica (los tiempos de abajo)</option>
+        {rs.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+      <button style={btn} onClick={() => invoke("open_web", { view: "routines" })}>
+        {rs.length ? "Editar ↗" : "Crear ↗"}
+      </button>
     </div>
   );
 }

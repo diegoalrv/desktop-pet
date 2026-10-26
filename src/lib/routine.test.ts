@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import { fmtMin, insert, move, totals, usable, type Activity, type Step } from "./routine";
+
+const act = (id: number, kind: Activity["kind"], min: number): Activity => ({
+  id,
+  name: `a${id}`,
+  kind,
+  min,
+  emoji: "",
+  color: "#000",
+  archived: 0,
+  sort: 0,
+});
+const byId = new Map([act(1, "focus", 25), act(2, "break", 5), act(4, "break", 10)].map((a) => [a.id, a]));
+
+describe("rutinas", () => {
+  it("suma la vuelta de Constanza con un bloque pisado", () => {
+    const steps: Step[] = [
+      { activity_id: 1, min: null },
+      { activity_id: 2, min: null },
+      { activity_id: 1, min: null },
+      { activity_id: 4, min: 12 },
+    ];
+    expect(totals(steps, byId)).toEqual({ focus: 50, rest: 17, all: 67 });
+    expect(usable(steps, byId)).toBe(true);
+    expect(usable([{ activity_id: 2, min: null }], byId)).toBe(false);
+  });
+
+  it("reordena e inserta", () => {
+    expect(move(["a", "b", "c", "d"], 0, 2)).toEqual(["b", "c", "a", "d"]);
+    expect(move(["a", "b", "c", "d"], 3, 0)).toEqual(["d", "a", "b", "c"]);
+    expect(move(["a", "b", "c"], 0, 9)).toEqual(["b", "c", "a"]); // más allá del final: al final
+    expect(move(["a"], 5, 0)).toEqual(["a"]);
+    expect(insert(["a", "b"], "x", 1)).toEqual(["a", "x", "b"]);
+    expect(insert(["a", "b"], "x")).toEqual(["a", "b", "x"]);
+  });
+
+  it("formatea minutos", () => {
+    expect(fmtMin(50)).toBe("50 min");
+    expect(fmtMin(60)).toBe("1 h");
+    expect(fmtMin(65)).toBe("1 h 05 min");
+  });
+});

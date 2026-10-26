@@ -74,6 +74,7 @@ export const timer = {
   skip: () => invoke("timer_skip"),
   setTask: (taskId: number | null) => invoke("timer_set_task", { taskId }),
   routine: () => invoke<number>("timer_routine"),
+  toggle: () => invoke("timer_toggle"),
 };
 export const togglePanel = () => invoke("toggle_panel");
 export const notify = (title: string, body: string) => invoke("send_notification", { title, body });
