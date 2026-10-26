@@ -60,3 +60,22 @@ export const usable = (steps: Step[], byId: Map<number, Activity>) =>
 /** "1 h 05 min", "50 min". */
 export const fmtMin = (m: number) =>
   m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, "0")} min` : ""}` : `${m} min`;
+
+/** Tiempos del ciclo clásico de Ajustes (comando `timer_classic`). */
+export interface Classic {
+  focus_min: number;
+  short_min: number;
+  long_min: number;
+  long_every: number;
+  auto_cycle: boolean;
+}
+
+/** Una vuelta del ciclo clásico: `long_every` focos con pausa corta entre ellos y la larga al final. */
+export function classicBlocks(c: Classic): { mode: "focus" | "short" | "long"; min: number }[] {
+  return Array.from({ length: c.long_every }, (_, i) => [
+    { mode: "focus" as const, min: c.focus_min },
+    i < c.long_every - 1
+      ? { mode: "short" as const, min: c.short_min }
+      : { mode: "long" as const, min: c.long_min },
+  ]).flat();
+}

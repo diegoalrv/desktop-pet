@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import * as db from "../lib/db";
 import type { TimerSnap } from "../lib/ipc";
-import { fmtMin, insert, move, stepMin, totals, usable, type Activity, type Kind, type Step } from "../lib/routine";
+import {
+  classicBlocks,
+  fmtMin,
+  insert,
+  move,
+  stepMin,
+  totals,
+  usable,
+  type Activity,
+  type Classic,
+  type Kind,
+  type Step,
+} from "../lib/routine";
 import { useLive } from "../store/useTasks";
-import { useSettings } from "../store/useSettings";
+import { MODE_COLOR } from "../pet/TimerPill";
 import { Icon } from "../panel/icons";
 import { Head, usePoll } from "./kit";
 
@@ -56,6 +68,7 @@ const SWATCHES = [
   ["#1fb5a8", "Turquesa"],
   ["#d4b21f", "Amarillo"],
 ] as const;
+const CLASSIC_LABEL = { focus: "Foco", short: "Pausa corta", long: "Pausa larga" } as const;
 const ACT = "application/x-activity";
 const STEP = "application/x-step";
 
@@ -156,10 +169,16 @@ export function Routines() {
   const acts = useLive(db.listActivities) ?? [];
   const byId = new Map((useLive(db.allActivities) ?? []).map((a) => [a.id, a])); // incluye archivadas en uso
   const routines = useLive(db.listRoutines);
-  const autoCycle = useSettings((s) => s.prefs.autoCycle);
+  const classic = usePoll<Classic>("timer_classic", 5000);
+  const autoCycle = classic?.auto_cycle ?? true;
   const snap = usePoll<TimerSnap>("timer_get", 1000);
-  const [sel, setSel] = useState<number | null>(null);
-  const cur = routines?.find((r) => r.id === sel) ?? routines?.find((r) => r.active) ?? routines?.[0];
+  // Sin elegir nada se muestra la activa; sin rutina activa, la clásica (cur undefined).
+  const [sel, setSel] = useState<number | "classic" | null>(null);
+  const cur =
+    sel === "classic"
+      ? undefined
+      : (routines?.find((r) => r.id === sel) ?? (sel == null ? routines?.find((r) => r.active) : undefined));
+  const classicActive = !routines?.some((r) => r.active);
   const [steps, setSteps] = useState<Step[]>([]);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [name, setName] = useState("");
@@ -193,6 +212,23 @@ export function Routines() {
     const b = acts.find((a) => a.kind === "break");
     const start = [f, b].filter((a): a is Activity => !!a).map((a) => ({ activity_id: a.id, min: null }));
     const id = await db.addRoutine(`Rutina ${(routines?.length ?? 0) + 1}`, start);
+    setSel(id);
+    load(id);
+  };
+
+  // Copia editable de la clásica, con las actividades de ejemplo y los minutos de Ajustes.
+  const copyClassic = async () => {
+    if (!classic) return;
+    const brk = acts.filter((a) => a.kind === "break");
+    const pick = {
+      focus: acts.find((a) => a.kind === "focus"),
+      short: brk.find((a) => a.min < 15) ?? brk[0],
+      long: brk.find((a) => a.min >= 15) ?? brk[0],
+    };
+    const blocks = classicBlocks(classic).flatMap((b) =>
+      pick[b.mode] ? [{ activity_id: pick[b.mode]!.id, min: b.min }] : [],
+    );
+    const id = await db.addRoutine("Mi clásica", blocks);
     setSel(id);
     load(id);
   };
@@ -258,13 +294,20 @@ export function Routines() {
                   >
                     <Icon name="plus" size="1em" />
                   </button>
-                  <button className="d-b sm ghost" aria-label={`Editar ${a.name}`} onClick={() => setEditing(a)}>
+                  <button
+                    className="d-b sm ghost"
+                    aria-label={`Editar ${a.name}`}
+                    onClick={() => setEditing(a)}
+                  >
                     <Icon name="pencil" size="1em" />
                   </button>
                   <button
                     className="d-b sm ghost"
                     aria-label={`Archivar ${a.name}`}
-                    onClick={() => confirm(`¿Archivar "${a.name}"? Las rutinas que la usan la conservan.`) && db.archiveActivity(a.id)}
+                    onClick={() =>
+                      confirm(`¿Archivar "${a.name}"? Las rutinas que la usan la conservan.`) &&
+                      db.archiveActivity(a.id)
+                    }
                   >
                     <Icon name="trash" size="1em" />
                   </button>
@@ -283,6 +326,13 @@ export function Routines() {
 
         <section className="d-card">
           <div className="r-tabs">
+            <button
+              className={`d-b sm${!cur ? " on" : ""}`}
+              aria-pressed={!cur}
+              onClick={() => setSel("classic")}
+            >
+              {classicActive ? "★ " : ""}Clásica
+            </button>
             {routines?.map((r) => (
               <button
                 key={r.id}
@@ -300,10 +350,50 @@ export function Routines() {
           </div>
 
           {!cur ? (
-            <div className="d-empty">
-              Todavía no tienes rutinas. Crea una y arrastra actividades para armar tu ciclo: por ejemplo, Foco 25 ·
-              Descanso 5 · Foco 25 · Pausa activa 10.
-            </div>
+            <>
+              <div className="d-row">
+                <b style={{ flex: "1 1 180px", fontSize: 16, padding: "7px 0" }}>Clásica</b>
+                {classicActive ? (
+                  <span className="d-pill">★ Activa</span>
+                ) : (
+                  <button className="d-b sm pri" onClick={() => db.setActiveRoutine(null)}>
+                    ★ Usar la clásica
+                  </button>
+                )}
+                <button className="d-b sm" onClick={copyClassic} disabled={!classic}>
+                  <Icon name="copy" size="1em" /> Copiar como rutina
+                </button>
+              </div>
+              {classic && (
+                <>
+                  <div className="r-tl" aria-label="Línea de tiempo de una vuelta">
+                    {classicBlocks(classic).map((b, i) => (
+                      <div
+                        key={i}
+                        className={b.mode === "focus" ? "" : "brk"}
+                        style={{ flex: b.min, "--c": MODE_COLOR[b.mode] } as CSSProperties}
+                        title={`${CLASSIC_LABEL[b.mode]} · ${b.min} min`}
+                      >
+                        {b.min}′
+                      </div>
+                    ))}
+                  </div>
+                  <div className="d-row r-hint">
+                    <b style={{ color: "var(--text)" }}>
+                      {fmtMin(classicBlocks(classic).reduce((t, b) => t + b.min, 0))} por vuelta
+                    </b>
+                    <span>
+                      · {classic.long_every} focos de {classic.focus_min} min, pausa corta de{" "}
+                      {classic.short_min} y la larga de {classic.long_min} al final
+                    </span>
+                  </div>
+                </>
+              )}
+              <div className="r-hint">
+                Sus tiempos se cambian en Ajustes → Modo Foco → Cambiar tiempos. Para armar tu propio ciclo,
+                crea una rutina nueva o copia esta y arrastra actividades.
+              </div>
+            </>
           ) : (
             <>
               <div className="d-row">
@@ -317,7 +407,11 @@ export function Routines() {
                   onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                 />
                 {isActive ? (
-                  <button className="d-b sm" onClick={() => db.setActiveRoutine(null)} title="Volver al ciclo clásico">
+                  <button
+                    className="d-b sm"
+                    onClick={() => db.setActiveRoutine(null)}
+                    title="Volver al ciclo clásico"
+                  >
                     ★ Activa · desactivar
                   </button>
                 ) : (
@@ -360,7 +454,9 @@ export function Routines() {
                       <div
                         key={i}
                         className={`${a?.kind === "break" ? "brk" : ""}${i === nowAt ? " now" : ""}`}
-                        style={{ flex: m, "--c": a?.color ?? "#555", "--p": `${progress * 100}%` } as CSSProperties}
+                        style={
+                          { flex: m, "--c": a?.color ?? "#555", "--p": `${progress * 100}%` } as CSSProperties
+                        }
                         title={`${a?.name ?? "?"} · ${m} min`}
                       >
                         {a?.emoji} {m}′
@@ -380,7 +476,9 @@ export function Routines() {
                 )}
               </div>
               {steps.length > 0 && !usable(steps, byId) && (
-                <div className="r-warn">Agrega al menos un foco: una rutina sin focos no se usa (manda el ciclo clásico).</div>
+                <div className="r-warn">
+                  Agrega al menos un foco: una rutina sin focos no se usa (manda el ciclo clásico).
+                </div>
               )}
 
               <div
@@ -392,7 +490,9 @@ export function Routines() {
                 onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(null)}
                 onDrop={onDrop}
               >
-                {steps.length === 0 && <div className="d-empty">Suelta aquí las actividades, en el orden del ciclo.</div>}
+                {steps.length === 0 && (
+                  <div className="d-empty">Suelta aquí las actividades, en el orden del ciclo.</div>
+                )}
                 {steps.map((s, i) => {
                   const a = byId.get(s.activity_id);
                   return (
@@ -427,7 +527,10 @@ export function Routines() {
                           title="Vacío = los minutos de la actividad"
                           value={s.min ?? ""}
                           onChange={(e) => {
-                            const v = e.target.value === "" ? null : Math.min(180, Math.max(1, Number(e.target.value)));
+                            const v =
+                              e.target.value === ""
+                                ? null
+                                : Math.min(180, Math.max(1, Number(e.target.value)));
                             save(steps.map((x, j) => (j === i ? { ...x, min: v } : x)));
                           }}
                         />

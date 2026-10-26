@@ -16,7 +16,8 @@ import { PetSection, sub } from "./PetSection";
 import { btn, T, PANEL_CSS } from "../panel/ui";
 import { listen } from "@tauri-apps/api/event";
 import * as db from "../lib/db";
-import type { Routine } from "../lib/routine";
+import { fmtMin, stepMin, type Activity, type Routine, type Step } from "../lib/routine";
+import { MODE_COLOR } from "../pet/TimerPill";
 
 // Distracciones por app y dictado a la Candola aún no existen en Windows (apps.rs, voice.rs): no se muestran.
 const WIN = navigator.userAgent.includes("Windows");
@@ -29,6 +30,13 @@ const SECTION_CSS = `
   details.sec>summary::after{content:"›";margin-left:auto;color:${T.dim};font-size:18px;transition:transform .15s}
   details.sec[open]>summary::after{transform:rotate(90deg)}
   details.sec[open]>summary{border-bottom:1px solid ${T.line};margin-bottom:12px}
+  .rt{display:grid;gap:8px;padding:10px 12px;border:1px solid ${T.line};border-radius:10px;background:rgba(0,0,0,.18)}
+  .rt table{width:100%;border-collapse:collapse;font-size:.92em}
+  .rt td{padding:5px 4px;border-top:1px solid ${T.line}}
+  .rt tr:first-child td{border-top:0}
+  .rt td:last-child{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .rt i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}
+  .rt small{color:${T.dim}}
 `;
 
 function Section({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
@@ -172,11 +180,12 @@ export function SettingsWindow() {
 
       <Section title="Modo Foco" hint="timer, distracciones y cuándo te llama la atención">
         <h3 style={sub}>Timer</h3>
-        <RoutinePicker />
-        {num("focusMin", "Foco (min)")}
-        {num("shortMin", "Pausa corta (min)")}
-        {num("longMin", "Pausa larga (min)")}
-        {num("longEvery", "Pausa larga cada (focos)")}
+        <RoutinePicker>
+          {num("focusMin", "Foco (min)")}
+          {num("shortMin", "Pausa corta (min)")}
+          {num("longMin", "Pausa larga (min)")}
+          {num("longEvery", "Pausa larga cada (focos)")}
+        </RoutinePicker>
         <label>
           <input
             type="checkbox"
@@ -408,35 +417,117 @@ export function SettingsWindow() {
   );
 }
 
-/** Rutina activa (F18). Se arman en la web (vista Rutinas); sin rutina mandan los tiempos de abajo. */
-function RoutinePicker() {
+/** Rutina activa (F18) y su detalle. Las propias se arman en la web (vista Rutinas); la clásica se arma con los
+ *  tiempos de Ajustes (`children`), que quedan escondidos tras "Cambiar tiempos". */
+function RoutinePicker({ children }: { children: React.ReactNode }) {
+  const p = useSettings((s) => s.prefs);
   const [rs, setRs] = useState<Routine[]>([]);
+  const [steps, setSteps] = useState<Step[]>([]);
+  const [acts, setActs] = useState(new Map<number, Activity>());
+  const [editing, setEditing] = useState(false);
+  const active = rs.find((r) => r.active);
   useEffect(() => {
-    const load = () => db.listRoutines().then(setRs, () => {});
+    const load = () =>
+      Promise.all([db.listRoutines(), db.allActivities()]).then(
+        ([r, a]) => {
+          setRs(r);
+          setActs(new Map(a.map((x) => [x.id, x])));
+        },
+        () => {},
+      );
     load();
     const un = listen("db://changed", load);
     return () => void un.then((f) => f());
   }, []);
-  const active = rs.find((r) => r.active);
+  useEffect(() => {
+    if (active) db.routineSteps(active.id).then(setSteps, () => {});
+  }, [active?.id, rs]);
+
+  const row = (color: string, name: string, detail: string, key?: number) => (
+    <tr key={key ?? name}>
+      <td>
+        <i style={{ background: color }} />
+        {name}
+      </td>
+      <td>{detail}</td>
+    </tr>
+  );
+  const classicLap = p.longEvery * p.focusMin + (p.longEvery - 1) * p.shortMin + p.longMin;
+  const lap = steps.reduce((t, s) => t + stepMin(s, acts.get(s.activity_id)), 0);
+
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <label htmlFor="routine">Rutina</label>
-      <select
-        id="routine"
-        style={{ ...btn, padding: 4, flex: 1 }}
-        value={active?.id ?? ""}
-        onChange={(e) => db.setActiveRoutine(e.target.value ? Number(e.target.value) : null)}
-      >
-        <option value="">Clásica (los tiempos de abajo)</option>
-        {rs.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.name}
-          </option>
-        ))}
-      </select>
-      <button style={btn} onClick={() => invoke("open_web", { view: "routines" })}>
-        {rs.length ? "Editar ↗" : "Crear ↗"}
-      </button>
-    </div>
+    <>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label htmlFor="routine">Rutina</label>
+        <select
+          id="routine"
+          style={{ ...btn, padding: 4, flex: 1 }}
+          value={active?.id ?? ""}
+          onChange={(e) => db.setActiveRoutine(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">Clásica</option>
+          {rs.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <button style={btn} onClick={() => invoke("open_web", { view: "routines" })}>
+          {rs.length ? "Editar ↗" : "Crear ↗"}
+        </button>
+      </div>
+      <div className="rt">
+        {active ? (
+          <>
+            <table>
+              <tbody>
+                {steps.map((s, i) => {
+                  const a = acts.get(s.activity_id);
+                  return row(
+                    a?.color ?? T.dim,
+                    `${a?.emoji ?? ""} ${a?.name ?? "?"}`.trim(),
+                    `${stepMin(s, a)} min`,
+                    i,
+                  );
+                })}
+              </tbody>
+            </table>
+            <small>
+              {steps.length} {steps.length === 1 ? "bloque" : "bloques"} · {fmtMin(lap)} por vuelta. Al
+              terminar vuelve a empezar.
+            </small>
+          </>
+        ) : (
+          <>
+            <table>
+              <tbody>
+                {row(MODE_COLOR.focus, "🍅 Foco", `${p.focusMin} min`)}
+                {row(MODE_COLOR.short, "☕ Pausa corta", `${p.shortMin} min`)}
+                {row(MODE_COLOR.long, "🛋️ Pausa larga", `${p.longMin} min, cada ${p.longEvery} focos`)}
+              </tbody>
+            </table>
+            <small>
+              Una vuelta: {p.longEvery} focos con pausa corta entre ellos y la larga al final (
+              {fmtMin(classicLap)}).
+            </small>
+            {editing ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {children}
+                <button style={{ ...btn, justifySelf: "start" }} onClick={() => setEditing(false)}>
+                  Listo
+                </button>
+              </div>
+            ) : (
+              <button
+                style={{ ...btn, justifySelf: "start", padding: "4px 10px" }}
+                onClick={() => setEditing(true)}
+              >
+                Cambiar tiempos
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }

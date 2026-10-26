@@ -550,6 +550,22 @@ pub fn timer_config(focus_s: u64, short_s: u64, long_s: u64, long_every: u32, au
     t.cfg = Cfg { focus_s: focus_s.max(1), short_s: short_s.max(1), long_s: long_s.max(1), long_every: long_every.max(1), auto_cycle, tray_timer, distractions, steps };
 }
 
+/// Tiempos del ciclo clásico (los de Ajustes, que PetWindow empuja con `timer_config`): la web no tiene las prefs.
+#[derive(Serialize)]
+pub struct Classic {
+    focus_min: u64,
+    short_min: u64,
+    long_min: u64,
+    long_every: u32,
+    auto_cycle: bool,
+}
+
+#[tauri::command]
+pub fn timer_classic(s: State<TimerState>) -> Classic {
+    let c = &s.lock().unwrap().cfg;
+    Classic { focus_min: c.focus_s / 60, short_min: c.short_s / 60, long_min: c.long_s / 60, long_every: c.long_every, auto_cycle: c.auto_cycle }
+}
+
 /// Relee la rutina activa de la base (F18). Lo llama el panel al abrir y cada `db://changed` (lib.rs).
 #[tauri::command]
 pub async fn timer_routine(app: AppHandle) -> Result<usize, String> {

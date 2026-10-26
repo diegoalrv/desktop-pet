@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtMin, insert, move, totals, usable, type Activity, type Step } from "./routine";
+import { classicBlocks, fmtMin, insert, move, totals, usable, type Activity, type Step } from "./routine";
 
 const act = (id: number, kind: Activity["kind"], min: number): Activity => ({
   id,
@@ -39,5 +39,18 @@ describe("rutinas", () => {
     expect(fmtMin(50)).toBe("50 min");
     expect(fmtMin(60)).toBe("1 h");
     expect(fmtMin(65)).toBe("1 h 05 min");
+  });
+
+  it("arma la vuelta clásica: 25/5 x4 con la cuarta pausa de 20", () => {
+    const b = classicBlocks({ focus_min: 25, short_min: 5, long_min: 20, long_every: 4, auto_cycle: true });
+    expect(b.map((x) => `${x.mode}${x.min}`).join(" ")).toBe(
+      "focus25 short5 focus25 short5 focus25 short5 focus25 long20",
+    );
+    expect(
+      classicBlocks({ focus_min: 50, short_min: 5, long_min: 15, long_every: 1, auto_cycle: false }),
+    ).toEqual([
+      { mode: "focus", min: 50 },
+      { mode: "long", min: 15 },
+    ]);
   });
 });
