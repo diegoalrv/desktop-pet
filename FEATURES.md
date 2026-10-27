@@ -313,10 +313,15 @@ Infraestructura (hecha, 26-oct-2026; detalle operativo en la memoria `vps-coolif
 - **https://ai.spadelab.xyz**: LiteLLM `v1.104.5` en Coolify (proyecto `ai-proxy`, Postgres propio), API formato
   OpenAI. Sin key → 404 (regla de Traefik); key inválida → 401. Panel solo por túnel: `~/SpadeLab/ai-proxy/admin-ui.sh`.
 - Modelos (en la BD de LiteLLM, no en config):
-  - `candola`: **el único que pide la app**. Alias que hoy apunta a Nova 2 Lite (Bedrock, créditos de AWS).
+  - `candola`: chat, gestión y preguntas. Desde 26-oct-2026 apunta a Claude Haiku (Anthropic); Nova 2 Lite no sirvió
+    en uso real (se le escapaban tareas).
+  - `candola-reuniones`: extraer tareas de una reunión (`ai::for_meeting`; la app lo prueba antes que `candola`, así
+    una key sin él o con Bedrock caído sigue andando). Qwen3 235B en Bedrock (créditos de AWS): en el benchmark de
+    26-oct (18 modelos × 10 reuniones sintéticas) quedó arriba junto a otros; se eligió sobre Llama 3.3 (el 1º) por
+    títulos más completos. Los modelos abiertos no sirven para el chat: mandan los ids como texto.
   - `claude-haiku` (Anthropic), `gemini-flash` (Gemini 3.5 Flash, respaldo `gemini-flash-lite`), `deepseek-flash`.
   - `titan-embed-v2` (embeddings, Bedrock, vectores de 1024).
-- Keys por tester: `max_budget` 2 USD cada 30 días, `rpm_limit` 30, solo `candola` + `titan-embed-v2`.
+- Keys por tester: `max_budget` 2 USD cada 30 días, `rpm_limit` 30, solo `candola` + `candola-reuniones` + `titan-embed-v2`.
 - Cambiar proveedor sin tocar la app: para todos, editar el modelo `candola`; para un tester, `aliases`
   `{"candola": "claude-haiku"}` en su key **y** agregar `claude-haiku` a sus `models`.
 
@@ -370,6 +375,64 @@ Operación:
 Después (cuando haya más testers o se cobre): login propio que entregue la key sola al registrarse
 (`/key/generate` desde un backend), cobro por suscripción con el presupuesto de la key como límite, y respaldo
 automático `candola` → `claude-haiku` si Nova falla.
+- Embeddings fuera de Bedrock (búsqueda híbrida FTS5 + modelo chico en el VPS): BACKEND_ROADMAP.md → Fase 8.
+
+## F20. Estadísticas anónimas y reportes de errores
+Qué: que la app mande, **solo si el usuario lo permite**, estadísticas de uso anónimas y reportes de errores
+(crashes de Rust, errores de JS, fallos de IA/reuniones/cámara) para pillar bugs en los testers sin pedirles
+logs a mano, y fixearlos. Hoy no hay forma de enterarse de un bug salvo que el tester avise.
+
+Backend: una API chica en el VPS, desplegada **por la API de Coolify** (proyecto nuevo, p. ej. `candola-support` en
+`https://candola-support.spadelab.xyz`; DNS gris en Cloudflare), con su propia BD (SQLite o Postgres). Decidir si se hace a
+mano (2 endpoints: `POST /event` y `POST /error`, auth con una key de ingesta por build) o con algo hecho
+(GlitchTip/Sentry-compatible o Plausible/Umami self-hosted) antes de escribir código. Hay que poder ver los
+reportes: lista simple o panel, agrupados por error y versión.
+
+Cliente:
+- Pref nueva `telemetry` en `prefs.ts` (zod, default **apagado** hasta decidirlo; aviso claro en la primera
+  apertura y interruptor en Ajustes, como el resto de prefs).
+- Id anónimo aleatorio por instalación (no ligado a la Key de Candola ni al correo), versión, SO, y nada más.
+- Eventos: uso de funciones (iniciar foco, reunión, Gestión, chat, rutina) sin contenido; contadores, no texto.
+- Errores: `panic` hook en Rust + `window.onerror`/`unhandledrejection` en el front + errores de las llamadas de
+  IA, con stack y versión. **Nunca** mandar transcripciones, títulos de tareas/reuniones, nombres, rutas con
+  usuario, ni fotos/cámara; limpiar el texto de los errores antes de enviar.
+- Cola local con reintento si no hay red; sin bloquear la UI; envío en lote.
+- Botón "Enviar reporte" manual en Ajustes (con vista previa de lo que se manda).
+
+Privacidad / reglas: opt-in y revocable; documentar qué se manda en el README; rate limit y tope de tamaño en el
+servidor; borrar datos viejos (p. ej. 90 días). Mac y Windows igual.
+
+Hecho cuando: un crash o error provocado a propósito en una build de prueba aparece en el servidor con versión y
+SO, sin datos personales; con el interruptor apagado no sale ni una petición.
+
+## F21. Página de la Candola: presentación, registro y descargas
+Qué: **una sola página** (landing estática, sin multi-sitio) que presenta a la Candola y sus funciones (foco con
+timer y mascota, reuniones con tareas y resumen, modo Gestión, chat y voz, rutinas, webcam durante el foco), con
+capturas/GIFs, y dos acciones: **registrarse** (para recibir la Key de Candola de F19) y **descargar** el `.dmg`
+(Mac) o el instalador de Windows (`.exe`/`.msi`).
+
+Dónde: Vercel con autodeploy por GitHub (carpeta `site/` del repo o repo propio; p. ej.
+`candola.spadelab.xyz`, DNS gris en Cloudflare). HTML/CSS simple, sin framework salvo que haga falta.
+
+Secciones de la página, en orden: qué es · funciones (una imagen cada una) · descargar (botones por SO, detectan
+Mac/Windows, versión y fecha de la última; instalador desde GitHub Releases, subido por el CI de `windows.yml` y a
+mano el `.dmg`; avisar cómo abrirla sin firma: Gatekeeper/SmartScreen) · registro · privacidad (qué va al proxy,
+ver F19 y F20).
+
+Registro, versión mínima: formulario de nombre + correo que cae en `candola-support` (F20) o en un correo; el alta
+de la key en LiteLLM (`/key/generate`, 2 USD/30 días, solo `candola` + `titan-embed-v2`) la hago yo a mano y se la
+mando. Automatizarlo (key al registrarse, con verificación de correo y rate limit) queda para cuando haya más gente.
+
+Decidir antes: ¿registro abierto o por invitación?, ¿firmar los binarios o solo avisar?
+
+Hecho cuando: alguien entra, entiende qué hace la Candola, deja su correo, descarga el instalador de su SO y,
+con la key que le llega, la IA funciona.
+
+---------------------------------------------------------------------------------------------------------------
+## Backend — VPS
+---------------------------------------------------------------------------------------------------------------
+
+Plan, stack y tracking en BACKEND_ROADMAP.md (reemplaza lo de backend de F19 "Después", F20 y F21).
 
 ---------------------------------------------------------------------------------------------------------------
 ## Postergadas — no hacer por ahora
