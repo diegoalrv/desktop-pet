@@ -116,16 +116,16 @@ Hecho cuando: los dos proyectos aparecen en Coolify con respaldos probados, y la
 Hecho cuando: las keys de testers solo conocen misiones y las 4 funciones andan con la versión nueva.
 
 ### Fase 3 — candola-api base
-- [ ] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health`
-- [ ] Despliegue por la API de Coolify en el proyecto `candola`, `api.candola.spadelab.xyz` (o similar; DNS gris en Cloudflare)
-- [ ] Llega a LiteLLM por la red interna `coolify` con la key de gestión del team
+- [x] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health` (27-oct-2026)
+- [ ] Despliegue por la API de Coolify en el proyecto `candola`, `api.candola.spadelab.xyz` (o similar; DNS gris en Cloudflare) — app `wo5p37tmn3yapqp2nwejt08n` corriendo desde la rama de M5 (27-oct-2026); falta el registro DNS y pasar a `master` tras el merge
+- [ ] Llega a LiteLLM por la red interna `coolify` con la key de gestión del team — hoy por `https://ai.spadelab.xyz` con la master key: falta `custom_network_aliases: litellm` en la app de LiteLLM
 - [ ] Better Auth con código al correo (mientras no haya Resend: código visible en logs/pantalla solo en integración)
-- [ ] Invitaciones: `POST /admin/invites` (token de admin), código de un uso con vencimiento
-- [ ] Registro con invitación → usuario (UUID opaco) + key en el team `candola` (`/key/generate`, misiones, presupuesto gratis, `metadata.user_id`)
+- [x] Invitaciones: `POST /admin/invites` (token de admin), código de un uso con vencimiento (27-oct-2026)
+- [x] Registro con invitación → usuario (UUID opaco) + key en el team `candola` (`/key/generate`, misiones, presupuesto gratis, `metadata.user_id`) (27-oct-2026)
 - [ ] Código de dispositivo: `POST /v1/device` y `POST /v1/device/token`
-- [ ] `GET /v1/me` (Bearer = key de LiteLLM): id, plan, presupuesto usado/restante, estado de pago, avisos
-- [ ] `POST /v1/events` en lote, rate limit, tope de tamaño, borrado a los 90 días
-- [ ] Tests de la lógica pura (invitaciones, validación de eventos)
+- [x] `GET /v1/me` (Bearer = key de LiteLLM): id, plan, presupuesto usado/restante, estado de pago, avisos (27-oct-2026)
+- [x] `POST /v1/events` en lote, rate limit, tope de tamaño, borrado a los 90 días (27-oct-2026)
+- [x] Tests de la lógica pura (invitaciones, validación de eventos) (27-oct-2026)
 
 Hecho cuando: con una invitación se crea un usuario con key que funciona contra LiteLLM, y `/v1/me` lo devuelve.
 
