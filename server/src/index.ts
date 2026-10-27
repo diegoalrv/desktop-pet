@@ -87,6 +87,7 @@ app.post('/v1/invites/redeem', async (c) => {
       team_id: TEAM_ID,
       models: MODELS,
       max_budget: FREE_BUDGET_USD,
+      budget_duration: '30d', // como las keys de testers: el tope gratis se renueva cada mes
       key_alias: `candola-${id}`,
       metadata: { user_id: id },
     })

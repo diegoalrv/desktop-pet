@@ -41,7 +41,7 @@ Sin auth. Cuerpo `{"code": "pebc-atff-rcsz"}`.
 `201 {"user_id": "<uuid>", "plan": "free", "key": "sk-..."}`
 
 Marca la invitación como usada, crea el usuario y genera su key en LiteLLM (team `candola`, modelos
-`candola-chat`, `candola-reuniones`, `candola-gestion`, `candola-preguntas`, `max_budget` = `FREE_BUDGET_USD`,
+`candola-chat`, `candola-reuniones`, `candola-gestion`, `candola-preguntas`, `max_budget` = `FREE_BUDGET_USD` renovable cada 30 días,
 `metadata.user_id`). **La key no se vuelve a mostrar**: la web debe pedir que el usuario la copie o pasarla a la app.
 
 ### `GET /v1/me`
@@ -81,7 +81,7 @@ Header `Authorization: Bearer <key>`. Cuerpo hasta 64 KB:
 | `LITELLM_MASTER_KEY` | Para `/key/generate` y `/key/delete` (solo vive acá, en Coolify) |
 | `LITELLM_TEAM_ID` | `team_id` del team `candola` |
 | `ADMIN_TOKEN` | Bearer de `/admin/*` |
-| `FREE_BUDGET_USD` | `max_budget` de las keys del plan gratis |
+| `FREE_BUDGET_USD` | `max_budget` de las keys del plan gratis (cada 30 días) |
 | `PORT` | Puerto HTTP (por defecto 3000) |
 
 ## Desarrollo
