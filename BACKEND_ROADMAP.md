@@ -3,8 +3,9 @@
 Tracking del backend de la Candola en el VPS. Fuente única: FEATURES.md (F19 "Después", F20, F21) apunta acá.
 Marcar `[x]` al terminar cada tarea y anotar la fecha; decisiones nuevas van al registro del final.
 
-Estado al 27-oct-2026: **diseño cerrado, nada construido**. En producción: LiteLLM (`ai.spadelab.xyz`) y GlitchTip
-(`glitchtip.spadelab.xyz`, vacío). Nadie usa todavía las keys de testers: se puede cortar todo sin compatibilidad.
+Estado al 27-oct-2026 (noche): Fases 0 a 3 hechas en código y mergeadas en `master` (sin versión publicada ni probadas en
+la app en vivo). Infra lista: team y alias en LiteLLM, Postgres `candola`, respaldos. candola-api corriendo en Coolify
+desde la rama de M5; faltan el DNS de `api.candola` y la red interna.
 
 ---------------------------------------------------------------------------------------------------------------
 ## Principio
@@ -105,52 +106,52 @@ misiones, después ver errores. Cuenta y cobro al final, en versión fácil.
 
 ### Fase 0 — FTS5 en la app (no necesita el VPS)
 Urgente: desde el 27-oct `titan-embed-v2` responde "Error 002" y preguntarle a las reuniones no anda en Windows.
-- [ ] Tabla virtual FTS5 sobre el texto de `meeting_chunks`, llenada en `index_missing`. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
-- [ ] `answer` responde solo con texto si los embeddings fallan
-- [ ] Tests de `embed` en `ai.rs` que usan `titan-embed-v2`: quitar o apuntar a `candola-embed` (hoy fallan)
+- [x] Tabla virtual FTS5 sobre el texto de `meeting_chunks`, llenada en `index_missing`. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
+- [x] `answer` responde solo con texto si los embeddings fallan
+- [x] Tests de `embed` en `ai.rs` que usan `titan-embed-v2`: quitar o apuntar a `candola-embed` (hoy fallan)
 
 Hecho cuando: en Windows, preguntarle a las reuniones responde aunque no haya embeddings.
 
 ### Fase 1 — Infra base
-- [ ] 2 GB de swap en el VPS (hoy 0; 1,87 GB disponibles de 7,75)
-- [ ] `ai-proxy`: respaldo programado de `litellm-db` desde Coolify (es BD gestionada) y probar una restauración
-- [ ] `ai-proxy`: team `candola` en LiteLLM
-- [ ] Proyecto `candola` en Coolify con Postgres 16 (base `candola`), respaldo programado y restauración probada
+- [x] 2 GB de swap en el VPS (`/swapfile`, `swappiness=10`) — 27-oct-2026
+- [x] `ai-proxy`: respaldo programado de `litellm-db` (07:30 UTC, 14 copias locales, restauración probada — 27-oct-2026) desde Coolify (es BD gestionada) y probar una restauración
+- [x] `ai-proxy`: team `candola` en LiteLLM (US$20/30 d) — 27-oct-2026
+- [x] Proyecto `candola` en Coolify con Postgres 16 `candola-db` (base `candola`), respaldo 08:00 UTC y restauración probada — 27-oct-2026
 
 Hecho cuando: los dos proyectos aparecen en Coolify con respaldos probados.
 
 ### Fase 2 — Misiones (corte total)
 Nadie usa las keys de testers todavía: se mata lo viejo y se parte limpio, sin compatibilidad.
-- [ ] LiteLLM: modelos base con nombres genéricos (los de hoy ya lo son: `claude-haiku`, `deepseek-flash`)
-- [ ] LiteLLM: los 5 alias `candola-*` apuntando a los modelos base, permitidos solo al team `candola`
-- [ ] LiteLLM: `fallbacks` en el router (`candola-*` → `deepseek-flash`)
-- [ ] LiteLLM: borrar el alias `candola`, los `bench-*` y las keys de testers viejas; keys nuevas en el team con solo las misiones
-- [ ] `infra/litellm/README.md` con la tabla alias → base → fallback
-- [ ] App (`ai.rs`): pedir solo misiones; fuera `BACKUP`, `for_meeting` y el reintento de `ai_chat`; tests
+- [x] LiteLLM: modelos base con nombres genéricos (los de hoy ya lo son: `claude-haiku`, `deepseek-flash`)
+- [x] LiteLLM: los 4 alias `candola-*` (`candola-embed` en la Fase 7) apuntando a los modelos base, permitidos solo al team `candola`
+- [x] LiteLLM: `fallbacks` en el router (`candola-*` → `deepseek-flash`)
+- [x] LiteLLM: borrados el alias `candola`, los `bench-*` y `titan-embed-v2`; keys nuevas en el team con solo las misiones — 27-oct-2026. Las 3 keys viejas quedan bloqueadas (borrarlas lo bloqueó el modo automático)
+- [x] `infra/litellm/README.md` con la tabla alias → base → fallback
+- [x] App (`ai.rs`): pedir solo misiones; fuera `BACKUP`, `for_meeting` y el reintento de `ai_chat`; tests
 - [ ] Publicar versión (tag → CI de Windows) y repartir las keys nuevas
-- [ ] Verificar con una key de tester: reunión, gestión, pregunta, chat
+- [x] Verificar con una key de tester: los 4 alias responden 200 (27-oct-2026); falta probar las 4 funciones en la app
 
 Hecho cuando: en LiteLLM no queda nada que no sea modelo base, team `candola` y sus alias; las 4 funciones andan.
 
 ### Fase 3 — Errores a GlitchTip (no necesita candola-api)
-- [ ] Sentry SDK en Rust (panic hook) y JS (`onerror`, `unhandledrejection`) → GlitchTip, proyecto `candola`
-- [ ] `release` = versión, `environment` = SO, `user.id` = UUID local; `beforeSend` limpia rutas y textos
-- [ ] Opt-in: aviso al registrarse + interruptor en Ajustes; apagado = ni una petición
+- [x] Sentry SDK en Rust (panic hook) y JS (`onerror`, `unhandledrejection`) → GlitchTip, proyecto `candola`
+- [x] `release` = versión, `environment` = SO, `user.id` = UUID local; `beforeSend` limpia rutas y textos
+- [x] Opt-in: interruptor en Ajustes (el aviso al registrarse va con la web); apagado = ni una petición
 - [ ] Fallos de IA, reuniones y cámara como errores
 
 Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con versión, SO y UUID, sin datos personales.
 
 ### Fase 4 — candola-api mínima
 Sin Better Auth, sin correo, sin código de dispositivo. La key de LiteLLM es la identidad.
-- [ ] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health`
-- [ ] Despliegue por la API de Coolify en el proyecto `candola`, `api.candola.spadelab.xyz` (DNS gris en Cloudflare)
-- [ ] Llega a LiteLLM por la red interna `coolify` con la master key
-- [ ] Tablas: `users` (UUID opaco, plan, key_hash, creado), `invites` (código de un uso, vencimiento, usado_por)
-- [ ] `POST /admin/invites` (token de admin en Coolify)
-- [ ] `POST /v1/invites/redeem` → usuario + key en el team `candola` (`/key/generate`, solo misiones, presupuesto gratis, `metadata.user_id`); devuelve la key una sola vez
-- [ ] `GET /v1/me` (Bearer = key): id, plan, presupuesto usado/restante, estado de pago, avisos
-- [ ] `POST /v1/events` (Bearer = key, mismo usuario): lote, rate limit por key, tope de tamaño, borrado a los 90 días
-- [ ] Tests de la lógica pura (invitaciones, validación de eventos)
+- [x] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health`
+- [ ] Despliegue por la API de Coolify en el proyecto `candola`: app `wo5p37tmn3yapqp2nwejt08n` corriendo desde la rama de M5 (27-oct-2026); falta el registro A `api.candola` en Cloudflare y apuntar la app a `master`
+- [ ] Llega a LiteLLM por la red interna `coolify` con la master key — hoy por `https://ai.spadelab.xyz`; falta `custom_network_aliases: litellm` en LiteLLM (reinicia el servicio) y `LITELLM_URL=http://litellm:4000`
+- [x] Tablas: `users` (UUID opaco, plan, key_hash, creado), `invites` (código de un uso, vencimiento, usado_por)
+- [x] `POST /admin/invites` (token de admin en Coolify)
+- [x] `POST /v1/invites/redeem` → usuario + key en el team `candola` (`/key/generate`, solo misiones, presupuesto gratis, `metadata.user_id`); devuelve la key una sola vez
+- [x] `GET /v1/me` (Bearer = key): id, plan, presupuesto usado/restante, estado de pago, avisos
+- [x] `POST /v1/events` (Bearer = key, mismo usuario): lote, rate limit por key, tope de tamaño, borrado a los 90 días
+- [x] Tests de la lógica pura (invitaciones, validación de eventos)
 - [ ] App: eventos de uso → `/v1/events` (cola local con reintento, envío en lote, bajo el mismo opt-in de la fase 3)
 
 Hecho cuando: con una invitación se obtiene una key que funciona contra LiteLLM, `/v1/me` la reconoce y los eventos llegan.
@@ -196,11 +197,11 @@ Opus para piezas nuevas de varios archivos. Dos misiones nunca escriben el mismo
 
 | # | Misión | Fase | Archivos / lugar | Agente | Estado |
 |---|---|---|---|---|---|
-| M1 | FTS5 en la app, `answer` solo texto si no hay embeddings | 0 | `meeting.rs`, `db.rs` | Sonnet | lanzada 27-oct |
-| M2 | Infra: swap, respaldos, team `candola`, alias y fallbacks, borrar lo viejo, Postgres `candola` | 1 + 2 (LiteLLM) | VPS por API de Coolify y LiteLLM, `infra/litellm/README.md` | Sonnet | lanzada 27-oct |
-| M3 | App pide solo misiones (fuera `BACKUP`, `for_meeting`, reintento) | 2 (app) | `ai.rs`, llamada en `meeting.rs`, tests de `embed` | Sonnet | lanzada 27-oct |
-| M4 | Errores a GlitchTip con opt-in | 3 | panic hook en Rust, `onerror` en JS, interruptor en Ajustes | Opus | lanzada 27-oct |
-| M5 | candola-api mínima y despliegue | 4 | `server/` | Opus | lanzada 27-oct |
+| M1 | FTS5 en la app, `answer` solo texto si no hay embeddings | 0 | `meeting.rs`, `db.rs` | Sonnet | hecha, en master 27-oct |
+| M2 | Infra: swap, respaldos, team `candola`, alias y fallbacks, borrar lo viejo, Postgres `candola` | 1 + 2 (LiteLLM) | VPS por API de Coolify y LiteLLM, `infra/litellm/README.md` | Sonnet | hecha salvo borrar 3 keys viejas y alias de red; en master 27-oct |
+| M3 | App pide solo misiones (fuera `BACKUP`, `for_meeting`, reintento) | 2 (app) | `ai.rs`, llamada en `meeting.rs`, tests de `embed` | Sonnet | hecha, en master 27-oct |
+| M4 | Errores a GlitchTip con opt-in | 3 | panic hook en Rust, `onerror` en JS, interruptor en Ajustes | Opus | hecha, en master 27-oct |
+| M5 | candola-api mínima y despliegue | 4 | `server/` | Opus | hecha; faltan DNS y red interna (Diego); en master 27-oct |
 | M6 | Web mínima: descarga y canje de invitación | 5 | `site/` | Sonnet | espera el contrato de M5 |
 | M7 | Cobro Transbank | 6 | `server/`, `site/` | Opus | bloqueada por Transbank |
 | M8 | embed-e5 en el VPS y fusión RRF | 7 | `ai-proxy`, `meeting.rs` | Sonnet | después de M1 y M2 |

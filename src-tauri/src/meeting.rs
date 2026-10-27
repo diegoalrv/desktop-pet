@@ -916,14 +916,14 @@ pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, St
     // x3: el filtro de .md borrados (abajo) puede quitar algunos
     let text_rows = block_on(search_text(pool, q, TOP_K as i64 * 3)).map_err(db)?;
     let saved = meetings_list(app.clone());
-    let blocks = rows
-        .into_iter()
-        .filter_map(|(m, text, vec)| {
-            let s = saved.iter().find(|s| s.id as i64 == m)?; // .md borrado: fuera
-            Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
-        })
-        .collect();
-    answer(&crate::ai::llms(app, llms.to_vec(), crate::ai::Mision::Preguntas), &emb, q.trim(), blocks)
+    let block = |(m, text, vec): ChunkRow| {
+        let s = saved.iter().find(|s| s.id as i64 == m)?; // .md borrado: fuera
+        Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
+    };
+    let (vec_blocks, text_blocks): (Vec<Block>, Vec<Block>) = (vec_rows.into_iter().filter_map(block).collect(), text_rows.into_iter().filter_map(block).collect());
+    // sin proveedor de embeddings (o sin bloques con vector) no hay coseno: responde con lo que halló el texto
+    let qv = if vec_blocks.is_empty() { None } else { emb.embed(&[q.trim().to_string()], true).ok().and_then(|mut v| v.pop()) };
+    answer(&crate::ai::llms(app, llms.to_vec(), crate::ai::Mision::Preguntas), q.trim(), rank(qv.as_deref(), vec_blocks, text_blocks))
 }
 
 /// Un bloque indexado de una reunión.
