@@ -293,6 +293,82 @@ UI web (vista nueva `#routines`, en la nav del Dashboard junto a Foco):
 Commits: 1) `Rutinas: tablas y timer por pasos` (migración, `timer.rs`, `routine.ts`, tests), 2) `Rutinas: editor
 en la web` (vista `#routines`, selector en Ajustes y panel), 3) `Rutinas: actividad en la mascota y la Candola`.
 
+## F19. IA en Windows con una sola key: proxy "Candola"
+Qué: en **Windows** las funciones de IA (tareas y resumen de reuniones, modo Gestión, preguntarle a las
+reuniones, chat) andan sin instalar Claude Code ni Ollama ni sacar API keys. Ajustes muestra **un solo campo:
+"Key de Candola"**; por detrás todas las llamadas van a `https://ai.spadelab.xyz` con los modelos de LiteLLM. Hoy
+en Windows nada de eso funciona sin setup: reuniones y Gestión dependen de `claude-code` (no instalado),
+"preguntarle a las reuniones" de Ollama local y el chat de `claude -p`.
+**En Mac todo sigue exactamente igual** (cadena de proveedores editable, `claude-code`, Ollama, `claude -p`).
+Es el tier gratis de pruebas; más adelante las funciones de IA serán pagadas (ver "Después" abajo).
+
+Misma rama y mismo código, decidido por SO (no ramas separadas: divergirían y cada fix habría que portarlo; el CI
+de Windows compila los mismos tags). Un solo punto de decisión:
+- Rust: `fn proxy_mode(app) -> Option<String>` en un módulo nuevo `ai.rs` = `Some(key)` si `cfg!(windows)` (o la
+  variable de entorno `PET_AI=candola`, para probar el flujo de Windows desde el Mac) y hay `candolaKey` en
+  settings.json; `None` = flujo de Mac de hoy. Reuniones, Gestión, preguntas y chat consultan solo eso.
+- Front: `const WIN` de `SettingsWindow.tsx` (ya existe y ya oculta voz/atajos en Windows) decide qué se muestra.
+
+Infraestructura (hecha, 26-oct-2026; detalle operativo en la memoria `vps-coolify-api`):
+- **https://ai.spadelab.xyz**: LiteLLM `v1.104.5` en Coolify (proyecto `ai-proxy`, Postgres propio), API formato
+  OpenAI. Sin key → 404 (regla de Traefik); key inválida → 401. Panel solo por túnel: `~/SpadeLab/ai-proxy/admin-ui.sh`.
+- Modelos (en la BD de LiteLLM, no en config):
+  - `candola`: **el único que pide la app**. Alias que hoy apunta a Nova 2 Lite (Bedrock, créditos de AWS).
+  - `claude-haiku` (Anthropic), `gemini-flash` (Gemini 3.5 Flash, respaldo `gemini-flash-lite`), `deepseek-flash`.
+  - `titan-embed-v2` (embeddings, Bedrock, vectores de 1024).
+- Keys por tester: `max_budget` 2 USD cada 30 días, `rpm_limit` 30, solo `candola` + `titan-embed-v2`.
+- Cambiar proveedor sin tocar la app: para todos, editar el modelo `candola`; para un tester, `aliases`
+  `{"candola": "claude-haiku"}` en su key **y** agregar `claude-haiku` a sus `models`.
+
+Pasos en la app (un commit cada uno):
+1. **Proveedor `candola` + JSON tolerante** — HECHO (sin commit). `meeting.rs::base_url("candola")` →
+   `https://ai.spadelab.xyz/v1` (solo lo usa el modo proxy; el editor de modelos del Mac no cambia). `json_of` lee
+   el primer objeto JSON completo e ignora lo que siga (Nova agrega una "Explicación" con llaves); todo lo que antes
+   se leía se sigue leyendo igual. Test con ese caso. Commit: `Proveedor Candola y JSON tolerante a texto extra`.
+2. **Ajustes de Windows: solo la key**. Pref `candolaKey` (zod, `.catch("")`, test en `prefs.test.ts`). Con `WIN`,
+   la sección de IA de Ajustes reemplaza el editor de modelos, la carpeta base y el modo dios del chat por: campo
+   "Key de Candola" (password) + botón "Probar" (`GET /v1/models` con la key → "Lista" / "Key inválida") + link
+   "¿No tienes? Pídela a Spadelab". En Mac no se renderiza nada nuevo. `ai.rs::proxy_mode` + `ai.rs::llms(app,
+   llms)`: en modo proxy ignora la cadena que manda el front y devuelve `[{candola, key, ["candola"]}]`; si no,
+   la cadena tal cual. `meeting_start`, `meeting_retry` y `meetings_ask` pasan por ahí. Test: con modo proxy la
+   cadena es solo candola; sin él, la de entrada intacta. Commit: `Windows: IA con una sola key de Candola`.
+3. **Preguntarle a las reuniones sin Ollama**. En modo proxy `embed()` usa `POST /v1/embeddings` con
+   `titan-embed-v2` (sin el prefijo `search_query:`, que es de nomic); en Mac, Ollama como hoy. Migración
+   `016_chunk_model.sql`: `meeting_chunks.model TEXT` (nulo = nomic); `index_missing` reindexa los bloques de otro
+   modelo y `answer` solo compara con los del modelo actual (768 vs 1024 dimensiones no se mezclan). Test: bloques
+   de otro modelo se ignoran. Commit: `Windows: preguntarle a las reuniones por el proxy`.
+4. **Chat sin Claude Code**. En modo proxy, el chat usa un `chat.rs` nuevo en vez de `claude.rs::claude_ask`:
+   bucle de herramientas propio contra `candola` (`/v1/chat/completions` con `tools`; LiteLLM los traduce a
+   Bedrock/Anthropic/Gemini), con las mismas herramientas del MCP (tareas, timer, reuniones, rutinas, sugerencias)
+   llamando directo a las funciones de Rust. Sin archivos ni shell. Emite los mismos eventos
+   `claude://start|event|exit` y guarda en `chat_log`, así `ChatTab.tsx` no cambia. Máximo ~8 vueltas por mensaje.
+   Test: el bucle con un LLM falso que pide una herramienta y luego responde. Commit: `Windows: chat con la
+   Candola sin Claude Code`.
+5. **Errores entendibles en modo proxy**. 401 → "Tu key de Candola no es válida"; budget/429 → "Se acabó la cuota
+   de IA de este mes"; sin key → "Pega tu key de Candola en Ajustes". Commit: `Windows: errores de IA claros`.
+Probar el flujo de Windows en el Mac con `PET_AI=candola pnpm tauri dev` y una `candolaKey` de prueba antes de
+publicar; en Mac sin esa variable, revisar que Ajustes y las reuniones queden idénticos a hoy.
+Verificar en Windows (CI de `windows.yml` → instalador): reunión corta con loopback → tareas y resumen; modo
+Gestión; "¿qué quedó de la reunión de ayer?"; chat "¿qué tengo para hoy?". Todo con una key de prueba nueva.
+
+Operación:
+- Alta de tester: `POST /key/generate` (o desde el panel) con `key_alias` = su nombre, y mandarle la key por un
+  canal privado. Baja: borrar o bloquear su key.
+- Costos estimados (reunión de 1 h ≈ 15k tokens de entrada + 1,5k de salida): Nova 2 Lite ~US$0,008, DeepSeek
+  ~US$0,003–0,006, Claude Haiku 5.5 ~US$0,002; embeddings despreciables. Un tester activo (~20 reuniones/mes) ≈
+  US$0,25/mes con Nova o ~US$0,07 con Haiku.
+- Saldos al 26-oct-2026: AWS US$140 (vence **26-abr-2027**; el plan gratis cierra la cuenta si no se pasa a pago),
+  Anthropic US$102, DeepSeek US$5. Antes del 26-abr-2027: pasar AWS a plan pagado o apuntar `candola` a
+  `claude-haiku`/`deepseek-flash`. Claude en Bedrock está bloqueado en el plan gratis de AWS.
+- Revisar cada ~2 semanas el gasto por key y por modelo en el panel; con eso se reemplazan estas estimaciones.
+- Privacidad: las transcripciones pasan por el VPS y por el proveedor activo (AWS, Anthropic, Google, DeepSeek).
+  LiteLLM no guarda el contenido, solo el gasto. Avisarlo a los testers. Evitar el tier gratis de Gemini para
+  reuniones reales (Google puede usar esos datos).
+
+Después (cuando haya más testers o se cobre): login propio que entregue la key sola al registrarse
+(`/key/generate` desde un backend), cobro por suscripción con el presupuesto de la key como límite, y respaldo
+automático `candola` → `claude-haiku` si Nova falla.
+
 ---------------------------------------------------------------------------------------------------------------
 ## Postergadas — no hacer por ahora
 ---------------------------------------------------------------------------------------------------------------
