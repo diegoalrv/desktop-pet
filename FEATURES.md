@@ -332,7 +332,7 @@ Pasos en la app (un commit cada uno):
    llms)`: en modo proxy ignora la cadena que manda el front y devuelve `[{candola, key, ["candola"]}]`; si no,
    la cadena tal cual. `meeting_start`, `meeting_retry` y `meetings_ask` pasan por ahí. Test: con modo proxy la
    cadena es solo candola; sin él, la de entrada intacta. Commit: `Windows: IA con una sola key de Candola`.
-3. **Preguntarle a las reuniones sin Ollama**. En modo proxy `embed()` usa `POST /v1/embeddings` con
+3. **Preguntarle a las reuniones sin Ollama** — HECHO (probado contra el proxy con `probar_preguntar` y `CANDOLA_KEY`; en la app no, porque la migración 016 rompe la versión instalada hasta publicar la nueva). `meeting::Embedder` (Ollama | Proxy) decide por `ai::proxy_key`. En modo proxy `embed()` usa `POST /v1/embeddings` con
    `titan-embed-v2` (sin el prefijo `search_query:`, que es de nomic); en Mac, Ollama como hoy. Migración
    `016_chunk_model.sql`: `meeting_chunks.model TEXT` (nulo = nomic); `index_missing` reindexa los bloques de otro
    modelo y `answer` solo compara con los del modelo actual (768 vs 1024 dimensiones no se mezclan). Test: bloques

@@ -727,10 +727,12 @@ fn today() -> String {
     format!("{} {}", DAYS[now.weekday().num_days_from_monday() as usize], now.format("%Y-%m-%d"))
 }
 
-// Preguntarle a las reuniones: embeddings locales (Ollama) por bloque, coseno contra la pregunta y el LLM responde
-// con citas. ponytail: todos los vectores en memoria sin índice; alcanza para unos miles de bloques.
+// Preguntarle a las reuniones: embeddings por bloque (Ollama local en Mac, el proxy en modo Windows), coseno contra
+// la pregunta y el LLM responde con citas. ponytail: todos los vectores en memoria sin índice; alcanza para unos miles
+// de bloques.
 const OLLAMA: &str = "http://127.0.0.1:11434";
 const EMBED_MODEL: &str = "nomic-embed-text";
+const PROXY_EMBED: &str = "titan-embed-v2";
 const CHUNK_LINES: usize = 10;
 const TOP_K: usize = 8;
 
@@ -766,8 +768,39 @@ pub fn parse_answer(content: &str) -> Result<(String, Vec<usize>), String> {
     Ok((answer.to_string(), refs.collect()))
 }
 
+/// De dónde salen los embeddings: Ollama local (Mac) o el proxy de Candola con su key (modo Windows, F19).
+pub enum Embedder {
+    Ollama,
+    Proxy(String),
+}
+
+impl Embedder {
+    fn of(app: &AppHandle) -> Self {
+        crate::ai::proxy_key(app).map_or(Self::Ollama, Self::Proxy)
+    }
+
+    /// Se guarda con cada bloque: vectores de modelos distintos no se comparan.
+    fn model(&self) -> &'static str {
+        match self {
+            Self::Ollama => EMBED_MODEL,
+            Self::Proxy(_) => PROXY_EMBED,
+        }
+    }
+
+    /// `query`: es la pregunta y no un bloque (nomic-embed-text pide prefijos distintos para cada uno).
+    fn embed(&self, texts: &[String], query: bool) -> Result<Vec<Vec<f32>>, String> {
+        match self {
+            Self::Proxy(key) => crate::ai::embed(key, PROXY_EMBED, texts),
+            Self::Ollama => {
+                let pre = if query { "search_query: " } else { "search_document: " };
+                ollama_embed(&texts.iter().map(|t| format!("{pre}{t}")).collect::<Vec<_>>())
+            }
+        }
+    }
+}
+
 /// Embeddings con Ollama (`/api/embed`, todos los textos en una llamada).
-fn embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+fn ollama_embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     let mut res = ureq::post(format!("{OLLAMA}/api/embed"))
         .config()
         .timeout_global(Some(Duration::from_secs(300)))
@@ -783,22 +816,26 @@ fn embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     serde_json::from_value(v["embeddings"].clone()).map_err(|_| "Ollama: respuesta sin embeddings".into())
 }
 
-/// Indexa las reuniones guardadas que aún no tienen bloques (no las sesiones de gestión). Devuelve cuántas.
+/// Indexa las reuniones guardadas que aún no tienen bloques del modelo actual (no las sesiones de gestión): las que
+/// estaban con otro modelo se reindexan. Devuelve cuántas.
 pub fn index_missing(app: &AppHandle) -> Result<usize, String> {
     let pool = &app.state::<crate::db::Db>().0;
     let db = |e: sqlx::Error| e.to_string();
-    let done: Vec<i64> = block_on(sqlx::query_scalar("SELECT DISTINCT meeting FROM meeting_chunks").fetch_all(pool)).map_err(db)?;
+    let emb = Embedder::of(app);
+    let q = sqlx::query_scalar("SELECT DISTINCT meeting FROM meeting_chunks WHERE model = ?").bind(emb.model());
+    let done: Vec<i64> = block_on(q.fetch_all(pool)).map_err(db)?;
     let mut n = 0;
     for m in meetings_list(app.clone()) {
         let parts = chunks(&parse_lines(&m.text));
         if done.contains(&(m.id as i64)) || m.text.starts_with(MANAGE_HEADER) || parts.is_empty() {
             continue;
         }
-        // nomic-embed-text pide el prefijo de la tarea: search_document / search_query
-        let vecs = embed(&parts.iter().map(|t| format!("search_document: {t}")).collect::<Vec<_>>())?;
+        let vecs = emb.embed(&parts, false)?;
+        // los bloques de otro modelo (si los había) salen antes de guardar los nuevos
+        block_on(sqlx::query("DELETE FROM meeting_chunks WHERE meeting = ?").bind(m.id as i64).execute(pool)).map_err(db)?;
         for (i, (text, v)) in parts.iter().zip(vecs).enumerate() {
-            let q = sqlx::query("INSERT OR REPLACE INTO meeting_chunks (meeting, idx, text, vec) VALUES (?, ?, ?, ?)");
-            block_on(q.bind(m.id as i64).bind(i as i64).bind(text).bind(to_blob(&v)).execute(pool)).map_err(db)?;
+            let q = sqlx::query("INSERT INTO meeting_chunks (meeting, idx, text, vec, model) VALUES (?, ?, ?, ?, ?)");
+            block_on(q.bind(m.id as i64).bind(i as i64).bind(text).bind(to_blob(&v)).bind(emb.model()).execute(pool)).map_err(db)?;
         }
         n += 1;
     }
@@ -826,8 +863,9 @@ pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, St
     }
     index_missing(app)?;
     let pool = &app.state::<crate::db::Db>().0;
-    let rows: Vec<(i64, String, Vec<u8>)> =
-        block_on(sqlx::query_as("SELECT meeting, text, vec FROM meeting_chunks").fetch_all(pool)).map_err(|e| e.to_string())?;
+    let emb = Embedder::of(app);
+    let sel = sqlx::query_as("SELECT meeting, text, vec FROM meeting_chunks WHERE model = ?").bind(emb.model());
+    let rows: Vec<(i64, String, Vec<u8>)> = block_on(sel.fetch_all(pool)).map_err(|e| e.to_string())?;
     let saved = meetings_list(app.clone());
     let blocks = rows
         .into_iter()
@@ -836,7 +874,7 @@ pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, St
             Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
         })
         .collect();
-    answer(&crate::ai::llms(app, llms.to_vec()), q.trim(), blocks)
+    answer(&crate::ai::llms(app, llms.to_vec()), &emb, q.trim(), blocks)
 }
 
 /// Un bloque indexado de una reunión.
@@ -847,12 +885,12 @@ pub struct Block {
     vec: Vec<f32>,
 }
 
-fn answer(llms: &[Llm], q: &str, mut blocks: Vec<Block>) -> Result<Answer, String> {
+fn answer(llms: &[Llm], emb: &Embedder, q: &str, mut blocks: Vec<Block>) -> Result<Answer, String> {
     use chrono::{Local, TimeZone};
     if blocks.is_empty() {
         return Err("Todavía no hay reuniones guardadas".into());
     }
-    let qv = embed(&[format!("search_query: {q}")])?.pop().ok_or("Ollama: respuesta sin embeddings")?;
+    let qv = emb.embed(&[q.to_string()], true)?.pop().ok_or("respuesta sin embeddings")?;
     blocks.sort_by(|a, b| cosine(&qv, &b.vec).total_cmp(&cosine(&qv, &a.vec)));
     blocks.truncate(TOP_K);
     let when = |id: u64| Local.timestamp_opt(id as i64, 0).single().map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
@@ -1571,13 +1609,14 @@ fn probar_llm() {
 
 /// Pregunta a las reuniones guardadas con Ollama de verdad (sin la app ni la BD):
 /// `PREGUNTA="¿qué quedó del formulario de reclamos?" MEETINGS_DIR=… cargo test --lib probar_preguntar -- --ignored --nocapture`
-/// (LLM_PROVIDER / LLM_MODEL / LLM_KEY como en `probar_llm`).
+/// (LLM_PROVIDER / LLM_MODEL / LLM_KEY como en `probar_llm`). Con `CANDOLA_KEY` los embeddings van por el proxy.
 #[cfg(test)]
 #[test]
 #[ignore]
 fn probar_preguntar() {
     let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.into());
     let llm = Llm { provider: env("LLM_PROVIDER", "ollama"), apikey: env("LLM_KEY", ""), models: vec![env("LLM_MODEL", "qwen3.5:9b")] };
+    let emb = std::env::var("CANDOLA_KEY").map_or(Embedder::Ollama, Embedder::Proxy);
     let t = std::time::Instant::now();
     let mut blocks = vec![];
     for e in std::fs::read_dir(env("MEETINGS_DIR", ".")).unwrap().flatten() {
@@ -1588,11 +1627,11 @@ fn probar_preguntar() {
         if raw.starts_with(MANAGE_HEADER) || parts.is_empty() {
             continue;
         }
-        let vecs = embed(&parts.iter().map(|t| format!("search_document: {t}")).collect::<Vec<_>>()).unwrap();
+        let vecs = emb.embed(&parts, false).unwrap();
         blocks.extend(parts.into_iter().zip(vecs).map(|(text, vec)| Block { meeting: id, title: ctx.as_ref().map(|c| c.title.clone()), text, vec }));
     }
     println!("{} bloques indexados en {:.1}s", blocks.len(), t.elapsed().as_secs_f32());
-    let r = answer(&[llm], &env("PREGUNTA", "¿Qué se decidió?"), blocks).unwrap();
+    let r = answer(&[llm], &emb, &env("PREGUNTA", "¿Qué se decidió?"), blocks).unwrap();
     println!("{:.1}s\n{}", t.elapsed().as_secs_f32(), r.answer);
     for s in r.sources {
         println!("  [{}] #meetings/{} · {}", s.n, s.meeting, s.text.lines().next().unwrap_or(""));
