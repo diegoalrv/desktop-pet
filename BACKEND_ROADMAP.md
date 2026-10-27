@@ -56,11 +56,11 @@ App: /v1/me, ────┼──▶   /v1/events, Transbank)                  
 
 | Proyecto | Pieza | Qué | Estado |
 |---|---|---|---|
-| ai-proxy | LiteLLM | Gateway de LLM: modelos base, alias por producto, fallbacks, teams, keys, presupuestos | ✅ En producción (v1.104.5), sin teams ni misiones |
-| ai-proxy | Postgres 16 (`litellm-db`) | Base de LiteLLM | ✅ Existe. Respaldo diario pendiente |
+| ai-proxy | LiteLLM | Gateway de LLM: modelos base, alias por producto, fallbacks, teams, keys, presupuestos | ✅ En producción (v1.104.5); team `candola` y 4 alias `candola-*` listos (27-oct); la app aún pide `candola` |
+| ai-proxy | Postgres 16 (`litellm-db`) | Base de LiteLLM | ✅ Respaldo diario (27-oct) |
 | ai-proxy | embed-e5 | `multilingual-e5-small` (384 dim) con text-embeddings-inference o Ollama; modelo base `embed-e5` | ❌ |
 | candola | candola-api | TypeScript + Hono (Node 22), `postgres` (postgres.js), migraciones SQL numeradas, zod, Better Auth. Carpeta `server/` del repo, Dockerfile | ❌ |
-| candola | Postgres 16 | Un servidor, bases `candola` y `glitchtip` con usuarios propios. Sin vector DB: si algún día el servidor busca, `pgvector` acá | ❌ |
+| candola | Postgres 16 | Un servidor, bases `candola` y `glitchtip` con usuarios propios. Sin vector DB: si algún día el servidor busca, `pgvector` acá | ✅ `candola-db` con base `candola` y respaldo diario (27-oct); falta `glitchtip` |
 | candola | GlitchTip | Errores (compatible con Sentry). Es multiproyecto: otro producto puede usarlo como proyecto aparte | ⚠️ Corre fuera de Coolify (`docker compose`, Postgres 15 + Redis propios) |
 | Vercel | Web | `site/`, autodeploy por GitHub. Mínima; el diseño después con Claude Design | ❌ |
 | — | Correo | Resend | Pendiente, aún no hace falta |
@@ -93,24 +93,24 @@ App: /v1/me, ────┼──▶   /v1/events, Transbank)                  
 ---------------------------------------------------------------------------------------------------------------
 
 ### Fase 1 — Infra base
-- [ ] 2 GB de swap en el VPS (hoy 0; ~1,8 GB de RAM disponibles de 7,75)
-- [ ] `ai-proxy`: respaldo diario del Postgres de LiteLLM (y probar una restauración)
-- [ ] `ai-proxy`: team `candola` en LiteLLM; mover las keys de testers a ese team
+- [x] 2 GB de swap en el VPS (`/swapfile`, `fstab`, `swappiness=10`) — 27-oct-2026
+- [x] `ai-proxy`: respaldo diario del Postgres de LiteLLM (07:30 UTC, 14 copias locales; restauración probada en BD temporal) — 27-oct-2026
+- [x] `ai-proxy`: team `candola` en LiteLLM (US$20/30 d); keys de testers nuevas en ese team (las viejas, sin team, bloqueadas; falta borrarlas) — 27-oct-2026
 - [ ] `ai-proxy`: key de gestión del team `candola` (o decidir la alternativa, ver arriba)
-- [ ] Proyecto `candola` en Coolify con Postgres 16 (bases `candola` y `glitchtip`, usuarios propios)
+- [x] Proyecto `candola` en Coolify con Postgres 16 `candola-db` (base y usuario `candola`; la base `glitchtip` va con la migración de GlitchTip) — 27-oct-2026
 - [ ] GlitchTip: revisar si tiene datos, pasarlo al proyecto `candola` con su base en ese Postgres, bajar el compose viejo
-- [ ] `candola`: respaldo diario del Postgres (y probar una restauración)
+- [x] `candola`: respaldo diario del Postgres (08:00 UTC, 14 copias locales; restauración probada) — 27-oct-2026
 
 Hecho cuando: los dos proyectos aparecen en Coolify con respaldos probados, y las keys de testers están en el team
 `candola`.
 
 ### Fase 2 — Misiones (corte de una vez)
-- [ ] LiteLLM: modelos base con nombres genéricos (los de hoy ya lo son: `claude-haiku`, `deepseek-flash`)
-- [ ] LiteLLM: los 5 alias `candola-*` apuntando a los modelos base de hoy, permitidos solo al team `candola`
-- [ ] LiteLLM: `fallbacks` en el router (`candola-*` → `deepseek-flash`)
+- [x] LiteLLM: modelos base con nombres genéricos (los de hoy ya lo son: `claude-haiku`, `deepseek-flash`) — 27-oct-2026
+- [x] LiteLLM: los 4 alias `candola-*` (chat, reuniones, gestion, preguntas) → `claude-haiku`, permitidos solo al team `candola` (`candola-embed` queda para la Fase 8) — 27-oct-2026. Ver `infra/litellm/README.md`
+- [x] LiteLLM: `fallbacks` en el router (`candola-*` → `deepseek-flash`) — 27-oct-2026
 - [ ] App (`ai.rs`): pedir solo misiones; fuera `BACKUP`, `for_meeting` y el reintento de `ai_chat`; tests
 - [ ] Publicar versión (tag → CI de Windows)
-- [ ] El mismo día: keys de testers con solo las misiones (quitar `candola`, `deepseek-flash`, `titan-embed-v2`); borrar el alias `candola` y los `bench-*` que quedaron
+- [x] Keys de testers nuevas con solo las misiones; borrados el alias `candola`, los `bench-*` y `titan-embed-v2` — 27-oct-2026. Pendiente menor: borrar (no solo bloquear) las 3 keys viejas y decidir sobre `prueba-diego` (ver README)
 - [ ] Verificar con una key de tester: reunión, gestión, pregunta, chat
 
 Hecho cuando: las keys de testers solo conocen misiones y las 4 funciones andan con la versión nueva.
