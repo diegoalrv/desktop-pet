@@ -47,6 +47,7 @@ fn base_url(provider: &str) -> &str {
         "claude" | "anthropic" => "https://api.anthropic.com/v1",
         "openai" => "https://api.openai.com/v1",
         "ollama" => "http://127.0.0.1:11434/v1",
+        "candola" => "https://ai.spadelab.xyz/v1", // proxy propio (LiteLLM → Bedrock), key por tester
         _ => provider.trim(),
     }
 }
@@ -466,11 +467,12 @@ pub fn parse_actions(content: &str, ids: &[i64]) -> Result<Vec<Action>, String> 
 }
 
 /// El JSON que venga en la respuesta, que debe traer el array `key`; tolera texto o `<think>…</think>` alrededor.
+/// Lee el primer objeto completo: lo que siga (una "explicación" con más llaves, como agrega Nova) se ignora.
 fn json_of(content: &str, key: &str) -> Result<Value, String> {
     let c = content.rsplit("</think>").next().unwrap_or(content);
     let bad = || format!("respuesta sin JSON de {key}: {}", c.trim().chars().take(120).collect::<String>());
-    let (Some(a), Some(b)) = (c.find('{'), c.rfind('}')) else { return Err(bad()) };
-    let v: Value = c.get(a..=b).and_then(|j| serde_json::from_str(j).ok()).ok_or_else(bad)?;
+    let a = c.find('{').ok_or_else(bad)?;
+    let v: Value = serde_json::Deserializer::from_str(&c[a..]).into_iter().next().and_then(Result::ok).ok_or_else(bad)?;
     if v[key].is_array() { Ok(v) } else { Err(bad()) }
 }
 
@@ -1456,6 +1458,8 @@ mod tests {
         assert_eq!((r.resumen.as_str(), r.decisiones, r.tareas), ("Se revisó el plan.", vec!["Lanzar el lunes".to_string()], tareas));
         assert_eq!(parse_result(r#"{"resumen":["Uno.","Dos."],"tareas":[]}"#).unwrap().resumen, "Uno.\nDos.");
         assert_eq!(parse_result("{\"tareas\":[]}"), Ok(Outcome::default()));
+        let nova = "```json\n{\"tareas\":[]}\n```\n### Explicación: el campo {tareas} va vacío.";
+        assert_eq!(parse_result(nova), Ok(Outcome::default()));
         assert!(parse_result("sin json").is_err());
         assert!(parse_result("} {").is_err());
         assert!(parse_result("{\"tasks\":[],\"resumen\":\"x\"}").is_err()); // clave equivocada ≠ cero tareas
@@ -1471,6 +1475,7 @@ mod tests {
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
         assert!(ask_any(&[], "", "", parse_result, |_| {}).is_err());
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
+        assert_eq!(base_url("candola"), "https://ai.spadelab.xyz/v1");
     }
 
     #[test]
