@@ -242,6 +242,12 @@ pub fn run() {
                             sql: include_str!("../migrations/016_chunk_model.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 17,
+                            description: "chunks_fts",
+                            sql: include_str!("../migrations/017_chunks_fts.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

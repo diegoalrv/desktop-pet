@@ -166,7 +166,7 @@ Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con
 ### Fase 8 — Embeddings (búsqueda híbrida)
 Urgente en la práctica: desde el 27-oct `titan-embed-v2` responde "Error 002" y preguntarle a las reuniones no anda
 en Windows. El paso 1 no necesita el VPS y se puede adelantar.
-- [ ] **FTS5 en la app**: tabla virtual sobre el texto de `meeting_chunks`, llenada en `index_missing`; `answer` responde solo con texto si los embeddings fallan. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
+- [x] **FTS5 en la app**: tabla virtual sobre el texto de `meeting_chunks`, llenada en `index_missing`; `answer` responde solo con texto si los embeddings fallan. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
 - [ ] **embed-e5** en el proyecto `ai-proxy`: `multilingual-e5-small` (límite ~768 MB) como modelo base `embed-e5`; alias `candola-embed` → `embed-e5` en el team `candola`; en la app `PROXY_EMBED` → `candola-embed` y prefijos por modelo (e5: `query:`/`passage:`; nomic: `search_query:`/`search_document:`)
 - [ ] **Fusión**: reciprocal rank fusion (`Σ 1/(60 + rango)`) de BM25 y coseno → top 8 al LLM; función pura con test. Aplica también en Mac (Ollama + FTS5)
 
