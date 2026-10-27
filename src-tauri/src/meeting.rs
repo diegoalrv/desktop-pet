@@ -741,6 +741,9 @@ const EMBED_MODEL: &str = "nomic-embed-text";
 const PROXY_EMBED: &str = "titan-embed-v2";
 const CHUNK_LINES: usize = 10;
 const TOP_K: usize = 8;
+/// `model` de los bloques guardados sin embedding (proveedor caído): solo los encuentra la búsqueda por texto, y
+/// `index_missing` los reintenta con embedding cuando vuelva el proveedor.
+const TEXT_ONLY: &str = "texto";
 
 const ASK_PROMPT: &str = "Eres el asistente personal del usuario. Respondes una pregunta sobre sus reuniones usando SOLO \
 los fragmentos de transcripción que se te dan, numerados [1], [2]… (\"Yo\" es el usuario, \"Otros\" el resto; la \
@@ -823,29 +826,61 @@ fn ollama_embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
 }
 
 /// Indexa las reuniones guardadas que aún no tienen bloques del modelo actual (no las sesiones de gestión): las que
-/// estaban con otro modelo se reindexan. Devuelve cuántas.
+/// estaban con otro modelo se reindexan. Devuelve cuántas. Si los embeddings fallan (proveedor caído, sin Ollama) los
+/// bloques se guardan igual sin vector, para la búsqueda por texto (FTS5); se reintentan en la siguiente pasada.
+/// ponytail: con el proveedor caído cada pasada reintenta el embedding de las reuniones aún sin vector (una llamada
+/// fallida por reunión nueva); un backoff si el proxy tarda en fallar.
 pub fn index_missing(app: &AppHandle) -> Result<usize, String> {
     let pool = &app.state::<crate::db::Db>().0;
     let db = |e: sqlx::Error| e.to_string();
     let emb = Embedder::of(app);
     let q = sqlx::query_scalar("SELECT DISTINCT meeting FROM meeting_chunks WHERE model = ?").bind(emb.model());
     let done: Vec<i64> = block_on(q.fetch_all(pool)).map_err(db)?;
+    let have: Vec<i64> = block_on(sqlx::query_scalar("SELECT DISTINCT meeting FROM meeting_chunks").fetch_all(pool)).map_err(db)?;
     let mut n = 0;
     for m in meetings_list(app.clone()) {
         let parts = chunks(&parse_lines(&m.text));
         if done.contains(&(m.id as i64)) || m.text.starts_with(MANAGE_HEADER) || parts.is_empty() {
             continue;
         }
-        let vecs = emb.embed(&parts, false)?;
+        let (vecs, model) = match emb.embed(&parts, false) {
+            Ok(v) => (v, emb.model()),
+            Err(_) if have.contains(&(m.id as i64)) => continue, // ya tiene bloques (con o sin vector): nada que rehacer
+            Err(_) => (vec![vec![]; parts.len()], TEXT_ONLY),
+        };
         // los bloques de otro modelo (si los había) salen antes de guardar los nuevos
         block_on(sqlx::query("DELETE FROM meeting_chunks WHERE meeting = ?").bind(m.id as i64).execute(pool)).map_err(db)?;
         for (i, (text, v)) in parts.iter().zip(vecs).enumerate() {
             let q = sqlx::query("INSERT INTO meeting_chunks (meeting, idx, text, vec, model) VALUES (?, ?, ?, ?, ?)");
-            block_on(q.bind(m.id as i64).bind(i as i64).bind(text).bind(to_blob(&v)).bind(emb.model()).execute(pool)).map_err(db)?;
+            block_on(q.bind(m.id as i64).bind(i as i64).bind(text).bind(to_blob(&v)).bind(model).execute(pool)).map_err(db)?;
         }
         n += 1;
     }
     Ok(n)
+}
+
+/// Consulta FTS5 de la pregunta: sus palabras (≥ 3 letras, así caen "de", "que", "la"…) entre comillas y con OR;
+/// BM25 pesa más las raras. `None` si no queda ninguna. ponytail: sin stemming ("reclamos" no encuentra "reclamo");
+/// prefijos (`"palabra"*`) o un stemmer español si hace falta.
+fn fts_query(q: &str) -> Option<String> {
+    let words: Vec<String> = q.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= 3).map(|w| format!("\"{w}\"")).collect();
+    (!words.is_empty()).then(|| words.join(" OR "))
+}
+
+type ChunkRow = (i64, String, Vec<u8>);
+
+/// Los `limit` bloques que mejor puntúa BM25 para la pregunta, mejor primero. Vacío si la pregunta no tiene palabras.
+async fn search_text(pool: &sqlx::SqlitePool, q: &str, limit: i64) -> Result<Vec<ChunkRow>, sqlx::Error> {
+    let Some(fts) = fts_query(q) else { return Ok(vec![]) };
+    sqlx::query_as(
+        "SELECT c.meeting, c.text, c.vec FROM meeting_chunks_fts JOIN meeting_chunks c \
+         ON c.meeting = meeting_chunks_fts.meeting AND c.idx = meeting_chunks_fts.idx \
+         WHERE meeting_chunks_fts MATCH ? ORDER BY rank LIMIT ?",
+    )
+    .bind(fts)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 #[derive(Serialize)]
@@ -862,16 +897,24 @@ pub struct Answer {
     sources: Vec<Source>, // solo las citadas
 }
 
-/// Pregunta → embedding → los TOP_K bloques más parecidos → el LLM responde citándolos.
+/// Pregunta → los TOP_K bloques más parecidos (coseno si hay embeddings, si no por texto/BM25) → el LLM responde
+/// citándolos.
 pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, String> {
     if q.trim().is_empty() {
         return Err("Escribe una pregunta".into());
     }
     index_missing(app)?;
     let pool = &app.state::<crate::db::Db>().0;
+    let db = |e: sqlx::Error| e.to_string();
     let emb = Embedder::of(app);
+    let total: i64 = block_on(sqlx::query_scalar("SELECT COUNT(*) FROM meeting_chunks").fetch_one(pool)).map_err(db)?;
+    if total == 0 {
+        return Err("Todavía no hay reuniones guardadas".into());
+    }
     let sel = sqlx::query_as("SELECT meeting, text, vec FROM meeting_chunks WHERE model = ?").bind(emb.model());
-    let rows: Vec<(i64, String, Vec<u8>)> = block_on(sel.fetch_all(pool)).map_err(|e| e.to_string())?;
+    let vec_rows: Vec<ChunkRow> = block_on(sel.fetch_all(pool)).map_err(db)?;
+    // x3: el filtro de .md borrados (abajo) puede quitar algunos
+    let text_rows = block_on(search_text(pool, q, TOP_K as i64 * 3)).map_err(db)?;
     let saved = meetings_list(app.clone());
     let blocks = rows
         .into_iter()
@@ -891,14 +934,25 @@ pub struct Block {
     vec: Vec<f32>,
 }
 
-fn answer(llms: &[Llm], emb: &Embedder, q: &str, mut blocks: Vec<Block>) -> Result<Answer, String> {
+/// Los TOP_K bloques para el LLM: por coseno si hay embedding de la pregunta y bloques con vector; si no, los de la
+/// búsqueda por texto (`text_blocks` ya viene ordenado por BM25).
+/// ponytail: uno u otro; la fusión de ambos rankings (RRF) es la Fase 7 del roadmap.
+fn rank(qv: Option<&[f32]>, mut vec_blocks: Vec<Block>, text_blocks: Vec<Block>) -> Vec<Block> {
+    let blocks = match qv {
+        Some(qv) if !vec_blocks.is_empty() => {
+            vec_blocks.sort_by(|a, b| cosine(qv, &b.vec).total_cmp(&cosine(qv, &a.vec)));
+            vec_blocks
+        }
+        _ => text_blocks,
+    };
+    blocks.into_iter().take(TOP_K).collect()
+}
+
+fn answer(llms: &[Llm], q: &str, blocks: Vec<Block>) -> Result<Answer, String> {
     use chrono::{Local, TimeZone};
     if blocks.is_empty() {
-        return Err("Todavía no hay reuniones guardadas".into());
+        return Ok(Answer { answer: "No encontré nada sobre eso en tus reuniones.".into(), sources: vec![] });
     }
-    let qv = emb.embed(&[q.to_string()], true)?.pop().ok_or("respuesta sin embeddings")?;
-    blocks.sort_by(|a, b| cosine(&qv, &b.vec).total_cmp(&cosine(&qv, &a.vec)));
-    blocks.truncate(TOP_K);
     let when = |id: u64| Local.timestamp_opt(id as i64, 0).single().map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
     let frags: Vec<String> = blocks
         .iter()
@@ -1385,6 +1439,105 @@ pub mod local {
 mod tests {
     use super::*;
 
+    fn block(meeting: u64, text: &str, vec: &[f32]) -> Block {
+        Block { meeting, title: None, text: text.into(), vec: vec.to_vec() }
+    }
+
+    #[test]
+    fn rank_usa_coseno_con_embeddings_y_texto_sin_ellos() {
+        let by_cos = || vec![block(1, "lejos", &[0.0, 1.0]), block(2, "cerca", &[1.0, 0.1])];
+        let by_text = || vec![block(3, "texto uno", &[]), block(4, "texto dos", &[])];
+        let ids = |v: Vec<Block>| v.iter().map(|b| b.meeting).collect::<Vec<_>>();
+        assert_eq!(ids(rank(Some(&[1.0, 0.0]), by_cos(), by_text())), [2, 1]);
+        assert_eq!(ids(rank(None, by_cos(), by_text())), [3, 4]); // embed falló
+        assert_eq!(ids(rank(Some(&[1.0, 0.0]), vec![], by_text())), [3, 4]); // nada indexado con vector
+        let many: Vec<Block> = (0..20).map(|i| block(i, "x", &[])).collect();
+        assert_eq!(rank(None, vec![], many).len(), TOP_K);
+    }
+
+    #[test]
+    fn consulta_fts_de_la_pregunta() {
+        assert_eq!(fts_query("¿Qué quedó del formulario de reclamos?").as_deref(), Some("\"Qué\" OR \"quedó\" OR \"del\" OR \"formulario\" OR \"reclamos\""));
+        assert_eq!(fts_query("¿y a? \"").as_deref(), None);
+    }
+
+    #[test]
+    fn sqlite_trae_fts5() {
+        block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+            sqlx::query("CREATE VIRTUAL TABLE t USING fts5(x)").execute(&pool).await.unwrap();
+        });
+    }
+
+    /// Servidor OpenAI de mentira: guarda el cuerpo de la petición y responde con `content`.
+    fn fake_llm(content: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let (mut req, mut buf) = (String::new(), [0u8; 4096]);
+            loop {
+                let n = sock.read(&mut buf).unwrap();
+                req.push_str(&String::from_utf8_lossy(&buf[..n]));
+                let len = req.to_lowercase().split("content-length: ").nth(1).and_then(|h| h.lines().next()?.trim().parse::<usize>().ok());
+                let body_len = req.split("\r\n\r\n").nth(1).map_or(0, str::len);
+                if n == 0 || len.is_some_and(|l| body_len >= l) {
+                    break;
+                }
+            }
+            let body = json!({"choices": [{"message": {"content": content}}]}).to_string();
+            write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            let _ = tx.send(req);
+        });
+        (url, rx)
+    }
+
+    #[test]
+    fn responde_con_texto_si_los_embeddings_estan_caidos() {
+        let (url, req) = fake_llm(r#"{"respuesta":"El formulario de reclamos quedó para el viernes [1].","fuentes":[1]}"#);
+        let answer = block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+            for m in ["009_meeting_chunks", "016_chunk_model", "017_chunks_fts"] {
+                sqlx::raw_sql(&std::fs::read_to_string(format!("migrations/{m}.sql")).unwrap()).execute(&pool).await.unwrap();
+            }
+            // bloques guardados sin vector (embed falló), como los deja index_missing
+            let chunks = [(1, "Yo: el formulario de reclamos queda para el viernes"), (1, "Otros: hablamos del presupuesto"), (2, "Yo: nos vemos mañana en la oficina")];
+            for (i, (meeting, text)) in chunks.iter().enumerate() {
+                let q = sqlx::query("INSERT INTO meeting_chunks (meeting, idx, text, vec, model) VALUES (?, ?, ?, x'', ?)");
+                q.bind(meeting).bind(i as i64).bind(text).bind(TEXT_ONLY).execute(&pool).await.unwrap();
+            }
+            // "del" también está en otro bloque, pero BM25 pone primero el que trae las palabras raras
+            let rows = search_text(&pool, "¿Qué quedó del formulario de RECLAMOS?", 8).await.unwrap();
+            assert!(rows[0].1.contains("formulario"));
+            let rows = search_text(&pool, "formulario reclamos", 8).await.unwrap();
+            assert_eq!(rows.len(), 1);
+            let blocks: Vec<Block> = rows.into_iter().map(|(m, text, _)| block(m as u64, &text, &[])).collect();
+            // el embedding de la pregunta falló: qv = None
+            answer(&[Llm { provider: url, apikey: String::new(), models: vec!["m".into()] }], "reclamos", rank(None, vec![], blocks))
+        })
+        .unwrap();
+        assert!(answer.answer.contains("viernes"));
+        assert_eq!((answer.sources.len(), answer.sources[0].meeting), (1, 1));
+        let sent = req.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(sent.contains("formulario de reclamos") && !sent.contains("presupuesto") && !sent.contains("oficina"));
+    }
+
+    #[test]
+    fn el_fts_sigue_los_bloques_borrados() {
+        block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+            for m in ["009_meeting_chunks", "016_chunk_model", "017_chunks_fts"] {
+                sqlx::raw_sql(&std::fs::read_to_string(format!("migrations/{m}.sql")).unwrap()).execute(&pool).await.unwrap();
+            }
+            sqlx::query("INSERT INTO meeting_chunks (meeting, idx, text, vec) VALUES (1, 0, 'hola mundo', x'')").execute(&pool).await.unwrap();
+            assert_eq!(search_text(&pool, "mundo", 8).await.unwrap().len(), 1);
+            sqlx::query("DELETE FROM meeting_chunks WHERE meeting = 1").execute(&pool).await.unwrap();
+            assert!(search_text(&pool, "mundo", 8).await.unwrap().is_empty());
+        });
+    }
+
     fn tone(secs: f32, amp: f32) -> Vec<f32> {
         (0..(secs * RATE as f32) as usize).map(|i| amp * (i as f32 * 0.05).sin()).collect()
     }
@@ -1639,7 +1792,9 @@ fn probar_preguntar() {
         blocks.extend(parts.into_iter().zip(vecs).map(|(text, vec)| Block { meeting: id, title: ctx.as_ref().map(|c| c.title.clone()), text, vec }));
     }
     println!("{} bloques indexados en {:.1}s", blocks.len(), t.elapsed().as_secs_f32());
-    let r = answer(&[llm], &emb, &env("PREGUNTA", "¿Qué se decidió?"), blocks).unwrap();
+    let q = env("PREGUNTA", "¿Qué se decidió?");
+    let qv = emb.embed(&[q.clone()], true).unwrap().pop();
+    let r = answer(&[llm], &q, rank(qv.as_deref(), blocks, vec![])).unwrap();
     println!("{:.1}s\n{}", t.elapsed().as_secs_f32(), r.answer);
     for s in r.sources {
         println!("  [{}] #meetings/{} · {}", s.n, s.meeting, s.text.lines().next().unwrap_or(""));
