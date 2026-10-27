@@ -156,7 +156,7 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         }
         g.stop = Some(stop.clone());
     }
-    let llms = crate::ai::llms(&app, llms);
+    let llms = crate::ai::llms(&app, llms, if manage { crate::ai::Mision::Gestion } else { crate::ai::Mision::Reuniones });
     let ctx = ctx.filter(|_| !manage); // el dictado de gestión no es una reunión del calendario
     update(&app, |g| {
         g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
@@ -186,7 +186,6 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     if state.0.lock().unwrap().stop.is_some() {
         return Err("Hay una reunión en curso".into());
     }
-    let llms = crate::ai::llms(&app, llms);
     let saved = meetings_list(app.clone());
     let m = match id {
         Some(id) => saved.into_iter().find(|m| m.id == id),
@@ -197,6 +196,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     if lines.is_empty() {
         return Err("La transcripción está vacía".into());
     }
+    let llms = crate::ai::llms(&app, llms, if manage { crate::ai::Mision::Gestion } else { crate::ai::Mision::Reuniones });
     update(&app, |g| {
         g.snap.lines = lines.clone();
         g.snap.manage = manage;
@@ -676,7 +676,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
             .collect()
     } else {
         let user = format!("Transcripción:\n{}", fmt_lines(&lines));
-        let r = ask_any(&crate::ai::for_meeting(llms), &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
+        let r = ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
         notes = Some((r.resumen, r.decisiones));
         r.tareas.into_iter().map(|(t, d)| (t, d, None)).collect()
     };
@@ -880,7 +880,7 @@ pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, St
             Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
         })
         .collect();
-    answer(&crate::ai::llms(app, llms.to_vec()), &emb, q.trim(), blocks)
+    answer(&crate::ai::llms(app, llms.to_vec(), crate::ai::Mision::Preguntas), &emb, q.trim(), blocks)
 }
 
 /// Un bloque indexado de una reunión.
@@ -1521,7 +1521,7 @@ mod tests {
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
         assert!(ask_any(&[], "", "", parse_result, |_| {}).is_err());
         // el proxy propio: sin prefijo de modelo y en palabras del tester
-        assert_eq!(ask_any(&[llm("candola", &["candola"])], "", "", parse_result, |_| {}).unwrap_err(), crate::ai::NO_KEY);
+        assert_eq!(ask_any(&[llm("candola", &["candola-chat"])], "", "", parse_result, |_| {}).unwrap_err(), crate::ai::NO_KEY);
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
         assert_eq!(base_url("candola"), "https://ai.spadelab.xyz/v1");
     }
