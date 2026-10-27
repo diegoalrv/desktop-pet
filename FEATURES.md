@@ -337,13 +337,15 @@ Pasos en la app (un commit cada uno):
    `016_chunk_model.sql`: `meeting_chunks.model TEXT` (nulo = nomic); `index_missing` reindexa los bloques de otro
    modelo y `answer` solo compara con los del modelo actual (768 vs 1024 dimensiones no se mezclan). Test: bloques
    de otro modelo se ignoran. Commit: `Windows: preguntarle a las reuniones por el proxy`.
-4. **Chat sin Claude Code**. En modo proxy, el chat usa un `chat.rs` nuevo en vez de `claude.rs::claude_ask`:
-   bucle de herramientas propio contra `candola` (`/v1/chat/completions` con `tools`; LiteLLM los traduce a
-   Bedrock/Anthropic/Gemini), con las mismas herramientas del MCP (tareas, timer, reuniones, rutinas, sugerencias)
-   llamando directo a las funciones de Rust. Sin archivos ni shell. Emite los mismos eventos
-   `claude://start|event|exit` y guarda en `chat_log`, así `ChatTab.tsx` no cambia. Máximo ~8 vueltas por mensaje.
-   Test: el bucle con un LLM falso que pide una herramienta y luego responde. Commit: `Windows: chat con la
-   Candola sin Claude Code`.
+4. **Chat sin Claude Code** — HECHO. En modo proxy `ChatTab` usa `src/lib/candolaChat.ts` en vez de `claude_ask`:
+   bucle de herramientas (máx. 8 vueltas) contra `candola` vía `ai.rs::ai_chat` (`/v1/chat/completions` con `tools`).
+   Las herramientas son **las mismas del MCP**, movidas a `mcp/tools.mjs` (`makeCall(api)`): el MCP las llama por
+   HTTP y el chat dentro de la app con `web.rs::web_api` (misma función `api` que la web local). El prompt sale de
+   `candola.md` (personalidad + "Tu humano y su día", sin terminal). Emite `claude://start|event|exit` y guarda en
+   `chat_log`, así ChatTab y la mascota no cambian; en modo proxy se oculta el modo dios. Probado 26-oct con Sonnet
+   contra la copia de prueba ("¿qué tengo para hoy?", crear tarea, "¿qué quedó de la última reunión?"): ~9 s y
+   ~US$0,01 por llamada, 2–3 llamadas por orden (≈4k tokens de entrada por las herramientas; caché pendiente).
+   Sin probar: el panel en sí (no hubo acceso a la copia de prueba).
 5. **Errores entendibles en modo proxy**. 401 → "Tu key de Candola no es válida"; budget/429 → "Se acabó la cuota
    de IA de este mes"; sin key → "Pega tu key de Candola en Ajustes". Commit: `Windows: errores de IA claros`.
 Probar el flujo de Windows en el Mac con `PET_AI=candola pnpm tauri dev` y una `candolaKey` de prueba antes de

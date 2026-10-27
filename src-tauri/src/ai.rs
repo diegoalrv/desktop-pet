@@ -41,6 +41,34 @@ pub fn llms(app: &AppHandle, llms: Vec<Llm>) -> Vec<Llm> {
     }
 }
 
+/// Un turno del chat de Windows (`src/lib/candolaChat.ts` lleva el bucle de herramientas): `messages` y `tools` en
+/// formato OpenAI al alias `candola`; devuelve el `message` de la respuesta (texto y/o `tool_calls`).
+#[tauri::command]
+pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_json::Value) -> Result<serde_json::Value, String> {
+    let key = proxy_key(&app).ok_or("el chat por el proxy es solo para el modo Windows")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let body = serde_json::json!({"model": "candola", "messages": messages, "tools": tools});
+        let mut res = ureq::post(format!("{PROXY}/chat/completions"))
+            .config()
+            .timeout_global(Some(Duration::from_secs(180)))
+            .http_status_as_error(false)
+            .build()
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {key}"))
+            .send(body.to_string())
+            .map_err(|_| "No pude conectar con el servidor de la Candola".to_string())?;
+        let status = res.status().as_u16();
+        let v: serde_json::Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).unwrap_or_default();
+        match status {
+            200 => Ok(v["choices"][0]["message"].clone()),
+            401 | 403 | 404 => Err("Key de Candola inválida o vacía (Ajustes → Asistente)".into()),
+            s => Err(format!("La Candola no pudo responder ({s}): {}", v["error"]["message"].as_str().unwrap_or("error").chars().take(200).collect::<String>())),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Embeddings por el proxy (`/embeddings`, formato OpenAI, todos los textos en una llamada).
 pub fn embed(key: &str, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     let mut res = ureq::post(format!("{PROXY}/embeddings"))

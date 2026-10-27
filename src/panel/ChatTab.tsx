@@ -5,6 +5,7 @@ import * as db from "../lib/db";
 import { useSettings } from "../store/useSettings";
 import { Icon } from "./icons";
 import idleSprite from "../../examples/candolita/idle.png";
+import { candolaAsk, candolaCancel, candolaReset } from "../lib/candolaChat";
 
 type Line = { kind: "you" | "text" | "tool" | "err"; text: string };
 type Denial = { tool_name: string; tool_input: { command?: string } };
@@ -52,6 +53,13 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
   const session = useRef<string | null>(null);
   const spoken = useRef(false); // la orden en curso vino por voz: su respuesta se lee en voz alta
   const log = useRef<HTMLDivElement>(null);
+  // Modo Windows (F19): sin Claude Code, el chat va al proxy con las herramientas de la app (candolaChat.ts).
+  const [proxy, setProxy] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("ai_proxy")
+      .then(setProxy)
+      .catch(() => {});
+  }, []);
   const add = (l: Line) => setLines((ls) => [...ls, l]);
 
   // Historial (chat_log): muestra lo último y retoma la última conversación.
@@ -108,7 +116,10 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
   const ask = (prompt: string, allow: string[] = []) => {
     setBusy(true);
     setPending([]);
-    invoke("claude_ask", { prompt, session: session.current, allow, god, cwd }).catch((e) => {
+    const run = proxy
+      ? candolaAsk(prompt)
+      : invoke("claude_ask", { prompt, session: session.current, allow, god, cwd });
+    run.catch((e) => {
       add({ kind: "err", text: String(e) });
       setBusy(false);
     });
@@ -177,8 +188,9 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
             />
             <b>¡Guau! Soy la Candola</b>
             <span className="small muted" style={{ maxWidth: "22em" }}>
-              Tu mascota asistente. Reviso tu computador, Docker y tus servidores; lo que cambie algo te lo pregunto
-              antes.
+              {proxy
+                ? "Tu mascota asistente. Manejo tus tareas, el timer y tus reuniones."
+                : "Tu mascota asistente. Reviso tu computador, Docker y tus servidores; lo que cambie algo te lo pregunto antes."}
             </span>
             <div className="stack" style={{ width: "100%", gap: ".4em", marginTop: ".3em" }}>
               {SUGGESTIONS.map((p) => (
@@ -220,7 +232,10 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
         {busy && (
           <span className="muted" style={{ animation: "pn-pulse 1.4s infinite" }}>
             Candola está pensando…{" "}
-            <button className="b b-ghost b-sm" onClick={() => invoke("claude_cancel")}>
+            <button
+              className="b b-ghost b-sm"
+              onClick={() => (proxy ? candolaCancel() : invoke("claude_cancel"))}
+            >
               Cancelar
             </button>
           </span>
@@ -292,7 +307,12 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
       <div className="row small" style={{ justifyContent: "space-between" }}>
         <label
           className="row"
-          style={{ gap: ".5em", cursor: "pointer", color: god ? "#ff6b6b" : "var(--muted)" }}
+          style={{
+            gap: ".5em",
+            cursor: "pointer",
+            color: god ? "#ff6b6b" : "var(--muted)",
+            visibility: proxy ? "hidden" : undefined, // sin terminal no hay nada que aprobar
+          }}
         >
           <input
             type="checkbox"
@@ -309,6 +329,7 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
           onClick={() => {
             localStorage.setItem(CLEARED, String(Date.now()));
             session.current = null;
+            candolaReset();
             setLines([]);
             setPending([]);
           }}

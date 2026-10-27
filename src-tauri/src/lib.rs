@@ -297,6 +297,8 @@ pub fn run() {
             meeting::meetings_ask,
             ai::ai_proxy,
             ai::ai_check,
+            ai::ai_chat,
+            web::web_api,
             windows::set_quick_shortcut,
             db::task_set_done,
             timer::timer_config,

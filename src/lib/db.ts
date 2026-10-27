@@ -31,11 +31,28 @@ const exec = async (sql: string, args: unknown[] = []) => {
 export const logCamSegment = async (g: Segment) => {
   const avg = (r: [number, number, number] | null) => (r ? r[0] / g.n : null);
   const [p, y] = [g.pitch, g.yaw];
-  await (await get()).execute(
+  await (
+    await get()
+  ).execute(
     `INSERT INTO cam_segments (start, end, n, face, pitch, pitch_min, pitch_max, yaw, yaw_min, yaw_max, roll, phone,
        active, base, events) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-    [g.start, g.end, g.n, g.face ? 1 : 0, avg(p), p?.[1] ?? null, p?.[2] ?? null, avg(y), y?.[1] ?? null,
-      y?.[2] ?? null, g.face ? g.roll / g.n : null, g.phone, g.active, g.base, g.events.join(",") || null],
+    [
+      g.start,
+      g.end,
+      g.n,
+      g.face ? 1 : 0,
+      avg(p),
+      p?.[1] ?? null,
+      p?.[2] ?? null,
+      avg(y),
+      y?.[1] ?? null,
+      y?.[2] ?? null,
+      g.face ? g.roll / g.n : null,
+      g.phone,
+      g.active,
+      g.base,
+      g.events.join(",") || null,
+    ],
   );
 };
 
@@ -113,6 +130,12 @@ export type ChatRow = {
   outcome: string;
   god: number;
 };
+/** Una orden del chat de Windows (candolaChat.ts); en Mac la guarda claude.rs. */
+export const logChat = (r: { prompt: string; reply: string; tools: string; outcome: string }) =>
+  exec(
+    "INSERT INTO chat_log (at, session, prompt, reply, tools, outcome, god) VALUES ($1, NULL, $2, $3, $4, $5, 0)",
+    [Date.now(), r.prompt, r.reply, r.tools, r.outcome],
+  );
 /** Últimas órdenes desde `since` (epoch ms: cuándo se empezó el chat actual). */
 export const chatHistory = (since = 0, limit = 30) =>
   select<ChatRow>(
@@ -181,7 +204,14 @@ export const deleteSession = async (id: number) => {
 };
 
 /** Tiempo por app durante cada foco (F11, solo macOS); `hits` = veces que se abrió como distracción. */
-export type AppUseRow = { session_id: number; start: number; bundle: string; name: string; secs: number; hits: number };
+export type AppUseRow = {
+  session_id: number;
+  start: number;
+  bundle: string;
+  name: string;
+  secs: number;
+  hits: number;
+};
 export const listAppUse = (since: number) =>
   select<AppUseRow>(
     "SELECT a.*, s.start FROM session_apps a JOIN sessions s ON s.id = a.session_id WHERE s.start >= $1",
@@ -247,7 +277,13 @@ export type ClaudeTokenRow = {
 export const listClaudeTokens = (from: number, to: number) =>
   select<ClaudeTokenRow>("SELECT * FROM claude_hour_tokens WHERE hour >= $1 AND hour < $2", [from, to]);
 /** Tiempo por sesión de Claude (su título o tu primer mensaje) y carpeta/remoto de cada proyecto (migración 014). */
-export type ClaudeTitleRow = { hour: number; project: string; title: string; you_secs: number; claude_secs: number };
+export type ClaudeTitleRow = {
+  hour: number;
+  project: string;
+  title: string;
+  you_secs: number;
+  claude_secs: number;
+};
 export const listClaudeTitles = (from: number, to: number) =>
   select<ClaudeTitleRow>("SELECT * FROM claude_hour_titles WHERE hour >= $1 AND hour < $2", [from, to]);
 export type ClaudeProjectRow = { project: string; path: string; remote: string };
@@ -260,7 +296,12 @@ export const allActivities = () => select<Activity>("SELECT * FROM activities");
 export const saveActivity = (a: Omit<Activity, "id" | "archived" | "sort"> & { id?: number }) =>
   a.id
     ? exec("UPDATE activities SET name = $1, kind = $2, min = $3, emoji = $4, color = $5 WHERE id = $6", [
-        a.name, a.kind, a.min, a.emoji, a.color, a.id,
+        a.name,
+        a.kind,
+        a.min,
+        a.emoji,
+        a.color,
+        a.id,
       ])
     : exec(
         `INSERT INTO activities (name, kind, min, emoji, color, sort)
@@ -291,7 +332,10 @@ export const saveSteps = async (id: number, steps: Step[]) => {
   await exec("DELETE FROM routine_steps WHERE routine_id = $1", [id]);
   for (const [pos, s] of steps.entries())
     await exec("INSERT INTO routine_steps (routine_id, pos, activity_id, min) VALUES ($1, $2, $3, $4)", [
-      id, pos, s.activity_id, s.min,
+      id,
+      pos,
+      s.activity_id,
+      s.min,
     ]);
 };
 /** Una sola activa (índice único parcial): primero se apagan todas. null = esquema clásico de Ajustes. */

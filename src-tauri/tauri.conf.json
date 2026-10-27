@@ -79,7 +79,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../mcp/pet-mcp.mjs": "mcp/pet-mcp.mjs"
+      "../mcp/pet-mcp.mjs": "mcp/pet-mcp.mjs",
+      "../mcp/tools.mjs": "mcp/tools.mjs"
     },
     "macOS": {
       "signingIdentity": "Pet Local Signing",

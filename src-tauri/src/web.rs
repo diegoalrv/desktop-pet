@@ -151,6 +151,36 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
     }
 }
 
+/// `/api/select`, `/api/execute` y `/api/invoke` con el cuerpo ya leído: la web por HTTP y el chat de Windows
+/// (`web_api`, desde las herramientas de `mcp/tools.mjs`) usan el mismo contrato.
+pub fn api(app: &AppHandle, path: &str, body: Value) -> Result<Value, String> {
+    match path {
+        "/api/invoke" => invoke(app, serde_json::from_value(body).map_err(|_| "bad request")?),
+        "/api/select" | "/api/execute" => {
+            let q: Sql = serde_json::from_value(body).map_err(|_| "bad request")?;
+            // ponytail: SQL arbitrario desde el propio frontend (mismo contrato que tauri-plugin-sql);
+            // si algún día se expone fuera de loopback, cambiar por endpoints REST con permisos.
+            let pool = &app.state::<Db>().0;
+            if path == "/api/select" {
+                block_on(db::select(pool, &q.sql, &q.args))
+                    .map(|rows| Value::from(rows.into_iter().map(Value::Object).collect::<Vec<_>>()))
+                    .map_err(|e| e.to_string())
+            } else {
+                let r = block_on(db::execute(pool, &q.sql, &q.args));
+                let _ = app.emit("db://changed", ()); // la mascota y las ventanas recargan
+                r.map_err(|e| e.to_string())
+            }
+        }
+        _ => Err(format!("ruta desconocida: {path}")),
+    }
+}
+
+/// La misma API desde la app (chat de Windows): sin HTTP ni token, fuera del hilo principal.
+#[tauri::command]
+pub async fn web_api(app: AppHandle, path: String, body: Value) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || api(&app, &path, body)).await.map_err(|e| e.to_string())?
+}
+
 fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
     let json = |status: u16, v: Value| (status, "application/json".to_string(), v.to_string().into_bytes());
     if !trusted(req) {
@@ -164,32 +194,13 @@ fn handle(app: &AppHandle, req: &mut Request) -> (u16, String, Vec<u8>) {
         (Method::Post, _) if !header(req, "Content-Type").is_some_and(|c| c.starts_with("application/json")) => {
             json(415, "json only".into())
         }
-        (Method::Post, "/api/invoke") => {
+        (Method::Post, "/api/invoke" | "/api/select" | "/api/execute") => {
             let mut body = String::new();
-            let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Cmd>(&body).ok());
-            let Some(c) = parsed else { return json(400, "bad request".into()) };
-            match invoke(app, c) {
+            let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Value>(&body).ok());
+            let Some(body) = parsed else { return json(400, "bad request".into()) };
+            match api(app, &path, body) {
                 Ok(v) => json(200, v),
                 Err(e) => json(400, e.into()),
-            }
-        }
-        (Method::Post, "/api/select" | "/api/execute") => {
-            let mut body = String::new();
-            let parsed = req.as_reader().read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<Sql>(&body).ok());
-            let Some(q) = parsed else { return json(400, "bad request".into()) };
-            // ponytail: SQL arbitrario desde el propio frontend (mismo contrato que tauri-plugin-sql);
-            // si algún día se expone fuera de loopback, cambiar por endpoints REST con permisos.
-            let pool = &app.state::<Db>().0;
-            let res = if path == "/api/select" {
-                block_on(db::select(pool, &q.sql, &q.args)).map(|rows| Value::from(rows.into_iter().map(Value::Object).collect::<Vec<_>>()))
-            } else {
-                let r = block_on(db::execute(pool, &q.sql, &q.args));
-                let _ = app.emit("db://changed", ()); // la mascota y las ventanas recargan
-                r
-            };
-            match res {
-                Ok(v) => json(200, v),
-                Err(e) => json(400, e.to_string().into()),
             }
         }
         (Method::Get, _) => {
