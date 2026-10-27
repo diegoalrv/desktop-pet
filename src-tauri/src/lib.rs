@@ -1,3 +1,4 @@
+mod ai;
 mod apps;
 mod claude;
 mod db;
@@ -288,6 +289,8 @@ pub fn run() {
             meeting::meetings_list,
             meeting::meeting_retry,
             meeting::meetings_ask,
+            ai::ai_proxy,
+            ai::ai_check,
             windows::set_quick_shortcut,
             db::task_set_done,
             timer::timer_config,

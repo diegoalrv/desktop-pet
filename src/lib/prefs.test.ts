@@ -34,6 +34,7 @@ describe("prefs", () => {
       icalUrl: "",
       userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
+      candolaKey: "",
       claudeCwd: "",
       dayEndHour: 18,
       dailyGoalMin: 120,
@@ -82,6 +83,10 @@ describe("prefs", () => {
       { provider: "claude-code", apikey: "", models: ["opus"] },
     ];
     expect(normalizePrefs({ llms: mio }).llms).toEqual(mio);
+  });
+  it("candolaKey: recorta espacios; inválida -> vacía", () => {
+    expect(normalizePrefs({ candolaKey: "  sk-abc \n" }).candolaKey).toBe("sk-abc");
+    expect(normalizePrefs({ candolaKey: 42 }).candolaKey).toBe("");
   });
   it("accelFromEvent", () => {
     expect(accelFromEvent(ev("Space", { metaKey: true, shiftKey: true }))).toBe(

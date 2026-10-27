@@ -58,6 +58,40 @@ function Section({ title, hint, children }: { title: string; hint: string; child
 
 const note = { opacity: 0.7 } as const;
 
+/** Campo de la key de Candola (modo proxy): se guarda al salir del campo; "Probar" la valida contra el servidor. */
+function CandolaKey({ value, onSave }: { value: string; onSave: (key: string) => void }) {
+  const [key, setKey] = useState(value);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => setKey(value), [value]);
+  const test = () => {
+    onSave(key.trim());
+    setMsg({ ok: true, text: "Probando…" });
+    invoke("ai_check", { key })
+      .then(() => setMsg({ ok: true, text: "Lista ✓" }))
+      .catch((e) => setMsg({ ok: false, text: String(e) }));
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <input
+        type="password"
+        aria-label="Key de Candola"
+        placeholder="sk-…"
+        value={key}
+        onChange={(e) => {
+          setKey(e.target.value);
+          setMsg(null);
+        }}
+        onBlur={() => key.trim() !== value && onSave(key.trim())}
+        style={{ ...btn, padding: 4, flex: 1, minWidth: 0 }}
+      />
+      <button style={{ ...btn, whiteSpace: "nowrap" }} disabled={!key.trim()} onClick={test}>
+        Probar
+      </button>
+      {msg && <small style={{ color: msg.ok ? T.dim : "#ff6b6b", whiteSpace: "nowrap" }}>{msg.text}</small>}
+    </div>
+  );
+}
+
 /** Número que se puede escribir: guarda apenas el valor queda dentro de [min, max] (escribir "47" pasa por "4", que
  *  si se guardara al tiro el saneo de prefs lo devolvería al valor por defecto); al salir con uno inválido, vuelve. */
 function NumInput({
@@ -95,9 +129,14 @@ export function SettingsWindow() {
   const [auto, setAuto] = useState(false);
   const [shortcutErr, setShortcutErr] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<{ bundle: string; name: string }[]>([]);
+  // IA por el proxy (F19): Windows, o el Mac arrancado con PET_AI=candola. Lo decide ai.rs.
+  const [proxy, setProxy] = useState(WIN);
   useEffect(() => {
     isEnabled()
       .then(setAuto)
+      .catch(() => {});
+    invoke<boolean>("ai_proxy")
+      .then(setProxy)
       .catch(() => {});
   }, []);
 
@@ -340,40 +379,59 @@ export function SettingsWindow() {
         </small>
       </Section>
 
-      <Section title="Asistente" hint="chat con Claude y reuniones">
-        <h3 style={sub}>Chat con Claude Code</h3>
-        <input
-          placeholder="~ (home)"
-          defaultValue={prefs.claudeCwd}
-          onBlur={(e) => setPrefs({ claudeCwd: e.target.value })}
-          style={{ ...btn, padding: 4 }}
-        />
-        <small style={{ opacity: 0.7 }}>
-          Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (tus docs de servidores, despliegues,
-          etc.). Vacía = tu home.
-        </small>
-        <label>
+      {proxy ? (
+        <Section title="Asistente" hint="key de Candola y reuniones">
+          <h3 style={sub}>Key de Candola</h3>
+          <CandolaKey value={prefs.candolaKey} onSave={(candolaKey) => setPrefs({ candolaKey })} />
+          <small style={note}>
+            Activa las tareas y el resumen de las reuniones, el modo Gestión y las preguntas a tus reuniones.
+            Al terminar se manda el texto (nunca el audio) al servidor de Spadelab. ¿No tienes key? Pídela a
+            Spadelab.
+          </small>
+          <h3 style={sub}>Reuniones</h3>
           <input
-            type="checkbox"
-            checked={prefs.voice}
-            onChange={(e) => setPrefs({ voice: e.target.checked })}
-          />{" "}
-          Leer en voz alta las respuestas a lo que le dices con el atajo
-        </label>
+            placeholder="Tu nombre (quién es “Yo” en las reuniones)"
+            defaultValue={prefs.userName}
+            onBlur={(e) => setPrefs({ userName: e.target.value })}
+            style={{ ...btn, padding: 4 }}
+          />
+        </Section>
+      ) : (
+        <Section title="Asistente" hint="chat con Claude y reuniones">
+          <h3 style={sub}>Chat con Claude Code</h3>
+          <input
+            placeholder="~ (home)"
+            defaultValue={prefs.claudeCwd}
+            onBlur={(e) => setPrefs({ claudeCwd: e.target.value })}
+            style={{ ...btn, padding: 4 }}
+          />
+          <small style={{ opacity: 0.7 }}>
+            Carpeta base del chat: Claude corre ahí y lee su CLAUDE.md (tus docs de servidores, despliegues,
+            etc.). Vacía = tu home.
+          </small>
+          <label>
+            <input
+              type="checkbox"
+              checked={prefs.voice}
+              onChange={(e) => setPrefs({ voice: e.target.checked })}
+            />{" "}
+            Leer en voz alta las respuestas a lo que le dices con el atajo
+          </label>
 
-        <h3 style={sub}>Reuniones (sugerir tareas)</h3>
-        <input
-          placeholder="Tu nombre (quién es “Yo” en las reuniones)"
-          defaultValue={prefs.userName}
-          onBlur={(e) => setPrefs({ userName: e.target.value })}
-          style={{ ...btn, padding: 4 }}
-        />
-        <LlmEditor value={prefs.llms} onSave={(llms) => setPrefs({ llms })} />
-        <small style={{ opacity: 0.7 }}>
-          Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al siguiente.
-          En el nivel gratis de Gemini, Google puede usar el texto para mejorar sus productos.
-        </small>
-      </Section>
+          <h3 style={sub}>Reuniones (sugerir tareas)</h3>
+          <input
+            placeholder="Tu nombre (quién es “Yo” en las reuniones)"
+            defaultValue={prefs.userName}
+            onBlur={(e) => setPrefs({ userName: e.target.value })}
+            style={{ ...btn, padding: 4 }}
+          />
+          <LlmEditor value={prefs.llms} onSave={(llms) => setPrefs({ llms })} />
+          <small style={{ opacity: 0.7 }}>
+            Al terminar la reunión se manda el texto (nunca el audio) al primer modelo; si falla, al
+            siguiente. En el nivel gratis de Gemini, Google puede usar el texto para mejorar sus productos.
+          </small>
+        </Section>
+      )}
 
       <Section title="Atajos" hint="combinaciones globales">
         {shortcutField("panel", "shortcut", "Abrir el panel", DEFAULT_SHORTCUT)}

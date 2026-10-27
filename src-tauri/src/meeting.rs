@@ -156,6 +156,7 @@ pub fn meeting_start(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         }
         g.stop = Some(stop.clone());
     }
+    let llms = crate::ai::llms(&app, llms);
     let ctx = ctx.filter(|_| !manage); // el dictado de gestión no es una reunión del calendario
     update(&app, |g| {
         g.snap = Snapshot { active: true, manage, status: "Preparando…".into(), ..Default::default() };
@@ -185,6 +186,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     if state.0.lock().unwrap().stop.is_some() {
         return Err("Hay una reunión en curso".into());
     }
+    let llms = crate::ai::llms(&app, llms);
     let saved = meetings_list(app.clone());
     let m = match id {
         Some(id) => saved.into_iter().find(|m| m.id == id),
@@ -834,7 +836,7 @@ pub fn ask_meetings(app: &AppHandle, llms: &[Llm], q: &str) -> Result<Answer, St
             Some(Block { meeting: s.id, title: s.ctx.as_ref().map(|c| c.title.clone()), text, vec: from_blob(&vec) })
         })
         .collect();
-    answer(llms, q.trim(), blocks)
+    answer(&crate::ai::llms(app, llms.to_vec()), q.trim(), blocks)
 }
 
 /// Un bloque indexado de una reunión.

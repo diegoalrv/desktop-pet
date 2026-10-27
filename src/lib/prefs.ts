@@ -55,6 +55,8 @@ export const prefsSchema = z.object({
   userName: z.string().trim().catch(""), // quién es "Yo" en las reuniones (meeting.rs lo lee de settings.json)
   // LLMs que sacan las tareas de la reunión al terminar, en orden de fallback (meeting.rs: ask_any)
   llms: z.array(llmSchema).catch(DEFAULT_LLMS),
+  // Key de Candola (F19): en Windows reemplaza a `llms`; toda la IA va al proxy propio (ai.rs)
+  candolaKey: z.string().trim().catch(""),
   // Carpeta desde la que corre Claude Code en el chat (lee su CLAUDE.md); vacía = home
   claudeCwd: z.string().trim().catch(""),
   // Cierre del día (pet/PetWindow.tsx): hora del aviso (0 = apagado) y meta de foco diaria en minutos
