@@ -325,7 +325,7 @@ Pasos en la app (un commit cada uno):
    `https://ai.spadelab.xyz/v1` (solo lo usa el modo proxy; el editor de modelos del Mac no cambia). `json_of` lee
    el primer objeto JSON completo e ignora lo que siga (Nova agrega una "Explicación" con llaves); todo lo que antes
    se leía se sigue leyendo igual. Test con ese caso. Commit: `Proveedor Candola y JSON tolerante a texto extra`.
-2. **Ajustes de Windows: solo la key** — HECHO (sin verificar en vivo). Comandos `ai_proxy` (Ajustes pregunta el modo) y `ai_check` (botón Probar). Pref `candolaKey` (zod, `.catch("")`, test en `prefs.test.ts`). Con `WIN`,
+2. **Ajustes de Windows: solo la key** — HECHO (probado en vivo 26-oct en el Mac con PET_AI: Probar → "Lista ✓", reunión → "revisada con candola"). Comandos `ai_proxy` (Ajustes pregunta el modo) y `ai_check` (botón Probar). Pref `candolaKey` (zod, `.catch("")`, test en `prefs.test.ts`). Con `WIN`,
    la sección de IA de Ajustes reemplaza el editor de modelos, la carpeta base y el modo dios del chat por: campo
    "Key de Candola" (password) + botón "Probar" (`GET /v1/models` con la key → "Lista" / "Key inválida") + link
    "¿No tienes? Pídela a Spadelab". En Mac no se renderiza nada nuevo. `ai.rs::proxy_mode` + `ai.rs::llms(app,
