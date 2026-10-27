@@ -28,6 +28,22 @@ fn chain(proxy: bool, key: String, llms: Vec<Llm>) -> Vec<Llm> {
     }
 }
 
+pub const NO_KEY: &str = "Pega tu key de Candola en Ajustes → Asistente.";
+pub const OFFLINE: &str = "No pude conectar con el servidor de la Candola. Revisa tu internet.";
+
+/// Error del proxy en palabras del tester (los casos los da LiteLLM, o Traefik con 404 si no llegó key).
+pub fn friendly(status: u16, body: &str) -> String {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    match (status, v["error"]["type"].as_str().unwrap_or("")) {
+        (404, _) => NO_KEY.into(),
+        (401, _) => "Tu key de Candola no es válida. Revísala en Ajustes → Asistente o pide una nueva a Spadelab.".into(),
+        (_, "budget_exceeded") => "Se acabó tu cuota de IA de este mes. Se renueva sola; si la necesitas antes, escríbele a Spadelab.".into(),
+        (403, _) => "Tu key de Candola no tiene acceso a esto. Avísale a Spadelab.".into(),
+        (429, _) => "Muchas consultas seguidas: espera un minuto y vuelve a intentar.".into(),
+        (s, _) => format!("La Candola no pudo responder ({s}). Intenta de nuevo en un rato."),
+    }
+}
+
 /// Key de Candola si la IA va por el proxy (vacía si no la han pegado: el proxy la rechaza); `None` = flujo de Mac.
 pub fn proxy_key(app: &AppHandle) -> Option<String> {
     proxy_mode().then(|| candola_key(app))
@@ -46,6 +62,9 @@ pub fn llms(app: &AppHandle, llms: Vec<Llm>) -> Vec<Llm> {
 #[tauri::command]
 pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_json::Value) -> Result<serde_json::Value, String> {
     let key = proxy_key(&app).ok_or("el chat por el proxy es solo para el modo Windows")?;
+    if key.is_empty() {
+        return Err(NO_KEY.into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let body = serde_json::json!({"model": "candola", "messages": messages, "tools": tools});
         let mut res = ureq::post(format!("{PROXY}/chat/completions"))
@@ -56,14 +75,14 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {key}"))
             .send(body.to_string())
-            .map_err(|_| "No pude conectar con el servidor de la Candola".to_string())?;
+            .map_err(|_| OFFLINE.to_string())?;
         let status = res.status().as_u16();
-        let v: serde_json::Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).unwrap_or_default();
-        match status {
-            200 => Ok(v["choices"][0]["message"].clone()),
-            401 | 403 | 404 => Err("Key de Candola inválida o vacía (Ajustes → Asistente)".into()),
-            s => Err(format!("La Candola no pudo responder ({s}): {}", v["error"]["message"].as_str().unwrap_or("error").chars().take(200).collect::<String>())),
+        let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+        if status != 200 {
+            return Err(friendly(status, &text));
         }
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+        Ok(v["choices"][0]["message"].clone())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -71,6 +90,9 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
 
 /// Embeddings por el proxy (`/embeddings`, formato OpenAI, todos los textos en una llamada).
 pub fn embed(key: &str, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+    if key.is_empty() {
+        return Err(NO_KEY.into());
+    }
     let mut res = ureq::post(format!("{PROXY}/embeddings"))
         .config()
         .timeout_global(Some(Duration::from_secs(120)))
@@ -79,14 +101,13 @@ pub fn embed(key: &str, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, 
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {key}"))
         .send(serde_json::json!({"model": model, "input": texts}).to_string())
-        .map_err(|_| "No pude conectar con el servidor de la Candola".to_string())?;
+        .map_err(|_| OFFLINE.to_string())?;
     let status = res.status().as_u16();
-    let v: serde_json::Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).unwrap_or_default();
-    match status {
-        200 => parse_embeddings(&v),
-        401 | 403 | 404 => Err("Key de Candola inválida o vacía (Ajustes → Asistente)".into()),
-        s => Err(format!("Embeddings {s}: {}", v["error"]["message"].as_str().unwrap_or("error").chars().take(200).collect::<String>())),
+    let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    if status != 200 {
+        return Err(friendly(status, &text));
     }
+    parse_embeddings(&serde_json::from_str(&text).unwrap_or_default())
 }
 
 /// Los vectores de `data` en el orden de entrada (cada uno trae su `index`).
@@ -111,18 +132,18 @@ pub fn ai_proxy() -> bool {
 #[tauri::command]
 pub async fn ai_check(key: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let res = ureq::get(format!("{PROXY}/models"))
+        let mut res = ureq::get(format!("{PROXY}/models"))
             .config()
             .timeout_global(Some(Duration::from_secs(20)))
             .http_status_as_error(false)
             .build()
             .header("Authorization", format!("Bearer {}", key.trim()))
             .call()
-            .map_err(|_| "No pude conectar con el servidor de la Candola".to_string())?;
+            .map_err(|_| OFFLINE.to_string())?;
         match res.status().as_u16() {
             200 => Ok(()),
-            401 | 403 | 404 => Err("Key inválida".into()), // sin key el proxy responde 404
-            s => Err(format!("El servidor respondió {s}")),
+            401 | 404 => Err("Key inválida".into()), // sin key el proxy responde 404
+            s => Err(friendly(s, &res.body_mut().read_to_string().unwrap_or_default())),
         }
     })
     .await
@@ -143,6 +164,20 @@ mod tests {
     }
 
     #[test]
+    fn errores_en_palabras_del_tester() {
+        // Cuerpos reales del proxy (LiteLLM), recortados.
+        let budget = r#"{"error":{"message":"Budget has been exceeded!","type":"budget_exceeded","code":"422"}}"#;
+        let model = r#"{"error":{"message":"not available for this API key","type":"key_model_access_denied","code":"403"}}"#;
+        let rpm = r#"{"error":{"message":"Rate limit exceeded","type":"throttling_error","code":"429"}}"#;
+        assert_eq!(friendly(404, r#"{"detail":"Not Found"}"#), NO_KEY);
+        assert!(friendly(401, "{}").contains("no es válida"));
+        assert!(friendly(422, budget).contains("cuota"));
+        assert!(friendly(403, model).contains("no tiene acceso"));
+        assert!(friendly(429, rpm).contains("espera un minuto"));
+        assert!(friendly(502, "<html>").contains("(502)"));
+    }
+
+    #[test]
     fn embeddings_en_el_orden_de_entrada() {
         let v = serde_json::json!({"data": [{"index": 1, "embedding": [0.5]}, {"index": 0, "embedding": [1.0, 2.0]}]});
         assert_eq!(parse_embeddings(&v), Ok(vec![vec![1.0, 2.0], vec![0.5]]));
@@ -158,6 +193,6 @@ mod tests {
         let v = embed(&key, "titan-embed-v2", &["Diego manda la propuesta a Colbún".into(), "sprites del pug".into()]).unwrap();
         println!("{} vectores de {}", v.len(), v[0].len());
         assert_eq!((v.len(), v[0].len()), (2, 1024));
-        assert!(embed("sk-falsa", "titan-embed-v2", &["x".into()]).unwrap_err().contains("inválida"));
+        assert!(embed("sk-falsa", "titan-embed-v2", &["x".into()]).unwrap_err().contains("no es válida"));
     }
 }

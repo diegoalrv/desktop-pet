@@ -346,7 +346,7 @@ Pasos en la app (un commit cada uno):
    contra la copia de prueba ("¿qué tengo para hoy?", crear tarea, "¿qué quedó de la última reunión?"): ~9 s y
    ~US$0,01 por llamada, 2–3 llamadas por orden (≈4k tokens de entrada por las herramientas; caché pendiente).
    Sin probar: el panel en sí (no hubo acceso a la copia de prueba).
-5. **Errores entendibles en modo proxy**. 401 → "Tu key de Candola no es válida"; budget/429 → "Se acabó la cuota
+5. **Errores entendibles en modo proxy** — HECHO. `ai::friendly(status, cuerpo)` según lo que devuelve LiteLLM de verdad (404 sin key, 401, 422 `budget_exceeded`, 403 modelo no permitido, 429): lo usan Probar, embeddings, el chat y `meeting::ask` con el proveedor `candola` (sin el prefijo de modelo). 401 → "Tu key de Candola no es válida"; budget/429 → "Se acabó la cuota
    de IA de este mes"; sin key → "Pega tu key de Candola en Ajustes". Commit: `Windows: errores de IA claros`.
 Probar el flujo de Windows en el Mac con `PET_AI=candola pnpm tauri dev` y una `candolaKey` de prueba antes de
 publicar; en Mac sin esa variable, revisar que Ajustes y las reuniones queden idénticos a hoy.

@@ -552,6 +552,7 @@ fn ask_any<T>(llms: &[Llm], system: &str, user: &str, parse: impl Fn(&str) -> Re
             on_try(model);
             match ask(llm, model, system, user).and_then(|c| parse(&c)) {
                 Ok(t) => return Ok(t),
+                Err(e) if llm.provider == "candola" => errs.push(e), // ya viene en palabras del tester (ai::friendly)
                 Err(e) => errs.push(format!("{model}: {e}")),
             }
         }
@@ -609,9 +610,10 @@ fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, Strin
         return ask_claude_code(model, system, user);
     }
     let url = base_url(&llm.provider);
+    let candola = llm.provider == "candola"; // el proxy propio: errores en palabras del tester
     // ponytail: "remoto" = no es localhost; Ollama local no pide key.
     if llm.apikey.is_empty() && !url.contains("127.0.0.1") && !url.contains("localhost") {
-        return Err("falta la API key".into());
+        return Err(if candola { crate::ai::NO_KEY.into() } else { "falta la API key".into() });
     }
     let body = json!({
         "model": model,
@@ -631,9 +633,12 @@ fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, Strin
     if !llm.apikey.is_empty() {
         req = req.header("Authorization", format!("Bearer {}", llm.apikey));
     }
-    let mut res = req.send(body.to_string()).map_err(|e| format!("LLM: {e}"))?;
+    let mut res = req.send(body.to_string()).map_err(|e| if candola { crate::ai::OFFLINE.into() } else { format!("LLM: {e}") })?;
     let status = res.status();
     let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    if !status.is_success() && candola {
+        return Err(crate::ai::friendly(status.as_u16(), &text));
+    }
     if !status.is_success() {
         let v: Value = serde_json::from_str(&text).unwrap_or_default();
         // Gemini a veces envuelve el error en un array: [{"error": …}]
@@ -1514,6 +1519,8 @@ mod tests {
         assert_eq!(tried, ["a", "b", "c"]);
         assert_eq!(err.unwrap_err(), "a: falta la API key · b: falta la API key · c: falta la API key");
         assert!(ask_any(&[], "", "", parse_result, |_| {}).is_err());
+        // el proxy propio: sin prefijo de modelo y en palabras del tester
+        assert_eq!(ask_any(&[llm("candola", &["candola"])], "", "", parse_result, |_| {}).unwrap_err(), crate::ai::NO_KEY);
         assert_eq!(base_url("Gemini"), "https://generativelanguage.googleapis.com/v1beta/openai");
         assert_eq!(base_url("candola"), "https://ai.spadelab.xyz/v1");
     }
