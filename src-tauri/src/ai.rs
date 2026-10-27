@@ -19,24 +19,33 @@ fn candola_key(app: &AppHandle) -> String {
     prefs["candolaKey"].as_str().unwrap_or("").trim().to_string()
 }
 
-/// Respaldo en el proxy (DeepSeek Flash): solo entra si el modelo principal falla o devuelve algo ilegible.
-const BACKUP: &str = "deepseek-flash";
+/// Para qué se llama a la IA: la app solo nombra la misión; LiteLLM elige modelo y respaldo (BACKEND_ROADMAP, Fase 2).
+#[derive(Clone, Copy)]
+pub enum Mision {
+    Chat,
+    Reuniones,
+    Gestion,
+    Preguntas,
+}
 
-/// En modo proxy, el alias `candola` (Haiku) y el respaldo con la key (vacía = el error "falta la API key"); si no, la cadena tal cual.
-fn chain(proxy: bool, key: String, llms: Vec<Llm>) -> Vec<Llm> {
-    if proxy {
-        vec![Llm { provider: "candola".into(), apikey: key, models: vec!["candola".into(), BACKUP.into()] }]
-    } else {
-        llms
+impl Mision {
+    fn alias(self) -> &'static str {
+        match self {
+            Self::Chat => "candola-chat",
+            Self::Reuniones => "candola-reuniones",
+            Self::Gestion => "candola-gestion",
+            Self::Preguntas => "candola-preguntas",
+        }
     }
 }
 
-/// Extraer las tareas de una reunión prueba antes `candola-reuniones` (Haiku con más margen de salida; ganó el
-/// benchmark de reuniones largas del 27-oct) y después el respaldo; una key vieja sin ese modelo cae al respaldo.
-/// Gestión y chat siguen en `candola`: los modelos abiertos mandan los ids como texto o se los inventan.
-pub fn for_meeting(llms: &[Llm]) -> Vec<Llm> {
-    let first = |l: &Llm| Llm { models: [vec!["candola-reuniones".into()], l.models.iter().filter(|m| *m != "candola").cloned().collect()].concat(), ..l.clone() };
-    llms.iter().map(|l| if l.provider == "candola" { first(l) } else { l.clone() }).collect()
+/// En modo proxy, el alias de la misión con la key (vacía = el error "falta la API key"); si no, la cadena tal cual.
+fn chain(proxy: bool, key: String, llms: Vec<Llm>, mision: Mision) -> Vec<Llm> {
+    if proxy {
+        vec![Llm { provider: "candola".into(), apikey: key, models: vec![mision.alias().into()] }]
+    } else {
+        llms
+    }
 }
 
 pub const NO_KEY: &str = "Pega tu key de Candola en Ajustes → Asistente.";
@@ -61,15 +70,15 @@ pub fn proxy_key(app: &AppHandle) -> Option<String> {
 }
 
 /// La cadena de modelos que de verdad se usa: reuniones, gestión y preguntas pasan por aquí.
-pub fn llms(app: &AppHandle, llms: Vec<Llm>) -> Vec<Llm> {
+pub fn llms(app: &AppHandle, llms: Vec<Llm>, mision: Mision) -> Vec<Llm> {
     match proxy_key(app) {
-        Some(key) => chain(true, key, llms),
+        Some(key) => chain(true, key, llms, mision),
         None => llms,
     }
 }
 
 /// Un turno del chat de Windows (`src/lib/candolaChat.ts` lleva el bucle de herramientas): `messages` y `tools` en
-/// formato OpenAI al alias `candola`; devuelve el `message` de la respuesta (texto y/o `tool_calls`).
+/// formato OpenAI a la misión `candola-chat`; devuelve el `message` de la respuesta (texto y/o `tool_calls`).
 #[tauri::command]
 pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_json::Value) -> Result<serde_json::Value, String> {
     let key = proxy_key(&app).ok_or("el chat por el proxy es solo para el modo Windows")?;
@@ -77,27 +86,18 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
         return Err(NO_KEY.into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let call = |model: &str| -> Result<(u16, String), String> {
-            let body = serde_json::json!({"model": model, "messages": messages, "tools": tools});
-            let mut res = ureq::post(format!("{PROXY}/chat/completions"))
-                .config()
-                .timeout_global(Some(Duration::from_secs(180)))
-                .http_status_as_error(false)
-                .build()
-                .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {key}"))
-                .send(body.to_string())
-                .map_err(|_| OFFLINE.to_string())?;
-            let status = res.status().as_u16();
-            Ok((status, res.body_mut().read_to_string().map_err(|e| e.to_string())?))
-        };
-        let (mut status, mut text) = call("candola")?;
-        if status >= 500 {
-            // Haiku caído o saturado: una vez con el respaldo (sin él en la key, el error de siempre).
-            if let Ok(r @ (200, _)) = call(BACKUP) {
-                (status, text) = r;
-            }
-        }
+        let body = serde_json::json!({"model": Mision::Chat.alias(), "messages": messages, "tools": tools});
+        let mut res = ureq::post(format!("{PROXY}/chat/completions"))
+            .config()
+            .timeout_global(Some(Duration::from_secs(180)))
+            .http_status_as_error(false)
+            .build()
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {key}"))
+            .send(body.to_string())
+            .map_err(|_| OFFLINE.to_string())?;
+        let status = res.status().as_u16();
+        let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
         if status != 200 {
             return Err(friendly(status, &text));
         }
@@ -175,20 +175,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn en_modo_proxy_solo_va_candola() {
+    fn en_modo_proxy_cada_mision_pide_su_alias() {
         let mac = vec![Llm { provider: "claude-code".into(), apikey: "".into(), models: vec!["sonnet".into()] }];
-        let c = chain(true, "sk-x".into(), mac.clone());
-        assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models[0].as_str()), (1, "candola", "sk-x", "candola"));
-        let c = chain(false, "sk-x".into(), mac);
-        assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str()), (1, "claude-code", "")); // Mac: intacta
-    }
-
-    #[test]
-    fn reuniones_prueban_su_modelo_y_luego_el_respaldo() {
-        let mac = vec![Llm { provider: "claude-code".into(), apikey: "".into(), models: vec!["sonnet".into()] }];
-        let m = for_meeting(&[chain(true, "sk-x".into(), vec![]), mac].concat());
-        assert_eq!(m[0].models, ["candola-reuniones", "deepseek-flash"]);
-        assert_eq!(m[1].models, ["sonnet"]); // otros proveedores, intactos
+        for (m, alias) in [(Mision::Chat, "candola-chat"), (Mision::Reuniones, "candola-reuniones"), (Mision::Gestion, "candola-gestion"), (Mision::Preguntas, "candola-preguntas")] {
+            let c = chain(true, "sk-x".into(), mac.clone(), m);
+            assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models.as_slice()), (1, "candola", "sk-x", &[alias.to_string()][..]));
+        }
+        let c = chain(false, "sk-x".into(), mac, Mision::Reuniones);
+        assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models[0].as_str()), (1, "claude-code", "", "sonnet")); // Mac: intacta
     }
 
     #[test]
@@ -214,13 +208,14 @@ mod tests {
     }
 
     /// Contra el proxy de verdad: `CANDOLA_KEY=sk-… cargo test --lib embed_por_el_proxy -- --ignored --nocapture`
+    /// Ignorado hasta que exista el alias `candola-embed` en LiteLLM (Fase 7 del roadmap).
     #[test]
     #[ignore]
     fn embed_por_el_proxy() {
         let key = std::env::var("CANDOLA_KEY").expect("CANDOLA_KEY");
-        let v = embed(&key, "titan-embed-v2", &["Diego manda la propuesta a Colbún".into(), "sprites del pug".into()]).unwrap();
+        let v = embed(&key, "candola-embed", &["Diego manda la propuesta a Colbún".into(), "sprites del pug".into()]).unwrap();
         println!("{} vectores de {}", v.len(), v[0].len());
         assert_eq!((v.len(), v[0].len()), (2, 1024));
-        assert!(embed("sk-falsa", "titan-embed-v2", &["x".into()]).unwrap_err().contains("no es válida"));
+        assert!(embed("sk-falsa", "candola-embed", &["x".into()]).unwrap_err().contains("no es válida"));
     }
 }
