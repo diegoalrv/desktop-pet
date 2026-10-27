@@ -375,7 +375,7 @@ Operación:
 Después (cuando haya más testers o se cobre): login propio que entregue la key sola al registrarse
 (`/key/generate` desde un backend), cobro por suscripción con el presupuesto de la key como límite, y respaldo
 automático `candola` → `claude-haiku` si Nova falla.
-- Embeddings fuera de Bedrock (búsqueda híbrida FTS5 + modelo chico en el VPS): BACKEND_ROADMAP.md → Fase 8.
+- Embeddings fuera de Bedrock (búsqueda híbrida FTS5 + modelo chico en el VPS): BACKEND_ROADMAP.md → Fase 0 (FTS5) y Fase 7 (modelo en el VPS).
 
 ## F20. Estadísticas anónimas y reportes de errores
 Qué: que la app mande, **solo si el usuario lo permite**, estadísticas de uso anónimas y reportes de errores

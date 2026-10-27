@@ -3,7 +3,8 @@
 Tracking del backend de la Candola en el VPS. Fuente única: FEATURES.md (F19 "Después", F20, F21) apunta acá.
 Marcar `[x]` al terminar cada tarea y anotar la fecha; decisiones nuevas van al registro del final.
 
-Estado al 27-oct-2026: **diseño cerrado, nada construido**. Lo único en producción es LiteLLM (`ai.spadelab.xyz`).
+Estado al 27-oct-2026: **diseño cerrado, nada construido**. En producción: LiteLLM (`ai.spadelab.xyz`) y GlitchTip
+(`glitchtip.spadelab.xyz`, vacío). Nadie usa todavía las keys de testers: se puede cortar todo sin compatibilidad.
 
 ---------------------------------------------------------------------------------------------------------------
 ## Principio
@@ -17,9 +18,13 @@ F16, postergada).
 |---|---|
 | `pet.db` (tareas, sesiones, rutinas, reuniones) | Acceso a LLMs (LiteLLM) |
 | Transcripción (whisper + Silero VAD) | Embeddings (cálculo, no almacenamiento) |
-| Timer, cámara, distracciones, voz | Usuarios, invitaciones, login |
+| Timer, cámara, distracciones, voz | Usuarios, invitaciones, keys |
 | API local `web.rs` y MCP (`mcp/`) | Cobro (Transbank) |
 | Índice de reuniones (`meeting_chunks`) | Errores (GlitchTip) y eventos de uso |
+
+**Versión fácil primero.** Hasta que alguien pague: sin login, sin correo, sin código de dispositivo. La invitación
+se canjea en la web, la web muestra la key, el usuario la pega en Ajustes (el campo que ya existe). La key es la
+identidad en la app, en candola-api y en la web.
 
 ---------------------------------------------------------------------------------------------------------------
 ## Stack
@@ -32,8 +37,9 @@ todos los proyectos del servidor), sin exponer keys de administración.
 Dos proyectos separados:
 - **`ai-proxy` — gateway de LLM, independiente de cualquier producto.** LiteLLM, su Postgres y el modelo de
   embeddings. Sirve a la Candola y a los productos que vengan, cada uno como un *team* de LiteLLM.
-- **`candola` — todo lo propio de la Candola.** candola-api, su Postgres (bases `candola` y `glitchtip`) y GlitchTip.
-  La web va en Vercel.
+- **`candola` — todo lo propio de la Candola.** candola-api y su Postgres. La web va en Vercel.
+- **GlitchTip se queda como está**: `docker compose` en `/opt/glitchtip` (Postgres 15 + Redis propios), TLS por el
+  Traefik de Coolify, correo por Resend SMTP ya configurado. Migrarlo no da nada; es multiproyecto para otros productos.
 
 ```
                                    VPS (Coolify)
@@ -44,26 +50,26 @@ App Candola ─────┼──▶ LiteLLM ── Anthropic / DeepSeek / �
   IA: key del    │      ├── embed-e5 (multilingual-e5-small)          │
   team candola   │      └── Postgres (litellm)                        │
                  └──────▲────────────────────────────────────────────┘
-                        │ red interna coolify (key de gestión del team candola)
+                        │ red interna coolify (master key, solo en candola-api)
                  ┌──────┴────────────────────────────────────────────┐
   Vercel         │ proyecto candola                                   │
-  site/ ── POST ─┼──▶ candola-api (auth, invitaciones, keys, /v1/me,  │
+  site/ ── POST ─┼──▶ candola-api (invitaciones, keys, /v1/me,        │
 App: /v1/me, ────┼──▶   /v1/events, Transbank)                        │
-  eventos        │    GlitchTip ◀── errores de la app (opt-in)        │
-                 │    Postgres 16 (candola · glitchtip)               │
+  eventos        │    Postgres 16 (candola)                           │
                  └───────────────────────────────────────────────────┘
+                 /opt/glitchtip ◀── errores de la app (opt-in), fuera de Coolify
 ```
 
 | Proyecto | Pieza | Qué | Estado |
 |---|---|---|---|
-| ai-proxy | LiteLLM | Gateway de LLM: modelos base, alias por producto, fallbacks, teams, keys, presupuestos | ✅ En producción (v1.104.5), sin teams ni misiones |
-| ai-proxy | Postgres 16 (`litellm-db`) | Base de LiteLLM | ✅ Existe. Respaldo diario pendiente |
+| ai-proxy | LiteLLM | Gateway de LLM: modelos base, alias por producto, fallbacks, teams, keys, presupuestos. Config en su BD (no hay `config.yaml` montado) | ✅ En producción (v1.104.5, 612 MB), sin teams ni misiones |
+| ai-proxy | Postgres 16 (`litellm-db`) | Base de LiteLLM, gestionada por Coolify | ✅ Existe. Respaldo programado pendiente |
 | ai-proxy | embed-e5 | `multilingual-e5-small` (384 dim) con text-embeddings-inference o Ollama; modelo base `embed-e5` | ❌ |
-| candola | candola-api | TypeScript + Hono (Node 22), `postgres` (postgres.js), migraciones SQL numeradas, zod, Better Auth. Carpeta `server/` del repo, Dockerfile | ❌ |
-| candola | Postgres 16 | Un servidor, bases `candola` y `glitchtip` con usuarios propios. Sin vector DB: si algún día el servidor busca, `pgvector` acá | ❌ |
-| candola | GlitchTip | Errores (compatible con Sentry). Es multiproyecto: otro producto puede usarlo como proyecto aparte | ⚠️ Corre fuera de Coolify (`docker compose`, Postgres 15 + Redis propios) |
+| candola | candola-api | TypeScript + Hono (Node 22), `postgres` (postgres.js), migraciones SQL numeradas, zod. Carpeta `server/` del repo, Dockerfile | ❌ |
+| candola | Postgres 16 | Base `candola`, gestionada por Coolify (respaldo programado). Sin vector DB: si algún día el servidor busca, `pgvector` acá | ❌ |
+| — | GlitchTip | `/opt/glitchtip`, `glitchtip.spadelab.xyz`. 1 proyecto, 3 eventos | ✅ En producción, ~430 MB |
 | Vercel | Web | `site/`, autodeploy por GitHub. Mínima; el diseño después con Claude Design | ❌ |
-| — | Correo | Resend | Pendiente, aún no hace falta |
+| — | Correo | Resend: la cuenta ya existe (la usa GlitchTip). candola-api no manda correo por ahora | ✅ Cuenta |
 
 ### LiteLLM: modelos base, teams y misiones
 - **Modelos base** (compartidos, no los pide ninguna app directo): `claude-haiku`, `claude-sonnet`, `deepseek-flash`,
@@ -82,103 +88,135 @@ App: /v1/me, ────┼──▶   /v1/events, Transbank)                  
 | `candola-preguntas` | Preguntarle a las reuniones | `ASK_PROMPT` | `candola` + `deepseek-flash` |
 | `candola-embed` | Embeddings | — | `titan-embed-v2` (**caído**: AWS bloqueó Bedrock) |
 
-- **Acceso de candola-api a LiteLLM**: con una key de gestión limitada al team `candola` (crear/actualizar keys
-  solo de ese team), no con la master key. Verificar qué permite v1.104.5 (parte de la gestión por team puede ser
-  enterprise). Si no alcanza: master key solo en candola-api, que únicamente toca keys de su team, y anotarlo como
-  deuda.
+- **Acceso de candola-api a LiteLLM**: master key, solo en candola-api (variable en Coolify, red interna, nunca en
+  la web ni en la app). candola-api únicamente toca keys de su team. Deuda: key de gestión por team cuando LiteLLM
+  la dé sin enterprise. No gastar tiempo verificándolo ahora.
+- **La config de LiteLLM vive en su BD** (alias, fallbacks, teams, keys): el respaldo de `litellm-db` la cubre.
+  Para que sea legible sin entrar al panel: `infra/litellm/README.md` en el repo con la tabla alias → modelo base →
+  fallback, actualizada en cada cambio.
 - **Actualizar LiteLLM afecta a todos los productos**: versión fijada y probar antes de subirla.
 
 ---------------------------------------------------------------------------------------------------------------
 ## Fases
 ---------------------------------------------------------------------------------------------------------------
 
+Orden por valor para los testers de hoy: primero lo que anda roto (preguntas a reuniones), después el corte a
+misiones, después ver errores. Cuenta y cobro al final, en versión fácil.
+
+### Fase 0 — FTS5 en la app (no necesita el VPS)
+Urgente: desde el 27-oct `titan-embed-v2` responde "Error 002" y preguntarle a las reuniones no anda en Windows.
+- [ ] Tabla virtual FTS5 sobre el texto de `meeting_chunks`, llenada en `index_missing`. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
+- [ ] `answer` responde solo con texto si los embeddings fallan
+- [ ] Tests de `embed` en `ai.rs` que usan `titan-embed-v2`: quitar o apuntar a `candola-embed` (hoy fallan)
+
+Hecho cuando: en Windows, preguntarle a las reuniones responde aunque no haya embeddings.
+
 ### Fase 1 — Infra base
-- [ ] 2 GB de swap en el VPS (hoy 0; ~1,8 GB de RAM disponibles de 7,75)
-- [ ] `ai-proxy`: respaldo diario del Postgres de LiteLLM (y probar una restauración)
-- [ ] `ai-proxy`: team `candola` en LiteLLM; mover las keys de testers a ese team
-- [ ] `ai-proxy`: key de gestión del team `candola` (o decidir la alternativa, ver arriba)
-- [ ] Proyecto `candola` en Coolify con Postgres 16 (bases `candola` y `glitchtip`, usuarios propios)
-- [ ] GlitchTip: revisar si tiene datos, pasarlo al proyecto `candola` con su base en ese Postgres, bajar el compose viejo
-- [ ] `candola`: respaldo diario del Postgres (y probar una restauración)
+- [ ] 2 GB de swap en el VPS (hoy 0; 1,87 GB disponibles de 7,75)
+- [ ] `ai-proxy`: respaldo programado de `litellm-db` desde Coolify (es BD gestionada) y probar una restauración
+- [ ] `ai-proxy`: team `candola` en LiteLLM
+- [ ] Proyecto `candola` en Coolify con Postgres 16 (base `candola`), respaldo programado y restauración probada
 
-Hecho cuando: los dos proyectos aparecen en Coolify con respaldos probados, y las keys de testers están en el team
-`candola`.
+Hecho cuando: los dos proyectos aparecen en Coolify con respaldos probados.
 
-### Fase 2 — Misiones (corte de una vez)
+### Fase 2 — Misiones (corte total)
+Nadie usa las keys de testers todavía: se mata lo viejo y se parte limpio, sin compatibilidad.
 - [ ] LiteLLM: modelos base con nombres genéricos (los de hoy ya lo son: `claude-haiku`, `deepseek-flash`)
-- [ ] LiteLLM: los 5 alias `candola-*` apuntando a los modelos base de hoy, permitidos solo al team `candola`
+- [ ] LiteLLM: los 5 alias `candola-*` apuntando a los modelos base, permitidos solo al team `candola`
 - [ ] LiteLLM: `fallbacks` en el router (`candola-*` → `deepseek-flash`)
+- [ ] LiteLLM: borrar el alias `candola`, los `bench-*` y las keys de testers viejas; keys nuevas en el team con solo las misiones
+- [ ] `infra/litellm/README.md` con la tabla alias → base → fallback
 - [ ] App (`ai.rs`): pedir solo misiones; fuera `BACKUP`, `for_meeting` y el reintento de `ai_chat`; tests
-- [ ] Publicar versión (tag → CI de Windows)
-- [ ] El mismo día: keys de testers con solo las misiones (quitar `candola`, `deepseek-flash`, `titan-embed-v2`); borrar el alias `candola` y los `bench-*` que quedaron
+- [ ] Publicar versión (tag → CI de Windows) y repartir las keys nuevas
 - [ ] Verificar con una key de tester: reunión, gestión, pregunta, chat
 
-Hecho cuando: las keys de testers solo conocen misiones y las 4 funciones andan con la versión nueva.
+Hecho cuando: en LiteLLM no queda nada que no sea modelo base, team `candola` y sus alias; las 4 funciones andan.
 
-### Fase 3 — candola-api base
+### Fase 3 — Errores a GlitchTip (no necesita candola-api)
+- [ ] Sentry SDK en Rust (panic hook) y JS (`onerror`, `unhandledrejection`) → GlitchTip, proyecto `candola`
+- [ ] `release` = versión, `environment` = SO, `user.id` = UUID local; `beforeSend` limpia rutas y textos
+- [ ] Opt-in: aviso al registrarse + interruptor en Ajustes; apagado = ni una petición
+- [ ] Fallos de IA, reuniones y cámara como errores
+
+Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con versión, SO y UUID, sin datos personales.
+
+### Fase 4 — candola-api mínima
+Sin Better Auth, sin correo, sin código de dispositivo. La key de LiteLLM es la identidad.
 - [ ] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health`
-- [ ] Despliegue por la API de Coolify en el proyecto `candola`, `api.candola.spadelab.xyz` (o similar; DNS gris en Cloudflare)
-- [ ] Llega a LiteLLM por la red interna `coolify` con la key de gestión del team
-- [ ] Better Auth con código al correo (mientras no haya Resend: código visible en logs/pantalla solo en integración)
-- [ ] Invitaciones: `POST /admin/invites` (token de admin), código de un uso con vencimiento
-- [ ] Registro con invitación → usuario (UUID opaco) + key en el team `candola` (`/key/generate`, misiones, presupuesto gratis, `metadata.user_id`)
-- [ ] Código de dispositivo: `POST /v1/device` y `POST /v1/device/token`
-- [ ] `GET /v1/me` (Bearer = key de LiteLLM): id, plan, presupuesto usado/restante, estado de pago, avisos
-- [ ] `POST /v1/events` en lote, rate limit, tope de tamaño, borrado a los 90 días
+- [ ] Despliegue por la API de Coolify en el proyecto `candola`, `api.candola.spadelab.xyz` (DNS gris en Cloudflare)
+- [ ] Llega a LiteLLM por la red interna `coolify` con la master key
+- [ ] Tablas: `users` (UUID opaco, plan, key_hash, creado), `invites` (código de un uso, vencimiento, usado_por)
+- [ ] `POST /admin/invites` (token de admin en Coolify)
+- [ ] `POST /v1/invites/redeem` → usuario + key en el team `candola` (`/key/generate`, solo misiones, presupuesto gratis, `metadata.user_id`); devuelve la key una sola vez
+- [ ] `GET /v1/me` (Bearer = key): id, plan, presupuesto usado/restante, estado de pago, avisos
+- [ ] `POST /v1/events` (Bearer = key, mismo usuario): lote, rate limit por key, tope de tamaño, borrado a los 90 días
 - [ ] Tests de la lógica pura (invitaciones, validación de eventos)
+- [ ] App: eventos de uso → `/v1/events` (cola local con reintento, envío en lote, bajo el mismo opt-in de la fase 3)
 
-Hecho cuando: con una invitación se crea un usuario con key que funciona contra LiteLLM, y `/v1/me` lo devuelve.
-
-### Fase 4 — Cobro (Transbank Oneclick Mall)
-Webpay Plus no hace cobros recurrentes: se usa Oneclick Mall (inscribir tarjeta + cobro mensual propio).
-- [ ] Integración con `transbank-sdk` y códigos de prueba
-- [ ] Inscripción de tarjeta (inicio → retorno → guardar `tbk_user`)
-- [ ] Cron mensual: cobra $5.000 CLP; OK → `/key/update` renueva el presupuesto del plan; falla → tope gratis
-- [ ] Reintento de cobro fallido y aviso en `/v1/me`
-- [ ] Baja de suscripción (borrar inscripción)
-- [ ] Producción: variables en Coolify `TBK_COMMERCE_CODE`, `TBK_CHILD_COMMERCE_CODE`, `TBK_API_KEY` (los pone Diego cuando Transbank apruebe)
-
-Hecho cuando: en integración, una tarjeta de prueba se inscribe, se cobra y la key cambia de presupuesto.
+Hecho cuando: con una invitación se obtiene una key que funciona contra LiteLLM, `/v1/me` la reconoce y los eventos llegan.
 
 ### Fase 5 — Web mínima (Vercel)
 - [ ] `site/` enlazado a GitHub (push a `master` → producción)
 - [ ] Descarga: última release de GitHub (Mac `.dmg`, Windows `.exe`), aviso de Gatekeeper/SmartScreen
-- [ ] Registro con invitación, login, plan y pago (llaman a candola-api; CORS solo del dominio y previews)
-- [ ] Página de confirmación del código de dispositivo
+- [ ] Canje de invitación: muestra la key una vez y cómo pegarla en Ajustes (llama a candola-api; CORS solo del dominio y previews)
 
-Hecho cuando: un invitado se registra, descarga, inscribe la tarjeta (integración) y entra desde la app.
+Hecho cuando: un invitado canjea, descarga, pega la key y la IA anda.
 
-### Fase 6 — App: cuenta
-- [ ] Login con código de dispositivo (Ajustes → Asistente): muestra el código, abre el navegador, recibe la key
-- [ ] Comando Rust `account_get` → `/v1/me` (la key no pasa por el front; sin CORS)
-- [ ] Panel: plan, presupuesto restante, estado de pago
-- [ ] Quitar el campo de pegar la key
+### Fase 6 — Cobro (Transbank Oneclick Mall), cuando Transbank apruebe
+Webpay Plus no hace cobros recurrentes: se usa Oneclick Mall (inscribir tarjeta + cobro mensual propio).
+La web identifica al usuario con su key (la pega en la página de pago) hasta que exista login.
+- [ ] Integración con `transbank-sdk` y códigos de prueba
+- [ ] Inscripción de tarjeta (inicio → retorno → guardar `tbk_user`)
+- [ ] Cron mensual dentro de candola-api: cobra $5.000 CLP; OK → `/key/update` renueva el presupuesto del plan; falla → tope gratis
+- [ ] Reintento de cobro fallido y aviso en `/v1/me`
+- [ ] Baja de suscripción (borrar inscripción)
+- [ ] App: `account_get` → `/v1/me` y panel con plan, presupuesto y estado de pago
+- [ ] Producción: variables en Coolify `TBK_COMMERCE_CODE`, `TBK_CHILD_COMMERCE_CODE`, `TBK_API_KEY` (los pone Diego cuando Transbank apruebe)
 
-### Fase 7 — Telemetría en la app
-- [ ] Sentry SDK en Rust (panic hook) y JS (`onerror`, `unhandledrejection`) → GlitchTip (proyecto `candola`)
-- [ ] `release` = versión, `environment` = SO, `user.id` = UUID; `beforeSend` limpia rutas y textos
-- [ ] Eventos de uso → `/v1/events` (cola local con reintento, envío en lote, sin bloquear la UI)
-- [ ] Opt-in: aviso al registrarse + interruptor en Ajustes; apagado = ni una petición
-- [ ] Fallos de IA, reuniones y cámara como eventos/errores
+Hecho cuando: en integración, una tarjeta de prueba se inscribe, se cobra y la key cambia de presupuesto.
 
-Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con versión, SO y UUID, sin datos personales.
-
-### Fase 8 — Embeddings (búsqueda híbrida)
-Urgente en la práctica: desde el 27-oct `titan-embed-v2` responde "Error 002" y preguntarle a las reuniones no anda
-en Windows. El paso 1 no necesita el VPS y se puede adelantar.
-- [ ] **FTS5 en la app**: tabla virtual sobre el texto de `meeting_chunks`, llenada en `index_missing`; `answer` responde solo con texto si los embeddings fallan. Verificar antes que el SQLite de `sqlx` traiga FTS5 (si no, `LIKE`)
+### Fase 7 — Embeddings en el VPS (búsqueda híbrida)
 - [ ] **embed-e5** en el proyecto `ai-proxy`: `multilingual-e5-small` (límite ~768 MB) como modelo base `embed-e5`; alias `candola-embed` → `embed-e5` en el team `candola`; en la app `PROXY_EMBED` → `candola-embed` y prefijos por modelo (e5: `query:`/`passage:`; nomic: `search_query:`/`search_document:`)
-- [ ] **Fusión**: reciprocal rank fusion (`Σ 1/(60 + rango)`) de BM25 y coseno → top 8 al LLM; función pura con test. Aplica también en Mac (Ollama + FTS5)
+- [ ] **Fusión**: reciprocal rank fusion (`Σ 1/(60 + rango)`) de BM25 (FTS5 de la fase 0) y coseno → top 8 al LLM; función pura con test. Aplica también en Mac (Ollama + FTS5)
 
-Plan B del modelo: `nomic-embed-text` con Ollama. Gemini por el proxy solo pagado (el tier gratis puede usar los datos).
+Plan B del modelo: `nomic-embed-text` con Ollama. Plan C, local-first: calcular `e5-small` en la app con ONNX
+(cero RAM en el VPS; cuesta meter `ort` en el build de Windows). Gemini por el proxy solo pagado (el tier gratis
+puede usar los datos).
+
+### Después, si hace falta (no planificado)
+Login con correo (Better Auth + Resend), código de dispositivo para no pegar la key, quitar el campo de la key,
+key de gestión por team en LiteLLM. Solo cuando haya usuarios pagando que lo pidan.
+
+---------------------------------------------------------------------------------------------------------------
+## Misiones de desarrollo (delegación)
+---------------------------------------------------------------------------------------------------------------
+
+Cada misión es una sesión aparte en su worktree. Agente según dificultad: Sonnet para cambios acotados con tests,
+Opus para piezas nuevas de varios archivos. Dos misiones nunca escriben el mismo archivo a la vez.
+
+| # | Misión | Fase | Archivos / lugar | Agente | Estado |
+|---|---|---|---|---|---|
+| M1 | FTS5 en la app, `answer` solo texto si no hay embeddings | 0 | `meeting.rs`, `db.rs` | Sonnet | lanzada 27-oct |
+| M2 | Infra: swap, respaldos, team `candola`, alias y fallbacks, borrar lo viejo, Postgres `candola` | 1 + 2 (LiteLLM) | VPS por API de Coolify y LiteLLM, `infra/litellm/README.md` | Sonnet | lanzada 27-oct |
+| M3 | App pide solo misiones (fuera `BACKUP`, `for_meeting`, reintento) | 2 (app) | `ai.rs`, llamada en `meeting.rs`, tests de `embed` | Sonnet | lanzada 27-oct |
+| M4 | Errores a GlitchTip con opt-in | 3 | panic hook en Rust, `onerror` en JS, interruptor en Ajustes | Opus | lanzada 27-oct |
+| M5 | candola-api mínima y despliegue | 4 | `server/` | Opus | lanzada 27-oct |
+| M6 | Web mínima: descarga y canje de invitación | 5 | `site/` | Sonnet | espera el contrato de M5 |
+| M7 | Cobro Transbank | 6 | `server/`, `site/` | Opus | bloqueada por Transbank |
+| M8 | embed-e5 en el VPS y fusión RRF | 7 | `ai-proxy`, `meeting.rs` | Sonnet | después de M1 y M2 |
 
 ---------------------------------------------------------------------------------------------------------------
 ## Números
 ---------------------------------------------------------------------------------------------------------------
 
-VPS (27-oct): 7,75 GB de RAM (~1,8 GB disponibles), sin swap, 4 vCPU EPYC con AVX2/FMA, 45 GB de disco libres.
+VPS (27-oct, medido con `docker stats`): 7,75 GB de RAM, 5,9 GB usados, 1,87 GB disponibles, sin swap, 4 vCPU
+EPYC con AVX2/FMA, 45 GB de disco libres. 46 contenedores; lo nuestro: LiteLLM 612 MB, GlitchTip ~430 MB (web,
+worker, Postgres, Redis), Coolify ~660 MB. El resto son otros proyectos. Lo que se suma: Postgres 16 (~40 MB en
+reposo), candola-api (~100 MB), embed-e5 (400–800 MB). Cabe con el swap de la fase 1; si aprieta, primero revisar
+los otros proyectos, no la Candola.
 
-Costos de IA con Haiku 5.5 (US$0,10 entrada / US$0,50 salida por millón; estimación de tokens, no medida):
+Costos de IA con Haiku 5.5 (US$0,10 entrada / US$0,50 salida por millón hasta 100k tokens por petición;
+estimación de tokens, no medida):
 | Uso | Costo |
 |---|---|
 | Reunión de 1 h (~15k entrada + 1,5k salida) | ≈ US$0,002 |
@@ -195,7 +233,6 @@ contrato). El presupuesto de tokens del plan se define con el uso real; sirve de
 ---------------------------------------------------------------------------------------------------------------
 
 - [ ] Transbank: aprobación de Oneclick Mall y códigos de producción (Diego, en trámite)
-- [ ] Resend: cuenta y dominio verificado (cuando haga falta mandar correos)
 - [ ] Presupuesto de tokens del plan pagado (con el uso real)
 - [ ] Texto de privacidad para testers: qué pasa por el VPS y por cada proveedor
 - [ ] AWS: Bedrock bloqueado; créditos (US$140) vencen el 26-abr-2027
@@ -206,14 +243,26 @@ contrato). El presupuesto de tokens del plan se define con el uso real; sirve de
 
 - 27-oct-2026: backend en Coolify (no Railway), local-first.
 - 27-oct-2026: la app nombra la misión, LiteLLM decide modelo y respaldo; prompts en la app.
-- 27-oct-2026: corte de una vez a las misiones (pocos testers), sin período de compatibilidad.
 - 27-oct-2026: sin vector DB; vectores en SQLite local, `pgvector` si algún día hace falta en el servidor.
-- 27-oct-2026: candola-api completa desde el inicio (TS + Hono + Better Auth), no n8n.
-- 27-oct-2026: registro por invitación; login y cobro desde ya aunque no haya usuarios pagando.
+- 27-oct-2026: candola-api en TS + Hono, no n8n.
+- 27-oct-2026: registro por invitación; cobro desde ya aunque no haya usuarios pagando.
 - 27-oct-2026: Spadelab cobra, $5.000 CLP/mes IVA incluido, Transbank Oneclick Mall.
 - 27-oct-2026: GlitchTip para errores; eventos de uso ligados a un UUID opaco (interesa el error, no quién).
 - 27-oct-2026: web mínima por ahora; el diseño con Claude Design.
 - 27-oct-2026: embeddings híbridos (FTS5 + `multilingual-e5-small` en el VPS + RRF).
 - 27-oct-2026: **LiteLLM independiente** (proyecto `ai-proxy`, con su Postgres y el modelo de embeddings) como
-  gateway para todos los productos, un team por producto; todo lo propio de la Candola en su proyecto `candola`
-  (candola-api, Postgres con `candola` y `glitchtip`, GlitchTip). Reemplaza el Postgres unificado de tres bases.
+  gateway para todos los productos, un team por producto; lo propio de la Candola en su proyecto `candola`.
+- 27-oct-2026 (revisión): **FTS5 primero**, es lo único roto hoy y no necesita el VPS.
+- 27-oct-2026 (revisión): **corte total a misiones**: nadie usa las keys de testers, se borran alias y keys viejas
+  el mismo día, sin compatibilidad.
+- 27-oct-2026 (revisión): **versión fácil de cuenta**: sin Better Auth, sin correo, sin código de dispositivo. La
+  invitación se canjea en la web, la web muestra la key, el usuario la pega en Ajustes. La key es la identidad en
+  app, candola-api y web (también para pagar). Login y device code solo si alguien pagando lo pide.
+- 27-oct-2026 (revisión): **GlitchTip se queda en `/opt/glitchtip`** (ya tiene TLS por Traefik y Resend). No se
+  migra a Coolify; el Postgres de `candola` no lleva la base `glitchtip`.
+- 27-oct-2026 (revisión): errores a GlitchTip antes que candola-api (no depende del backend); eventos de uso
+  después, con `/v1/events` autenticado con la misma key.
+- 27-oct-2026 (revisión): candola-api usa la master key de LiteLLM (solo ahí, red interna); la key de gestión por
+  team queda como deuda.
+- 27-oct-2026 (revisión): respaldos con los programados de Coolify (las dos BD son gestionadas); la config de
+  LiteLLM vive en su BD y se documenta en `infra/litellm/README.md`.
