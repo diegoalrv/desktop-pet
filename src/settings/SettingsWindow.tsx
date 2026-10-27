@@ -460,7 +460,7 @@ export function SettingsWindow() {
         </small>
       </Section>
 
-      <Section title="Sistema" hint="inicio automático">
+      <Section title="Sistema" hint="inicio automático, errores">
         <label>
           <input
             type="checkbox"
@@ -472,6 +472,31 @@ export function SettingsWindow() {
           />{" "}
           Iniciar al encender el equipo
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={prefs.errorReports}
+            onChange={(e) => setPrefs({ errorReports: e.target.checked })}
+          />{" "}
+          Enviar errores a Spadelab
+        </label>
+        <small style={{ opacity: 0.7 }}>
+          Si algo falla, manda el tipo de error, el mensaje y dónde pasó en el código, con la versión, el sistema y
+          un número al azar de esta instalación. Nada de tus tareas, reuniones ni archivos.
+        </small>
+        {(import.meta.env.DEV || import.meta.env.TAURI_ENV_DEBUG) && (
+          <button
+            style={{ ...btn, justifySelf: "start" }}
+            onClick={() => {
+              invoke("error_reports_test");
+              setTimeout(() => {
+                throw new Error("prueba de errores de Candola (front) en /Users/ana/x.ts");
+              });
+            }}
+          >
+            Probar errores
+          </button>
+        )}
       </Section>
     </div>
   );

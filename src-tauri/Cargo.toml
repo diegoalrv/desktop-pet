@@ -36,6 +36,8 @@ ureq = "3.4.2"
 # Modo gestión: fecha de hoy y vencimientos en hora local para el prompt (ya venía como dependencia transitiva)
 chrono = "0.4"
 tauri-plugin-updater = "2.14.0"
+sentry = { version = "0.49", default-features = false, features = ["panic", "backtrace", "ureq", "rustls"] }
+regex = "1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -12,6 +12,8 @@ export default defineConfig(() => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  // TAURI_ENV_DEBUG: build de debug (`tauri build --debug`), muestra "Probar errores" en Ajustes
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,

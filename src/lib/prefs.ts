@@ -66,6 +66,7 @@ export const prefsSchema = z.object({
   // Pestaña Música: de dónde sale (music.rs lo lee de settings.json) y la carpeta del reproductor local
   musicProvider: z.enum(["ytm", "spotify", "local"]).catch("ytm"),
   musicFolder: z.string().trim().catch(""),
+  errorReports: z.boolean().catch(false), // opt-in: errores a GlitchTip (errors.rs y lib/errors.ts)
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 

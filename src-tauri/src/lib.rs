@@ -2,6 +2,7 @@ mod ai;
 mod apps;
 mod claude;
 mod db;
+mod errors;
 mod meeting;
 mod music;
 mod timer;
@@ -266,6 +267,7 @@ pub fn run() {
                 .build(),
         )
         .manage(HitRect::default())
+        .manage(errors::Reporter::default())
         .manage(claude::ClaudeChild::default())
         .manage(meeting::MeetingState::default())
         .manage(windows::LastBlur::default())
@@ -316,9 +318,12 @@ pub fn run() {
             timer::timer_toggle,
             timer::timer_classic,
             apps::running_apps,
-            apps::focus_cam_ctx
+            apps::focus_cam_ctx,
+            errors::error_reports_info,
+            errors::error_reports_test
         ])
         .setup(|app| {
+            errors::init(app.handle());
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             spawn_cursor_poll(app.handle().clone());
