@@ -618,6 +618,7 @@ fn ask(llm: &Llm, model: &str, system: &str, user: &str) -> Result<String, Strin
     let body = json!({
         "model": model,
         "temperature": 0.2,
+        "max_tokens": 8192, // Haiku en reuniones de 3 h pasa de 5000 tokens de salida y sin tope se truncaba el JSON
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system},
@@ -675,7 +676,7 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
             .collect()
     } else {
         let user = format!("Transcripción:\n{}", fmt_lines(&lines));
-        let r = ask_any(llms, &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
+        let r = ask_any(&crate::ai::for_meeting(llms), &prompt(&lines, ctx, &user_name(app)), &user, parse_result, on_try)?;
         notes = Some((r.resumen, r.decisiones));
         r.tareas.into_iter().map(|(t, d)| (t, d, None)).collect()
     };

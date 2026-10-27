@@ -19,13 +19,24 @@ fn candola_key(app: &AppHandle) -> String {
     prefs["candolaKey"].as_str().unwrap_or("").trim().to_string()
 }
 
-/// En modo proxy, solo el alias `candola` con la key (vacía = el error "falta la API key"); si no, la cadena tal cual.
+/// Respaldo en el proxy (DeepSeek Flash): solo entra si el modelo principal falla o devuelve algo ilegible.
+const BACKUP: &str = "deepseek-flash";
+
+/// En modo proxy, el alias `candola` (Haiku) y el respaldo con la key (vacía = el error "falta la API key"); si no, la cadena tal cual.
 fn chain(proxy: bool, key: String, llms: Vec<Llm>) -> Vec<Llm> {
     if proxy {
-        vec![Llm { provider: "candola".into(), apikey: key, models: vec!["candola".into()] }]
+        vec![Llm { provider: "candola".into(), apikey: key, models: vec!["candola".into(), BACKUP.into()] }]
     } else {
         llms
     }
+}
+
+/// Extraer las tareas de una reunión prueba antes `candola-reuniones` (Haiku con más margen de salida; ganó el
+/// benchmark de reuniones largas del 27-oct) y después el respaldo; una key vieja sin ese modelo cae al respaldo.
+/// Gestión y chat siguen en `candola`: los modelos abiertos mandan los ids como texto o se los inventan.
+pub fn for_meeting(llms: &[Llm]) -> Vec<Llm> {
+    let first = |l: &Llm| Llm { models: [vec!["candola-reuniones".into()], l.models.iter().filter(|m| *m != "candola").cloned().collect()].concat(), ..l.clone() };
+    llms.iter().map(|l| if l.provider == "candola" { first(l) } else { l.clone() }).collect()
 }
 
 pub const NO_KEY: &str = "Pega tu key de Candola en Ajustes → Asistente.";
@@ -66,18 +77,27 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
         return Err(NO_KEY.into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let body = serde_json::json!({"model": "candola", "messages": messages, "tools": tools});
-        let mut res = ureq::post(format!("{PROXY}/chat/completions"))
-            .config()
-            .timeout_global(Some(Duration::from_secs(180)))
-            .http_status_as_error(false)
-            .build()
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {key}"))
-            .send(body.to_string())
-            .map_err(|_| OFFLINE.to_string())?;
-        let status = res.status().as_u16();
-        let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+        let call = |model: &str| -> Result<(u16, String), String> {
+            let body = serde_json::json!({"model": model, "messages": messages, "tools": tools});
+            let mut res = ureq::post(format!("{PROXY}/chat/completions"))
+                .config()
+                .timeout_global(Some(Duration::from_secs(180)))
+                .http_status_as_error(false)
+                .build()
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {key}"))
+                .send(body.to_string())
+                .map_err(|_| OFFLINE.to_string())?;
+            let status = res.status().as_u16();
+            Ok((status, res.body_mut().read_to_string().map_err(|e| e.to_string())?))
+        };
+        let (mut status, mut text) = call("candola")?;
+        if status >= 500 {
+            // Haiku caído o saturado: una vez con el respaldo (sin él en la key, el error de siempre).
+            if let Ok(r @ (200, _)) = call(BACKUP) {
+                (status, text) = r;
+            }
+        }
         if status != 200 {
             return Err(friendly(status, &text));
         }
@@ -161,6 +181,14 @@ mod tests {
         assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models[0].as_str()), (1, "candola", "sk-x", "candola"));
         let c = chain(false, "sk-x".into(), mac);
         assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str()), (1, "claude-code", "")); // Mac: intacta
+    }
+
+    #[test]
+    fn reuniones_prueban_su_modelo_y_luego_el_respaldo() {
+        let mac = vec![Llm { provider: "claude-code".into(), apikey: "".into(), models: vec!["sonnet".into()] }];
+        let m = for_meeting(&[chain(true, "sk-x".into(), vec![]), mac].concat());
+        assert_eq!(m[0].models, ["candola-reuniones", "deepseek-flash"]);
+        assert_eq!(m[1].models, ["sonnet"]); // otros proveedores, intactos
     }
 
     #[test]
