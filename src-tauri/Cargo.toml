@@ -37,6 +37,7 @@ ureq = "3.4.2"
 chrono = "0.4"
 tauri-plugin-updater = "2.14.0"
 sentry = { version = "0.49", default-features = false, features = ["panic", "backtrace", "ureq", "rustls"] }
+uuid = { version = "1", features = ["v4"] } # sentry no activa v4: en Mac llegaba por otra dependencia, en Windows no
 regex = "1"
 
 

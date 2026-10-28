@@ -28,7 +28,7 @@ fn install_id(app: &AppHandle) -> String {
     if let Some(id) = store.get("installId").and_then(|v| v.as_str().map(String::from)) {
         return id;
     }
-    let id = sentry::types::Uuid::new_v4().to_string();
+    let id = uuid::Uuid::new_v4().to_string();
     store.set("installId", id.clone());
     let _ = store.save();
     id
