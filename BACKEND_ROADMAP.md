@@ -5,7 +5,7 @@ Marcar `[x]` al terminar cada tarea y anotar la fecha; decisiones nuevas van al 
 
 Estado al 27-oct-2026 (noche): Fases 0 a 3 hechas en código y mergeadas en `master` (sin versión publicada ni probadas en
 la app en vivo). Infra lista: team y alias en LiteLLM, Postgres `candola`, respaldos. candola-api corriendo en Coolify
-desde la rama de M5 en `https://api.candola.spadelab.xyz`; falta la red interna.
+desde `master` en `https://api.candola.spadelab.xyz`; falta la red interna.
 
 ---------------------------------------------------------------------------------------------------------------
 ## Principio
@@ -144,7 +144,7 @@ Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con
 ### Fase 4 — candola-api mínima
 Sin Better Auth, sin correo, sin código de dispositivo. La key de LiteLLM es la identidad.
 - [x] Esqueleto `server/`: Hono, postgres.js, migraciones, zod, Dockerfile, `/health`
-- [ ] Despliegue por la API de Coolify en el proyecto `candola`: app `wo5p37tmn3yapqp2nwejt08n` corriendo desde la rama de M5 (27-oct-2026); registro A `api.candola` gris creado y `/health` responde por HTTPS (27-oct-2026); falta apuntar la app a `master`
+- [x] Despliegue por la API de Coolify en el proyecto `candola`: app `wo5p37tmn3yapqp2nwejt08n` desde `master`, `https://api.candola.spadelab.xyz` (registro A gris) — 27-oct-2026
 - [ ] Llega a LiteLLM por la red interna `coolify` con la master key — hoy por `https://ai.spadelab.xyz`; falta `custom_network_aliases: litellm` en LiteLLM (reinicia el servicio) y `LITELLM_URL=http://litellm:4000`
 - [x] Tablas: `users` (UUID opaco, plan, key_hash, creado), `invites` (código de un uso, vencimiento, usado_por)
 - [x] `POST /admin/invites` (token de admin en Coolify)
