@@ -137,3 +137,8 @@
 
 ## Lote features — F19
 - F19 IA en Windows con una sola key: proxy propio https://ai.spadelab.xyz (LiteLLM en Coolify, alias `candola` + `titan-embed-v2`, keys por tester con tope). En Windows (o el Mac con `PET_AI=candola`) Ajustes → Asistente pide solo la "Key de Candola" (botón Probar) y `ai.rs` decide el modo: reuniones/Gestión/preguntas usan `candola`; los embeddings salen del proxy (migración 016 `meeting_chunks.model`, reindexa sola); el chat corre su propio bucle de herramientas (`candolaChat.ts`) con las herramientas del MCP movidas a `mcp/tools.mjs` y compartidas; errores en palabras del tester (`ai::friendly`). En Mac sin la variable nada cambia. Probado contra el proxy y en una copia de la app con otro identificador (`xyz.spadelab.pet.prueba`); falta probar el panel del chat y el instalador de Windows.
+
+## Checkpoints de reuniones (30-oct-2026)
+- Cada grabación manda a GlitchTip un evento por etapa (`errors::Trace`, solo con el opt-in): `01 inicio`, `02 modelo`, `03 captura`, `04 corte de audio`, `05 primera linea`, `06 latido` o `06 fuente sin audio` (al minuto y cada 5 min), `07 detenida`, `08 transcrita`, `09 guardada` o `09 sin lineas`, `10 llm` y `11 reintento llm`.
+- Cada etapa es un issue: su conteo por `environment` dice cuántas sesiones llegaron ahí; el tag `sesion` une las de una grabación. Van tiempos, niveles, formato de audio y `atraso_s`; nunca texto de la reunión ni nombre del dispositivo.
+- Pendiente: verlos llegar desde una grabación real en Windows (`probar_checkpoints` solo probó el envío desde Mac).

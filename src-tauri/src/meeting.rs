@@ -193,6 +193,7 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
     }
     .ok_or("No hay reuniones guardadas")?;
     let (id, lines, manage, ctx) = (m.id, parse_lines(&m.text), m.text.starts_with(MANAGE_HEADER), m.ctx);
+    let trace = crate::errors::Trace::new(if manage { "gestion" } else { "reunion" });
     if lines.is_empty() {
         return Err("La transcripción está vacía".into());
     }
@@ -204,7 +205,9 @@ pub fn meeting_retry(app: AppHandle, state: State<MeetingState>, llms: Vec<Llm>,
         g.snap.status = "Buscando tareas en la reunión…".into();
     });
     std::thread::spawn(move || {
-        let res = finalize(&app, &llms, id, &lines, manage, ctx.as_ref());
+        let res = finalize(&app, &llms, id, &lines, manage, ctx.as_ref())
+            .inspect(|m| trace.ok("11 reintento llm", &[("resultado", m.clone())]))
+            .map_err(|e| trace.fail("11 reintento llm", e));
         update(&app, |g| {
             g.snap.status = match res {
                 Ok(m) => m,
@@ -1007,6 +1010,19 @@ pub mod local {
     struct Meter {
         got: [AtomicUsize; 2],
         peak: [AtomicU32; 2],
+        max: [AtomicU32; 2], // pico de toda la sesión (`peak` se reinicia con cada lectura), para los checkpoints
+        format: Mutex<String>, // formato real de cada fuente: uno sin soporte en `decode` queda mudo sin dar error
+        stream_err: Mutex<Option<String>>, // el stream avisa por callback (p. ej. se desconectó el audífono)
+    }
+
+    /// Lo que va midiendo la grabación, para los checkpoints.
+    #[derive(Default)]
+    struct Stats {
+        chunks: usize,
+        no_voice: usize,
+        empty: usize, // whisper no devolvió nada útil: `transcribe` se traga sus errores
+        audio_s: usize,
+        whisper_ms: u128,
     }
 
     /// Audio de una fuente (mono, a `rate` Hz) → 16 kHz al búfer, y medidor.
@@ -1015,6 +1031,7 @@ pub mod local {
         let peak = out.iter().fold(0f32, |a, v| a.max(v.abs()));
         meter.got[src].fetch_add(out.len(), Ordering::Relaxed);
         meter.peak[src].fetch_max(peak.to_bits(), Ordering::Relaxed);
+        meter.max[src].fetch_max(peak.to_bits(), Ordering::Relaxed);
         bufs.lock().unwrap()[src].extend_from_slice(&out);
     }
 
@@ -1215,9 +1232,11 @@ pub mod local {
         let streams = devs
             .into_iter()
             .map(|(src, cfg, dev)| {
-                let (bufs, meter) = (bufs.clone(), meter.clone());
+                let (bufs, meter, errs) = (bufs.clone(), meter.clone(), meter.clone());
                 let fmt = cfg.sample_format();
                 let (rate, ch) = (cfg.sample_rate().0 as f64, cfg.channels() as usize);
+                // ponytail: sin el nombre del dispositivo, que puede traer el de la persona ("AirPods de Ana").
+                *meter.format.lock().unwrap() += &format!("{} {fmt:?} {rate}Hz {ch}ch; ", WHO[src]);
                 let s = dev
                     .build_input_stream_raw(
                         &cfg.config(),
@@ -1226,7 +1245,10 @@ pub mod local {
                             let mono = super::decode(data.bytes(), fmt.is_float(), fmt.sample_size() as u32 * 8, ch);
                             feed(&bufs, &meter, src, &mono, rate);
                         },
-                        |e| eprintln!("captura de audio: {e}"),
+                        move |e| {
+                            eprintln!("captura de audio: {e}");
+                            *errs.stream_err.lock().unwrap() = Some(format!("{}: {e}", WHO[src]));
+                        },
                         None,
                     )
                     .map_err(|e| format!("{}: {e}", WHO[src]))?;
@@ -1350,19 +1372,26 @@ pub mod local {
 
     pub fn run(app: &AppHandle, stop: &AtomicBool, llms: &[Llm], manage: bool, cal: Option<Ctx>) -> Result<(), String> {
         let sources = if manage { 1 } else { 2 }; // 0 = micrófono, 1 = audio del sistema
+        let trace = crate::errors::Trace::new(if manage { "gestion" } else { "reunion" });
+        let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
+        trace.ok("01 inicio", &[("cpus", cpus.to_string()), ("llms", llms.len().to_string())]);
+        trace.flush(); // un CPU sin AVX2 mata el proceso al cargar whisper, sin panic
         update(app, |g| g.snap.status = "Cargando el modelo de voz…".into());
-        let ctx = whisper(app)?;
-        let mut ws = ctx.create_state().map_err(|e| format!("whisper: {e}"))?;
+        let ctx = whisper(app).map_err(|e| trace.fail("02 modelo", e))?;
+        let mut ws = ctx.create_state().map_err(|e| trace.fail("02 modelo", format!("whisper: {e}")))?;
+        trace.ok("02 modelo", &[]);
         let mut transcribe = |audio: &[f32]| transcribe(&mut ws, audio);
         // Sin el VAD (no bajó o no carga) se sigue con el umbral de RMS: peor con ruido de fondo, pero funciona.
         let mut vad = model_path(app, VAD_MODEL, VAD_URL, "el detector de voz (~1 MB)")
             .ok()
             .and_then(|p| WhisperVadContext::new(p.to_str()?, WhisperVadContextParams::default()).ok());
+        let has_vad = vad.is_some();
         let mut voice = |x: &[f32]| vad.as_mut().map(|v| speech(v, x));
 
         let bufs: Bufs = Arc::default();
         let meter: Arc<Meter> = Arc::default();
-        let stream = start_capture(bufs.clone(), meter.clone(), manage)?;
+        let stream = start_capture(bufs.clone(), meter.clone(), manage).map_err(|e| trace.fail("03 captura", e))?;
+        trace.ok("03 captura", &[("vad", has_vad.to_string()), ("formato", meter.format.lock().unwrap().clone())]);
         update(app, |g| g.snap.status = "Escuchando…".into());
         // "Escuchando · Yo 0:42 con voz · Otros 0:10 en silencio": muestra si de verdad llega audio de cada fuente.
         let listening = || {
@@ -1376,8 +1405,28 @@ pub mod local {
             format!("Escuchando · {}", srcs.join(" · "))
         };
 
+        // Audio y voz por fuente, trozos, y `atraso_s` (audio esperando a whisper): si crece, el PC no da abasto.
+        let metrics = |stats: &Stats, lines: &[Line]| {
+            let mut tags = vec![
+                ("trozos", stats.chunks.to_string()),
+                ("sin_voz", stats.no_voice.to_string()),
+                ("vacios", stats.empty.to_string()),
+                ("lineas", lines.len().to_string()),
+                ("audio_s", stats.audio_s.to_string()),
+                ("whisper_s", (stats.whisper_ms / 1000).to_string()),
+                ("atraso_s", (bufs.lock().unwrap().iter().map(Vec::len).max().unwrap_or(0) / RATE).to_string()),
+            ];
+            for i in 0..sources {
+                let (secs, peak) = (meter.got[i].load(Ordering::Relaxed) / RATE, f32::from_bits(meter.max[i].load(Ordering::Relaxed)));
+                tags.push((["yo_s", "otros_s"][i], secs.to_string()));
+                tags.push((["yo_pico", "otros_pico"][i], format!("{peak:.3}")));
+            }
+            tags
+        };
+
         let mut lines: Vec<Line> = vec![];
-        let mut push = |app: &AppHandle, lines: &mut Vec<Line>, flush: bool| {
+        let mut stats = Stats::default();
+        let mut push = |app: &AppHandle, lines: &mut Vec<Line>, stats: &mut Stats, flush: bool| {
             for src in 0..sources {
                 loop {
                     // El candado se suelta aquí mismo: transcribir tarda ~2 s y el callback de la captura
@@ -1389,47 +1438,81 @@ pub mod local {
                     };
                     let Some(chunk) = chunk else { break };
                     if voice(&chunk).map_or(rms(&chunk) < SILENCE / 2.0, |s| s.is_empty()) {
+                        stats.no_voice += 1;
                         continue; // sin voz: whisper alucinaría ("Gracias.", "Gracias por ver el video")
                     }
                     let secs = chunk.len() / RATE;
                     update(app, |g| g.snap.status = format!("Transcribiendo {secs} s de {}…", WHO[src]));
-                    if let Some(text) = clean(&transcribe(&chunk)) {
+                    let t = std::time::Instant::now();
+                    let text = clean(&transcribe(&chunk));
+                    stats.whisper_ms += t.elapsed().as_millis();
+                    stats.chunks += 1;
+                    stats.audio_s += secs;
+                    if let Some(text) = text {
                         let line = Line { who: WHO[src], text };
                         lines.push(line.clone());
                         update(app, |g| g.snap.lines.push(line));
+                    } else {
+                        stats.empty += 1;
                     }
                 }
             }
         };
 
+        let started = std::time::Instant::now();
+        let mut next_beat = Duration::from_secs(60); // el primero pronto: ya dice si llega audio; después cada 5 min
+        let mut first_line = false;
         while !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(300));
-            push(app, &mut lines, false);
+            push(app, &mut lines, &mut stats, false);
             let st = listening();
             update(app, |g| g.snap.status = st);
+            if let Some(e) = meter.stream_err.lock().unwrap().take() {
+                let _ = trace.fail("04 corte de audio", e);
+            }
+            if !first_line && !lines.is_empty() {
+                first_line = true;
+                trace.ok("05 primera linea", &metrics(&stats, &lines));
+            }
+            if started.elapsed() >= next_beat {
+                next_beat += Duration::from_secs(300);
+                let tags = metrics(&stats, &lines);
+                match (0..sources).any(|i| meter.got[i].load(Ordering::Relaxed) == 0) {
+                    true => trace.warn("06 fuente sin audio", &tags),
+                    false => trace.ok("06 latido", &tags),
+                }
+            }
         }
 
+        trace.ok("07 detenida", &metrics(&stats, &lines));
         let _ = stream.stop_capture();
         update(app, |g| g.snap.status = "Transcribiendo lo último…".into());
-        push(app, &mut lines, true);
-        if !lines.is_empty() {
-            let id = save(app, &lines, manage, cal.as_ref());
+        push(app, &mut lines, &mut stats, true);
+        trace.ok("08 transcrita", &metrics(&stats, &lines));
+        if lines.is_empty() {
+            trace.warn("09 sin lineas", &metrics(&stats, &lines));
+        } else {
+            let id = save(app, &lines, manage, cal.as_ref(), &trace);
             let a = app.clone();
             std::thread::spawn(move || index_missing(&a)); // para preguntarle; sin Ollama no pasa nada
             update(app, |g| g.snap.status = if manage { "Ordenando las tareas…" } else { "Buscando tareas en la reunión…" }.into());
-            let msg = finalize(app, llms, id, &lines, manage, cal.as_ref())?;
+            let msg = finalize(app, llms, id, &lines, manage, cal.as_ref()).map_err(|e| trace.fail("10 llm", e))?;
+            trace.ok("10 llm", &[("resultado", msg.clone())]);
             update(app, |g| g.snap.status = msg);
         }
         Ok(())
     }
 
     /// Guarda la transcripción en $APPDATA/meetings/<epoch>.md y devuelve el epoch (id de la reunión).
-    fn save(app: &AppHandle, lines: &[Line], manage: bool, ctx: Option<&Ctx>) -> u64 {
+    fn save(app: &AppHandle, lines: &[Line], manage: bool, ctx: Option<&Ctx>, trace: &crate::errors::Trace) -> u64 {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         if let Some(dir) = meetings_dir(app) {
-            let _ = std::fs::create_dir_all(&dir);
             let head = if manage { MANAGE_HEADER.to_string() } else { ctx.map(fmt_head).unwrap_or_default() };
-            let _ = std::fs::write(dir.join(format!("{secs}.md")), format!("{head}{}", fmt_lines(lines)));
+            let res = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(format!("{secs}.md")), format!("{head}{}", fmt_lines(lines))));
+            match res {
+                Ok(()) => trace.ok("09 guardada", &[]),
+                Err(e) => drop(trace.fail("09 guardada", e.to_string())),
+            }
         }
         secs
     }

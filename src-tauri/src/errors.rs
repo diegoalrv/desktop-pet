@@ -1,9 +1,14 @@
 //! Errores de la app a GlitchTip (compatible con Sentry), solo con el opt-in de Ajustes (`prefs.errorReports`).
 //! Interesa el error, no quién: sale tipo, mensaje, stack, versión, SO y un UUID opaco de la instalación. Las rutas
 //! pierden el nombre de usuario y los textos se cortan. El front manda los suyos con lo mismo (lib/errors.ts).
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, LazyLock, Mutex,
+};
+use std::time::{Duration, Instant};
 
 use sentry::protocol::{Event, User};
+use sentry::Level;
 use tauri::{AppHandle, Listener, Manager};
 use tauri_plugin_store::StoreExt;
 
@@ -64,7 +69,77 @@ pub fn scrub(s: &str) -> String {
     s.chars().take(300).collect()
 }
 
-/// Lista blanca: del evento solo pasan error, versión, SO y UUID. Nada de hostname, contextos, breadcrumbs ni extras.
+/// Tope por ejecución: un error de captura que se repite no inunda GlitchTip.
+const MAX_CHECKPOINTS: usize = 200;
+static CHECKPOINTS: AtomicUsize = AtomicUsize::new(0);
+
+/// El error de "respuesta sin JSON" trae lo que contestó el modelo, que es contenido de la reunión: se corta ahí.
+fn sin_contenido(e: &str) -> &str {
+    const MARCA: &str = "respuesta sin JSON";
+    e.find(MARCA).map_or(e, |i| &e[..i + MARCA.len()])
+}
+
+/// Un evento por etapa, agrupado por etapa: en GlitchTip cada issue es un paso y su conteo dice cuántas sesiones
+/// llegaron hasta ahí (filtrar por `environment` = windows). `sesion` une los pasos de una misma grabación.
+fn checkpoint_event(stage: &str, level: Level, sesion: &str, secs: u64, tags: &[(&str, String)]) -> Event<'static> {
+    let mut e = Event {
+        level,
+        message: Some(format!("reunion {stage}")),
+        fingerprint: vec!["reunion".into(), stage.to_string().into()].into(),
+        ..Default::default()
+    };
+    e.tags.insert("sesion".into(), sesion.into());
+    e.tags.insert("seg".into(), secs.to_string());
+    e.tags.extend(tags.iter().map(|(k, v)| (k.to_string(), scrub(v))));
+    e
+}
+
+/// Checkpoints de una grabación. Solo números y estados, nunca texto de la reunión. Con el opt-in apagado no sale nada.
+pub struct Trace {
+    sesion: String,
+    modo: &'static str,
+    at: Instant,
+}
+
+impl Trace {
+    pub fn new(modo: &'static str) -> Self {
+        Self { sesion: uuid::Uuid::new_v4().simple().to_string()[..8].into(), modo, at: Instant::now() }
+    }
+
+    fn send(&self, stage: &str, level: Level, tags: &[(&str, String)]) {
+        let hub = sentry::Hub::main();
+        if hub.client().is_none() || CHECKPOINTS.fetch_add(1, Ordering::Relaxed) >= MAX_CHECKPOINTS {
+            return;
+        }
+        let mut tags = tags.to_vec();
+        tags.push(("modo", self.modo.into()));
+        hub.capture_event(checkpoint_event(stage, level, &self.sesion, self.at.elapsed().as_secs(), &tags));
+    }
+
+    pub fn ok(&self, stage: &str, tags: &[(&str, String)]) {
+        self.send(stage, Level::Info, tags);
+    }
+
+    pub fn warn(&self, stage: &str, tags: &[(&str, String)]) {
+        self.send(stage, Level::Warning, tags);
+    }
+
+    /// Reporta el fallo y devuelve el error para seguirlo con `?`.
+    pub fn fail(&self, stage: &str, e: String) -> String {
+        self.send(stage, Level::Error, &[("error", sin_contenido(&e).to_string())]);
+        e
+    }
+
+    /// Espera a que salga lo pendiente: antes de un paso que puede botar el proceso sin panic (cargar whisper).
+    pub fn flush(&self) {
+        if let Some(c) = sentry::Hub::main().client() {
+            c.flush(Some(Duration::from_secs(2)));
+        }
+    }
+}
+
+/// Lista blanca: del evento solo pasan error, versión, SO, UUID y los tags de los checkpoints. Nada de hostname,
+/// contextos, breadcrumbs ni extras.
 fn clean(e: Event<'static>, id: &str) -> Event<'static> {
     let mut exception = e.exception;
     for ex in exception.values.iter_mut() {
@@ -87,6 +162,8 @@ fn clean(e: Event<'static>, id: &str) -> Event<'static> {
         environment: e.environment,
         message: e.message.as_deref().map(scrub),
         exception,
+        tags: e.tags,
+        fingerprint: e.fingerprint,
         user: Some(User { id: Some(id.into()), ..Default::default() }),
         ..Default::default()
     }
@@ -132,7 +209,8 @@ pub fn init(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::scrub;
+    use super::{checkpoint_event, clean, scrub, sin_contenido};
+    use sentry::Level;
 
     #[test]
     fn scrub_quita_usuario_y_corta() {
@@ -143,5 +221,39 @@ mod tests {
         assert_eq!(scrub("(home: /Users/bob)"), "(home: ~)");
         assert_eq!(scrub("src/lib.rs:12"), "src/lib.rs:12");
         assert_eq!(scrub(&"a".repeat(1000)).len(), 300);
+    }
+
+    #[test]
+    fn el_checkpoint_pasa_el_filtro_sin_ruta_ni_contenido() {
+        let e = checkpoint_event("04 captura", Level::Error, "abc", 7, &[("error", r"falló C:\Users\Ana\x".to_string())]);
+        let e = clean(e, "uuid");
+        assert_eq!(e.message.as_deref(), Some("reunion 04 captura"));
+        assert_eq!(e.tags["sesion"], "abc");
+        assert_eq!(e.tags["seg"], "7");
+        assert_eq!(e.tags["error"], r"falló ~\x");
+        assert_eq!(e.fingerprint.len(), 2);
+        assert!(e.server_name.is_none());
+
+        let llm = "m1: respuesta sin JSON de tareas: Juan renuncia el lunes · m2: otra cosa";
+        assert_eq!(sin_contenido(llm), "m1: respuesta sin JSON");
+        assert_eq!(sin_contenido("LLM 500: caído"), "LLM 500: caído");
+    }
+
+    /// Manda checkpoints de verdad a GlitchTip, con environment `prueba`, como build de prueba del flujo completo:
+    /// `cargo test --lib probar_checkpoints -- --ignored`
+    #[test]
+    #[ignore]
+    fn probar_checkpoints() {
+        let mut opts = sentry::ClientOptions::default();
+        opts.dsn = super::DSN.parse().ok();
+        opts.environment = Some("prueba".into());
+        opts.release = Some(env!("CARGO_PKG_VERSION").into());
+        opts.before_send = Some(std::sync::Arc::new(|e| Some(clean(e, "prueba"))));
+        let c = std::sync::Arc::new(sentry::Client::from(sentry::apply_defaults(opts)));
+        sentry::Hub::main().bind_client(Some(c));
+        let t = super::Trace::new("reunion");
+        t.ok("01 inicio", &[("cpus", "8".into())]);
+        t.fail("04 captura", "prueba".into());
+        t.flush();
     }
 }

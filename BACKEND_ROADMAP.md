@@ -137,7 +137,8 @@ Hecho cuando: en LiteLLM no queda nada que no sea modelo base, team `candola` y 
 - [x] Sentry SDK en Rust (panic hook) y JS (`onerror`, `unhandledrejection`) → GlitchTip, proyecto `candola`
 - [x] `release` = versión, `environment` = SO, `user.id` = UUID local; `beforeSend` limpia rutas y textos
 - [x] Opt-in: interruptor en Ajustes (el aviso al registrarse va con la web); apagado = ni una petición
-- [ ] Fallos de IA, reuniones y cámara como errores
+- [x] Reuniones: checkpoints por etapa con la sesión de grabación (`errors::Trace`), incluido el fallo de IA al procesarla — 30-oct-2026
+- [ ] Fallos de IA fuera de reuniones y de cámara como errores
 
 Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con versión, SO y UUID, sin datos personales.
 

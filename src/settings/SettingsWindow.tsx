@@ -482,7 +482,8 @@ export function SettingsWindow() {
         </label>
         <small style={{ opacity: 0.7 }}>
           Si algo falla, manda el tipo de error, el mensaje y dónde pasó en el código, con la versión, el sistema y
-          un número al azar de esta instalación. Nada de tus tareas, reuniones ni archivos.
+          un número al azar de esta instalación. En cada grabación manda además hasta dónde llegó, con tiempos y
+          niveles de audio. Nada de lo que se dijo, ni de tus tareas, reuniones o archivos.
         </small>
         {(import.meta.env.DEV || import.meta.env.TAURI_ENV_DEBUG) && (
           <button
