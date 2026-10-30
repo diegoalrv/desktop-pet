@@ -1,4 +1,3 @@
 {
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD .",
   "rewrites": [{ "source": "/api/redeem", "destination": "https://api.candola.spadelab.xyz/v1/invites/redeem" }]
 }
