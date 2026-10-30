@@ -135,6 +135,7 @@ fn check_update(app: tauri::AppHandle) {
 }
 
 pub fn run() {
+    let last_boot = errors::boot_begin();
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
@@ -326,10 +327,13 @@ pub fn run() {
             apps::running_apps,
             apps::focus_cam_ctx,
             errors::error_reports_info,
-            errors::error_reports_test
+            errors::error_reports_test,
+            errors::boot_ok
         ])
         .setup(|app| {
             errors::init(app.handle());
+            errors::boot_report(last_boot);
+            errors::boot_mark("setup");
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             spawn_cursor_poll(app.handle().clone());
@@ -367,6 +371,7 @@ pub fn run() {
             // YouTube Music listo desde el arranque (oculto, sin reproducir).
             let _ = music::ensure(app.handle());
             check_update(app.handle().clone());
+            errors::boot_mark("ventana"); // falta que el WebView cargue la página (`boot_ok`)
             Ok(())
         })
         .build(tauri::generate_context!())

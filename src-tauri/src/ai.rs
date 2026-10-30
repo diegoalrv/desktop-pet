@@ -85,7 +85,7 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
     if key.is_empty() {
         return Err(NO_KEY.into());
     }
-    tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let body = serde_json::json!({"model": Mision::Chat.alias(), "messages": messages, "tools": tools});
         let mut res = ureq::post(format!("{PROXY}/chat/completions"))
             .config()
@@ -105,7 +105,8 @@ pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_j
         Ok(v["choices"][0]["message"].clone())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    res.map_err(|e| crate::errors::failure("ia", "chat", e))
 }
 
 /// Embeddings por el proxy (`/embeddings`, formato OpenAI, todos los textos en una llamada).

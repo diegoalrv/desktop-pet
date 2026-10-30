@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Candola</title>
+<meta name="description" content="Una mascota de escritorio que te acompaña en el foco y convierte tus reuniones en tareas.">
+<link rel="icon" href="candola.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #fff0de; --card: #fffaf3; --ink: #24242b; --soft: #5e5a56; --line: #24242b; --accent: #d9432f; --ok: #2e7d4f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: auto; padding: 32px 16px 64px; }
+  h1, h2 { font-family: "Pixelify Sans", system-ui, sans-serif; line-height: 1.1; margin: 0; }
+  h1 { font-size: clamp(44px, 12vw, 72px); }
+  h2 { font-size: 30px; margin-bottom: 12px; }
+  header { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  header img { width: 148px; height: 148px; image-rendering: pixelated; border-radius: 28px; }
+  header div { flex: 1 1 280px; }
+  header p { font-size: 20px; margin: 10px 0 0; }
+  section { margin-top: 40px; }
+  ol { margin: 0; padding-left: 24px; }
+  li { margin-bottom: 10px; }
+  small, .soft { color: var(--soft); }
+  .card { background: var(--card); border: 3px solid var(--line); border-radius: 8px; padding: 20px; box-shadow: 5px 5px 0 var(--line); }
+  .btn { display: inline-block; font: 700 20px "Pixelify Sans", system-ui, sans-serif; color: #fff; background: var(--accent); border: 3px solid var(--line);
+    border-radius: 8px; padding: 12px 20px; text-decoration: none; cursor: pointer; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .6; cursor: wait; }
+  .btn.small { font-size: 16px; padding: 8px 14px; background: var(--ink); }
+  :focus-visible { outline: 3px solid #2a6fdb; outline-offset: 2px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input { flex: 1 1 220px; min-width: 0; font: 18px ui-monospace, monospace; padding: 12px; border: 3px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+  code { display: block; font: 15px ui-monospace, monospace; background: #fff; border: 2px dashed var(--line); border-radius: 6px; padding: 12px; margin: 12px 0; word-break: break-all; }
+  #msg { margin: 10px 0 0; color: var(--accent); font-weight: 600; min-height: 1.5em; }
+  #result h3 { margin: 0; color: var(--ok); }
+  ul { padding-left: 20px; margin: 0; }
+  footer { margin-top: 48px; font-size: 15px; color: var(--soft); }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="candola.png" alt="La Candola, una perrita negra en pixel art con pañuelo de colores" width="148" height="148">
+    <div>
+      <h1>Candola</h1>
+      <p>Una mascota de escritorio que te acompaña en el foco y convierte tus reuniones en tareas.</p>
+    </div>
+  </header>
+
+  <section aria-labelledby="que">
+    <h2 id="que">Qué hace</h2>
+    <ul>
+      <li><b>Reuniones:</b> las escucha, las transcribe en tu computador y te deja el resumen, las decisiones y tus tareas.</li>
+      <li><b>Foco:</b> timer de pomodoros y rutinas, con la mascota acompañándote.</li>
+      <li><b>Gestión:</b> dicta cómo ordenar tus tareas y aprueba cada cambio.</li>
+      <li><b>Chat y voz:</b> pregúntale a tus reuniones o háblale a la Candola.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="empieza">
+    <h2 id="empieza">Empieza en 3 pasos</h2>
+    <div class="card">
+      <ol>
+        <li>
+          <b>Descarga el instalador para Windows.</b><br>
+          <a class="btn" id="download" href="https://github.com/diegoalrv/desktop-pet/releases/latest">Descargar para Windows</a><br>
+          <small id="version">Windows 10 u 11, 64 bits.</small><br>
+          <small>Windows puede mostrar “Windows protegió tu PC” porque el instalador aún no está firmado: toca <b>Más información</b> y luego <b>Ejecutar de todas formas</b>.</small>
+        </li>
+        <li>
+          <b>Canjea tu invitación para obtener tu key.</b>
+          <form id="redeem" style="margin-top:10px">
+            <label for="code">Código de invitación</label>
+            <div class="row">
+              <input id="code" name="code" required autocomplete="off" spellcheck="false">
+              <button class="btn" id="go">Obtener mi key</button>
+            </div>
+            <p id="msg" role="alert"></p>
+          </form>
+          <div id="result" hidden>
+            <h3 tabindex="-1">Tu key está lista</h3>
+            <code id="key"></code>
+            <button class="btn small" id="copy" type="button">Copiar key</button>
+            <p><b>Guárdala ahora:</b> solo se muestra esta vez y no se puede recuperar.</p>
+          </div>
+        </li>
+        <li>
+          <b>Pégala en la app:</b> Ajustes → Asistente → Key de Candola.<br>
+          <small>Cuando la app pregunte, acepta <b>Enviar errores</b>: así podemos arreglar lo que te falle.</small>
+        </li>
+      </ol>
+    </div>
+    <p class="soft">¿No tienes invitación? Por ahora la Candola está en prueba cerrada. Pídele una a quien te contó de ella.</p>
+  </section>
+
+  <section aria-labelledby="privacidad">
+    <h2 id="privacidad">Privacidad</h2>
+    <ul>
+      <li>El audio de las reuniones se transcribe en tu computador y no se envía. Solo el texto va a la IA, para sacar las tareas y el resumen.</li>
+      <li>La key es tu identidad: no pedimos correo ni contraseña.</li>
+      <li>El envío de errores es opcional: la app te pregunta al abrirla. Si aceptas, manda errores, tiempos y niveles de audio, nunca lo que se dijo.</li>
+    </ul>
+  </section>
+
+  <footer>Candola, por <a href="https://spadelab.cl">Spadelab</a>.</footer>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  fetch("https://api.github.com/repos/diegoalrv/desktop-pet/releases/latest")
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((rel) => {
+      const exe = rel.assets.find((a) => a.name.endsWith("-setup.exe"));
+      if (!exe) return;
+      $("download").href = exe.browser_download_url;
+      const mb = Math.round(exe.size / 1e6);
+      $("version").textContent = `Versión ${rel.tag_name.replace(/^v/, "")} · ${mb} MB · Windows 10 u 11, 64 bits.`;
+    })
+    .catch(() => {}); // queda el enlace a la página de releases
+
+  const ERRORS = {
+    invalid_invite: "Ese código no sirve: revisa que esté bien escrito, o puede que ya se haya usado o vencido.",
+    invalid_request: "Escribe tu código de invitación.",
+  };
+
+  $("redeem").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("go").disabled = true;
+    $("msg").textContent = "";
+    try {
+      const res = await fetch("/api/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: $("code").value.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(ERRORS[data.error] ?? "No pudimos crear tu key. Tu invitación sigue guardada: inténtalo en unos minutos.");
+      $("key").textContent = data.key;
+      $("redeem").hidden = true;
+      $("result").hidden = false;
+      $("result").querySelector("h3").focus();
+    } catch (e) {
+      $("msg").textContent = e instanceof TypeError ? "Sin conexión con el servidor. Inténtalo de nuevo." : e.message;
+    } finally {
+      $("go").disabled = false;
+    }
+  });
+
+  $("copy").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("key").textContent);
+    $("copy").textContent = "Copiada";
+  });
+</script>
+</body>
+</html>

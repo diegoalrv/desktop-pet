@@ -849,7 +849,10 @@ pub fn index_missing(app: &AppHandle) -> Result<usize, String> {
         let (vecs, model) = match emb.embed(&parts, false) {
             Ok(v) => (v, emb.model()),
             Err(_) if have.contains(&(m.id as i64)) => continue, // ya tiene bloques (con o sin vector): nada que rehacer
-            Err(_) => (vec![vec![]; parts.len()], TEXT_ONLY),
+            Err(e) => {
+                let _ = crate::errors::failure("ia", "embeddings", e);
+                (vec![vec![]; parts.len()], TEXT_ONLY)
+            }
         };
         // los bloques de otro modelo (si los había) salen antes de guardar los nuevos
         block_on(sqlx::query("DELETE FROM meeting_chunks WHERE meeting = ?").bind(m.id as i64).execute(pool)).map_err(db)?;
@@ -976,7 +979,8 @@ fn answer(llms: &[Llm], q: &str, blocks: Vec<Block>) -> Result<Answer, String> {
 /// El LLM tarda: fuera del hilo principal.
 #[tauri::command]
 pub async fn meetings_ask(app: AppHandle, llms: Vec<Llm>, q: String) -> Result<Answer, String> {
-    tauri::async_runtime::spawn_blocking(move || ask_meetings(&app, &llms, &q)).await.map_err(|e| e.to_string())?
+    let res = tauri::async_runtime::spawn_blocking(move || ask_meetings(&app, &llms, &q)).await.map_err(|e| e.to_string())?;
+    res.map_err(|e| crate::errors::failure("ia", "preguntas", e))
 }
 
 /// Captura (ScreenCaptureKit en macOS, WASAPI vía cpal en Windows) + whisper.cpp local.

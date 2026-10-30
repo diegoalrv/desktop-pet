@@ -1,6 +1,7 @@
 // Cámara durante el foco (F17): abre la webcam solo con un foco corriendo, cada 2 s mira cara, inclinación y
 // teléfono con MediaPipe (local, modelos en public/models) y aplica lo que decide `focusCam.step`.
 // Nada se guarda: cada frame se analiza y se descarta.
+import { reportFailure } from "./errors";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import type { FaceLandmarker, ObjectDetector } from "@mediapipe/tasks-vision";
@@ -44,7 +45,13 @@ export interface Cam {
 }
 
 /** Abre la webcam y los detectores. También la usa la ventana "Ver cámara" (camview), con su propio stream. */
-export async function openCam(): Promise<Cam> {
+export const openCam = (): Promise<Cam> =>
+  startCam().catch((e) => {
+    reportFailure("camara", e);
+    throw e;
+  });
+
+async function startCam(): Promise<Cam> {
   const camId = useSettings.getState().prefs.camId;
   // `exact` (WebKit puede ignorar `ideal`); si la elegida no está conectada, la del sistema.
   const open = (deviceId?: string) =>

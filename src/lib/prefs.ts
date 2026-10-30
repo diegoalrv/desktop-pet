@@ -67,6 +67,7 @@ export const prefsSchema = z.object({
   musicProvider: z.enum(["ytm", "spotify", "local"]).catch("ytm"),
   musicFolder: z.string().trim().catch(""),
   errorReports: z.boolean().catch(false), // opt-in: errores a GlitchTip (errors.rs y lib/errors.ts)
+  errorReportsAsked: z.boolean().catch(false), // ya se preguntó al arrancar (`askErrorReports`)
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 

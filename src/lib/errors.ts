@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useSettings } from "../store/useSettings";
 
 // Errores del front a GlitchTip, con el mismo proyecto, UUID, versión y SO que errors.rs. Solo con el opt-in de
@@ -26,7 +27,7 @@ export const frames = (stack = "") =>
     .slice(0, 50)
     .reverse();
 
-async function report(err: unknown) {
+async function report(err: unknown, area?: string) {
   if (!useSettings.getState().prefs.errorReports || sent >= MAX_PER_RUN) return;
   sent++;
   const e = err instanceof Error ? err : new Error(String(err));
@@ -40,9 +41,28 @@ async function report(err: unknown) {
       release,
       environment,
       user: { id },
+      tags: area ? { area } : undefined,
       exception: { values: [{ type: e.name, value: scrub(e.message), stacktrace: { frames: frames(e.stack) } }] },
     }),
   });
+}
+
+/** Un fallo que la app atrapa y maneja (`area`: camara…): sin esto no llegaría a GlitchTip. */
+export const reportFailure = (area: string, err: unknown) => void report(err, area).catch(() => {});
+
+/** Pregunta una sola vez, al primer arranque, desde Ajustes: en la mascota el diálogo queda recortado a su tamaño.
+ * Sigue siendo opt-in: cerrar el diálogo es "no". */
+export async function askErrorReports() {
+  const { prefs, setPrefs } = useSettings.getState();
+  if (prefs.errorReportsAsked) return;
+  if (!prefs.errorReports) await invoke("open_window", { label: "settings" });
+  const yes =
+    prefs.errorReports ||
+    (await ask(
+      "Si algo falla, ¿nos avisas? Se manda qué falló y hasta dónde llegó cada grabación, con la versión y el sistema. Nunca lo que se dijo, ni tus tareas o archivos. Puedes cambiarlo en Ajustes.",
+      { title: "Ayudar a mejorar la Candola", kind: "info", okLabel: "Enviar errores", cancelLabel: "Ahora no" },
+    ));
+  await setPrefs({ errorReports: yes, errorReportsAsked: true });
 }
 
 export function initErrorReports() {

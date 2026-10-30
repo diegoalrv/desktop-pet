@@ -138,7 +138,8 @@ Hecho cuando: en LiteLLM no queda nada que no sea modelo base, team `candola` y 
 - [x] `release` = versión, `environment` = SO, `user.id` = UUID local; `beforeSend` limpia rutas y textos
 - [x] Opt-in: interruptor en Ajustes (el aviso al registrarse va con la web); apagado = ni una petición
 - [x] Reuniones: checkpoints por etapa con la sesión de grabación (`errors::Trace`), incluido el fallo de IA al procesarla — 30-oct-2026
-- [ ] Fallos de IA fuera de reuniones y de cámara como errores
+- [x] Fallos de IA (chat, preguntas, embeddings) y de cámara como errores — 30-oct-2026
+- [x] Pregunta de opt-in en el primer arranque, desde Ajustes (`askErrorReports`), y arranque incompleto a GlitchTip (`boot.pending`) — 30-oct-2026
 
 Hecho cuando: un crash provocado en una build de prueba aparece en GlitchTip con versión, SO y UUID, sin datos personales.
 
@@ -158,9 +159,9 @@ Sin Better Auth, sin correo, sin código de dispositivo. La key de LiteLLM es la
 Hecho cuando: con una invitación se obtiene una key que funciona contra LiteLLM, `/v1/me` la reconoce y los eventos llegan.
 
 ### Fase 5 — Web mínima (Vercel)
-- [ ] `site/` enlazado a GitHub (push a `master` → producción)
-- [ ] Descarga: última release de GitHub (Mac `.dmg`, Windows `.exe`), aviso de Gatekeeper/SmartScreen
-- [ ] Canje de invitación: muestra la key una vez y cómo pegarla en Ajustes (llama a candola-api; CORS solo del dominio y previews)
+- [x] `site/` enlazado a GitHub (push a `master` → producción) — 30-oct-2026
+- [x] Descarga: última release de GitHub (solo Windows `.exe` por ahora), aviso de SmartScreen — 30-oct-2026
+- [x] Canje de invitación: muestra la key una vez y cómo pegarla en Ajustes. Sin CORS: `/api/redeem` es un rewrite de Vercel a candola-api — 30-oct-2026
 
 Hecho cuando: un invitado canjea, descarga, pega la key y la IA anda.
 
@@ -203,7 +204,7 @@ Opus para piezas nuevas de varios archivos. Dos misiones nunca escriben el mismo
 | M3 | App pide solo misiones (fuera `BACKUP`, `for_meeting`, reintento) | 2 (app) | `ai.rs`, llamada en `meeting.rs`, tests de `embed` | Sonnet | hecha, en master 27-oct |
 | M4 | Errores a GlitchTip con opt-in | 3 | panic hook en Rust, `onerror` en JS, interruptor en Ajustes | Opus | hecha, en master 27-oct |
 | M5 | candola-api mínima y despliegue | 4 | `server/` | Opus | hecha; falta red interna (Diego); en master 27-oct |
-| M6 | Web mínima: descarga y canje de invitación | 5 | `site/` | Sonnet | espera el contrato de M5 |
+| M6 | Web mínima: descarga y canje de invitación | 5 | `site/` | Sonnet | hecha 30-oct |
 | M7 | Cobro Transbank | 6 | `server/`, `site/` | Opus | bloqueada por Transbank |
 | M8 | embed-e5 en el VPS y fusión RRF | 7 | `ai-proxy`, `meeting.rs` | Sonnet | después de M1 y M2 |
 

@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { frames, scrub } from "./errors";
 
 test("scrub quita el usuario de las rutas", () => {
@@ -16,4 +16,29 @@ test("frames de WebKit y de Chromium", () => {
     { function: "?", filename: "http://localhost:1420/b.js", lineno: 3, colno: 4 },
     { function: "g", filename: "http://localhost:1420/src/a.ts", lineno: 10, colno: 5 },
   ]);
+});
+
+const setup = async (prefs: object, answer: boolean) => {
+  vi.resetModules();
+  const ask = vi.fn(async () => answer);
+  const setPrefs = vi.fn();
+  vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
+  vi.doMock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+  vi.doMock("../store/useSettings", () => ({ useSettings: { getState: () => ({ prefs, setPrefs }) } }));
+  const { askErrorReports } = await import("./errors");
+  await askErrorReports();
+  return { ask, setPrefs };
+};
+
+test("pregunta una vez y guarda la respuesta, sin prender nada si dice que no", async () => {
+  const { ask, setPrefs } = await setup({ errorReports: false, errorReportsAsked: false }, false);
+  expect(ask).toHaveBeenCalledOnce();
+  expect(setPrefs).toHaveBeenCalledWith({ errorReports: false, errorReportsAsked: true });
+});
+
+test("no vuelve a preguntar, y quien ya lo tenía prendido lo conserva", async () => {
+  expect((await setup({ errorReports: false, errorReportsAsked: true }, true)).ask).not.toHaveBeenCalled();
+  const on = await setup({ errorReports: true, errorReportsAsked: false }, false);
+  expect(on.ask).not.toHaveBeenCalled();
+  expect(on.setPrefs).toHaveBeenCalledWith({ errorReports: true, errorReportsAsked: true });
 });

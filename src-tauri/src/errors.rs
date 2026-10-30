@@ -81,17 +81,68 @@ fn sin_contenido(e: &str) -> &str {
 
 /// Un evento por etapa, agrupado por etapa: en GlitchTip cada issue es un paso y su conteo dice cuántas sesiones
 /// llegaron hasta ahí (filtrar por `environment` = windows). `sesion` une los pasos de una misma grabación.
-fn checkpoint_event(stage: &str, level: Level, sesion: &str, secs: u64, tags: &[(&str, String)]) -> Event<'static> {
+fn checkpoint_event(area: &str, stage: &str, level: Level, sesion: &str, secs: u64, tags: &[(&str, String)]) -> Event<'static> {
     let mut e = Event {
         level,
-        message: Some(format!("reunion {stage}")),
-        fingerprint: vec!["reunion".into(), stage.to_string().into()].into(),
+        message: Some(format!("{area} {stage}")),
+        fingerprint: vec![area.to_string().into(), stage.to_string().into()].into(),
         ..Default::default()
     };
     e.tags.insert("sesion".into(), sesion.into());
     e.tags.insert("seg".into(), secs.to_string());
     e.tags.extend(tags.iter().map(|(k, v)| (k.to_string(), scrub(v))));
     e
+}
+
+fn capture(e: Event<'static>) {
+    let hub = sentry::Hub::main();
+    if hub.client().is_some() && CHECKPOINTS.fetch_add(1, Ordering::Relaxed) < MAX_CHECKPOINTS {
+        hub.capture_event(e);
+    }
+}
+
+/// Un fallo suelto fuera de una grabación (`area` = ia, arranque…). Devuelve el error para seguirlo con `?`.
+pub fn failure(area: &str, stage: &str, e: String) -> String {
+    capture(checkpoint_event(area, stage, Level::Error, "", 0, &[("error", sin_contenido(&e).to_string())]));
+    e
+}
+
+/// Archivo que dice hasta dónde llegó el arranque en curso; lo borra `boot_ok` cuando la ventana ya corre. Si sigue
+/// ahí al arrancar, el anterior no llegó a abrir. Va fuera de `app_data_dir` porque hace falta antes de tener la app:
+/// crear el WebView (falta WebView2) falla antes de `setup`.
+/// ponytail: apagar el PC justo durante el arranque también cuenta como incompleto.
+fn boot_file() -> Option<std::path::PathBuf> {
+    let base = if cfg!(windows) { std::env::var("APPDATA").ok()? } else { format!("{}/Library/Application Support", crate::home()) };
+    Some(std::path::Path::new(&base).join("xyz.spadelab.pet/boot.pending"))
+}
+
+pub fn boot_mark(stage: &str) {
+    let Some(f) = boot_file() else { return };
+    let _ = f.parent().map(std::fs::create_dir_all);
+    let _ = std::fs::write(f, stage);
+}
+
+/// Marca el inicio y devuelve la etapa en que quedó el arranque anterior, si no terminó.
+pub fn boot_begin() -> Option<String> {
+    let prev = boot_file().and_then(|f| std::fs::read_to_string(f).ok());
+    boot_mark("inicio");
+    prev
+}
+
+/// Con `errors::init` ya hecho: sin el opt-in no sale nada.
+pub fn boot_report(prev: Option<String>) {
+    if let Some(stage) = prev {
+        let _ = failure("arranque", "incompleto", stage);
+    }
+}
+
+/// La mascota ya corre: el arranque terminó.
+#[tauri::command]
+pub fn boot_ok() {
+    if let Some(f) = boot_file() {
+        let _ = std::fs::remove_file(f);
+    }
+    capture(checkpoint_event("arranque", "ok", Level::Info, "", 0, &[]));
 }
 
 /// Checkpoints de una grabación. Solo números y estados, nunca texto de la reunión. Con el opt-in apagado no sale nada.
@@ -107,13 +158,9 @@ impl Trace {
     }
 
     fn send(&self, stage: &str, level: Level, tags: &[(&str, String)]) {
-        let hub = sentry::Hub::main();
-        if hub.client().is_none() || CHECKPOINTS.fetch_add(1, Ordering::Relaxed) >= MAX_CHECKPOINTS {
-            return;
-        }
         let mut tags = tags.to_vec();
         tags.push(("modo", self.modo.into()));
-        hub.capture_event(checkpoint_event(stage, level, &self.sesion, self.at.elapsed().as_secs(), &tags));
+        capture(checkpoint_event("reunion", stage, level, &self.sesion, self.at.elapsed().as_secs(), &tags));
     }
 
     pub fn ok(&self, stage: &str, tags: &[(&str, String)]) {
@@ -225,7 +272,7 @@ mod tests {
 
     #[test]
     fn el_checkpoint_pasa_el_filtro_sin_ruta_ni_contenido() {
-        let e = checkpoint_event("04 captura", Level::Error, "abc", 7, &[("error", r"falló C:\Users\Ana\x".to_string())]);
+        let e = checkpoint_event("reunion", "04 captura", Level::Error, "abc", 7, &[("error", r"falló C:\Users\Ana\x".to_string())]);
         let e = clean(e, "uuid");
         assert_eq!(e.message.as_deref(), Some("reunion 04 captura"));
         assert_eq!(e.tags["sesion"], "abc");

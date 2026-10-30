@@ -12,15 +12,17 @@ import { CamWindow } from "./camview/CamWindow";
 import { Dashboard } from "./web/Dashboard";
 import { LocalPlayer } from "./music/LocalPlayer";
 import { IS_WEB } from "./lib/db";
-import { initErrorReports } from "./lib/errors";
+import { askErrorReports, initErrorReports } from "./lib/errors";
+import { invoke } from "@tauri-apps/api/core";
 
 const label = IS_WEB ? "" : getCurrentWindow().label;
 // "music" = reproductor local (music.rs): solo lee las prefs y no tiene permisos para más.
 if (label !== "music") initTasksStore();
 // En el navegador (web local servida por la app) solo existe el panel web.
 if (!IS_WEB) {
-  initSettingsStore();
+  const settings = initSettingsStore();
   initErrorReports();
+  if (label === "settings") void settings.then(askErrorReports).catch(() => {});
 }
 if (!IS_WEB && label !== "music") {
   initTimerStore();
@@ -37,3 +39,4 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <Root />
   </React.StrictMode>,
 );
+if (label === "pet") void invoke("boot_ok"); // errors.rs: el arranque terminó
