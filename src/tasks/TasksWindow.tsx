@@ -22,7 +22,7 @@ const PRIO_COLOR = [T.dim, "#e8a33c", "#e8523c"];
 
 // Anchos de columna (checkbox, Tarea, …, borrar); null = flexible. Se arrastran desde el borde del encabezado.
 const COLS: (number | null)[] = [32, null, 140, 150, 84, 76, 180, 130, 64, 36];
-const COLS_KEY = "tasks.colWidths";
+const COLS_KEY = "tasks.colWidths2";
 const loadCols = () => {
   try {
     const v = JSON.parse(localStorage.getItem(COLS_KEY) ?? "null");
@@ -112,10 +112,12 @@ export function TasksWindow() {
   const startResize = (e: React.PointerEvent, i: number) => {
     e.preventDefault();
     const x0 = e.clientX;
-    const w0 = (e.currentTarget.parentElement as HTMLElement).offsetWidth;
+    // El borde reparte ancho entre la columna i y la siguiente: el total no cambia y nada se sale de la tabla.
+    const w0 = Array.from((e.currentTarget.parentElement!.parentElement as HTMLElement).children, (th) => (th as HTMLElement).offsetWidth);
     let last = cols;
     const move = (m: PointerEvent) => {
-      last = cols.map((w, j) => (j === i ? Math.max(40, Math.round(w0 + m.clientX - x0)) : w));
+      const d = Math.max(-(w0[i] - 40), Math.min(w0[i + 1] - 40, m.clientX - x0));
+      last = w0.map((w, j) => (j === i ? w + d : j === i + 1 ? w - d : w));
       setCols(last);
     };
     const up = () => {
@@ -284,7 +286,7 @@ export function TasksWindow() {
             ].map(([label, title], i, all) => (
               <th key={i} title={title || undefined} style={{ position: "relative" }}>
                 {label}
-                {i > 0 && i < all.length - 1 && (
+                {i > 0 && i < all.length - 2 && (
                   <span
                     onPointerDown={(e) => startResize(e, i)}
                     style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 8, cursor: "col-resize", touchAction: "none" }}
