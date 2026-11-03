@@ -20,6 +20,17 @@ const NONE = "\u0000"; // filtro "Sin proyecto"
 const cell = { ...btn, padding: "4px 6px", borderRadius: 6, width: "100%", boxSizing: "border-box" } as const;
 const PRIO_COLOR = [T.dim, "#e8a33c", "#e8523c"];
 
+// Anchos de columna (checkbox, Tarea, …, borrar); null = flexible. Se arrastran desde el borde del encabezado.
+const COLS: (number | null)[] = [32, null, 140, 150, 84, 76, 180, 130, 64, 36];
+const COLS_KEY = "tasks.colWidths";
+const loadCols = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLS_KEY) ?? "null");
+    if (Array.isArray(v) && v.length === COLS.length) return v as (number | null)[];
+  } catch {}
+  return COLS;
+};
+
 /** ms epoch ⇄ valor de <input type="datetime-local"> en hora local. */
 const toLocal = (ms: number | null) =>
   ms == null ? "" : new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -96,6 +107,27 @@ export function TasksWindow() {
   const groups = [...projects, null]
     .map((p) => ({ p, ts: shown.filter((t) => (t.project || null) === p) }))
     .filter((g) => g.ts.length);
+
+  const [cols, setCols] = useState(loadCols);
+  const startResize = (e: React.PointerEvent, i: number) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = (e.currentTarget.parentElement as HTMLElement).offsetWidth;
+    let last = cols;
+    const move = (m: PointerEvent) => {
+      last = cols.map((w, j) => (j === i ? Math.max(40, Math.round(w0 + m.clientX - x0)) : w));
+      setCols(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem(COLS_KEY, JSON.stringify(last));
+      } catch {}
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <div
@@ -232,29 +264,34 @@ export function TasksWindow() {
 
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: 32 }} />
-          <col />
-          <col style={{ width: 140 }} />
-          <col style={{ width: 150 }} />
-          <col style={{ width: 84 }} />
-          <col style={{ width: 76 }} />
-          <col style={{ width: 180 }} />
-          <col style={{ width: 130 }} />
-          <col style={{ width: 64 }} />
-          <col style={{ width: 36 }} />
+          {cols.map((w, i) => (
+            <col key={i} style={w ? { width: w } : undefined} />
+          ))}
         </colgroup>
         <thead>
           <tr>
-            <th />
-            <th>Tarea</th>
-            <th>Proyecto</th>
-            <th>Categoría</th>
-            <th>Prioridad</th>
-            <th title="Hechos / estimados">🍅</th>
-            <th>Fecha</th>
-            <th>Repetir</th>
-            <th title={`Tiempo de foco (${PERIODS[period].label})`}>⏱</th>
-            <th />
+            {[
+              ["", ""],
+              ["Tarea", ""],
+              ["Proyecto", ""],
+              ["Categoría", ""],
+              ["Prioridad", ""],
+              ["🍅", "Hechos / estimados"],
+              ["Fecha", ""],
+              ["Repetir", ""],
+              ["⏱", `Tiempo de foco (${PERIODS[period].label})`],
+              ["", ""],
+            ].map(([label, title], i, all) => (
+              <th key={i} title={title || undefined} style={{ position: "relative" }}>
+                {label}
+                {i > 0 && i < all.length - 1 && (
+                  <span
+                    onPointerDown={(e) => startResize(e, i)}
+                    style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 8, cursor: "col-resize", touchAction: "none" }}
+                  />
+                )}
+              </th>
+            ))}
           </tr>
         </thead>
         {groups.map(({ p, ts }) => (
