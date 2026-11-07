@@ -157,8 +157,14 @@ export const listSuggestions = (status?: Suggestion["status"]) =>
     ? select<Suggestion>("SELECT * FROM meeting_tasks WHERE status = $1 ORDER BY meeting DESC, id", [status])
     : select<Suggestion>("SELECT * FROM meeting_tasks ORDER BY meeting DESC, id");
 /** Resumen y decisiones de cada reunión (meeting.rs, tabla meeting_notes); `decisions` es JSON. */
-export type Notes = { meeting: number; summary: string; decisions: string; model: string; at: number };
+export type Notes = { meeting: number; summary: string; decisions: string; model: string; at: number; project: string | null };
 export const listNotes = () => select<Notes>("SELECT * FROM meeting_notes");
+/** Proyecto de la reunión (vacío = ninguno); crea la fila si aún no hay resumen (finalize la completa sin pisarlo). */
+export const setMeetingProject = (meeting: number, project: string | null) =>
+  exec(
+    "INSERT INTO meeting_notes (meeting, at, project) VALUES ($1, $2, $3) ON CONFLICT(meeting) DO UPDATE SET project = excluded.project",
+    [meeting, Date.now(), project || null],
+  );
 export const decisionsOf = (n?: Notes): string[] => {
   try {
     return n ? JSON.parse(n.decisions) : [];
@@ -176,7 +182,12 @@ export const acceptSuggestion = async (s: Suggestion, title = s.title, project: 
     await addTask({
       title: a?.titulo ?? title,
       category_id: null,
-      project: a?.proyecto ?? project,
+      // sin proyecto propio ni elegido, hereda el de la reunión
+      project:
+        a?.proyecto ??
+        project ??
+        (await select<{ project: string | null }>("SELECT project FROM meeting_notes WHERE meeting = $1", [s.meeting]))[0]?.project ??
+        null,
       priority: a?.prioridad ?? 1,
       due_at: a?.fecha ? dueFromDate(a.fecha) : null,
       est_pomodoros: a?.pomodoros ?? 1,

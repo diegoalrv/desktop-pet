@@ -91,7 +91,7 @@ export const TOOLS = [
   },
   {
     name: "meetings_list",
-    description: "Reuniones grabadas, la más reciente primero: id, fecha, título, participantes y resumen.",
+    description: "Reuniones grabadas, la más reciente primero: id, fecha, título, proyecto, participantes y resumen.",
     inputSchema: obj({ limit: { type: "integer", minimum: 1 } }),
   },
   {
@@ -178,8 +178,8 @@ export function makeCall(api, external = false) {
   const invoke = (cmd, args = {}) => api("/api/invoke", { cmd, args });
 
   async function notes(id) {
-    const [n] = await select("SELECT summary, decisions FROM meeting_notes WHERE meeting = $1", [id]);
-    return { summary: n?.summary ?? "", decisions: n ? JSON.parse(n.decisions || "[]") : [] };
+    const [n] = await select("SELECT summary, decisions, project FROM meeting_notes WHERE meeting = $1", [id]);
+    return { summary: n?.summary ?? "", decisions: n ? JSON.parse(n.decisions || "[]") : [], project: n?.project ?? null };
   }
 
   const timer = async (cmd, args) => (cmd && (await invoke(cmd, args)), invoke("timer_get"));
@@ -302,13 +302,10 @@ export function makeCall(api, external = false) {
       case "meetings_list": {
         const ms = (await invoke("meetings_list")).slice(0, a.limit ?? 10);
         return Promise.all(
-          ms.map(async (m) => ({
-            id: m.id,
-            date: fmtMs(m.id * 1000),
-            title: m.title,
-            attendees: m.attendees,
-            summary: (await notes(m.id)).summary,
-          })),
+          ms.map(async (m) => {
+            const n = await notes(m.id);
+            return { id: m.id, date: fmtMs(m.id * 1000), title: m.title, project: n.project, attendees: m.attendees, summary: n.summary };
+          }),
         );
       }
       case "meeting_get": {
