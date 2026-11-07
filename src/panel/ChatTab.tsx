@@ -53,13 +53,8 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
   const session = useRef<string | null>(null);
   const spoken = useRef(false); // la orden en curso vino por voz: su respuesta se lee en voz alta
   const log = useRef<HTMLDivElement>(null);
-  // Modo Windows (F19): sin Claude Code, el chat va al proxy con las herramientas de la app (candolaChat.ts).
-  const [proxy, setProxy] = useState(false);
-  useEffect(() => {
-    invoke<boolean>("ai_proxy")
-      .then(setProxy)
-      .catch(() => {});
-  }, []);
+  // Por defecto (F19) el chat va al proxy con las herramientas de la app (candolaChat.ts); con `claudeLocal`, a claude -p.
+  const proxy = !useSettings((s) => s.prefs.claudeLocal);
   const add = (l: Line) => setLines((ls) => [...ls, l]);
 
   // Historial (chat_log): muestra lo último y retoma la última conversación.

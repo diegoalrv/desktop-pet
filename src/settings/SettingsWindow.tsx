@@ -129,14 +129,11 @@ export function SettingsWindow() {
   const [auto, setAuto] = useState(false);
   const [shortcutErr, setShortcutErr] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<{ bundle: string; name: string }[]>([]);
-  // IA por el proxy (F19): Windows, o el Mac arrancado con PET_AI=candola. Lo decide ai.rs.
-  const [proxy, setProxy] = useState(WIN);
+  // IA por el proxy (F19) salvo que se elija Claude Code local; ai.rs lee la misma pref.
+  const proxy = !prefs.claudeLocal;
   useEffect(() => {
     isEnabled()
       .then(setAuto)
-      .catch(() => {});
-    invoke<boolean>("ai_proxy")
-      .then(setProxy)
       .catch(() => {});
   }, []);
 
@@ -388,6 +385,10 @@ export function SettingsWindow() {
             Al terminar se manda el texto (nunca el audio) al servidor de Spadelab. ¿No tienes key? Pídela a
             Spadelab.
           </small>
+          <label>
+            <input type="checkbox" checked={false} onChange={() => setPrefs({ claudeLocal: true })} /> Usar Claude
+            Code local en vez del servidor (necesita <code>claude</code> instalado)
+          </label>
           <h3 style={sub}>Reuniones</h3>
           <input
             placeholder="Tu nombre (quién es “Yo” en las reuniones)"
@@ -398,6 +399,10 @@ export function SettingsWindow() {
         </Section>
       ) : (
         <Section title="Asistente" hint="chat con Claude y reuniones">
+          <label>
+            <input type="checkbox" checked onChange={() => setPrefs({ claudeLocal: false })} /> Usar Claude Code
+            local (desmarca para volver al servidor de la Candola)
+          </label>
           <h3 style={sub}>Chat con Claude Code</h3>
           <input
             placeholder="~ (home)"

@@ -35,6 +35,7 @@ describe("prefs", () => {
       userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       candolaKey: "",
+      claudeLocal: false,
       claudeCwd: "",
       dayEndHour: 18,
       dailyGoalMin: 120,
@@ -70,21 +71,17 @@ describe("prefs", () => {
   });
   it("llms: migra las prefs viejas y descarta listas inválidas", () => {
     const viejo = { llmUrl: "https://x.dev/v1", llmModel: "m1", llmKey: "k" };
-    expect(normalizePrefs(viejo).llms).toEqual([
-      { provider: "claude-code", apikey: "", models: ["sonnet"] },
-      { provider: "https://x.dev/v1", apikey: "k", models: ["m1"] },
-    ]);
+    expect(normalizePrefs(viejo).llms).toEqual([{ provider: "https://x.dev/v1", apikey: "k", models: ["m1"] }]);
     const gemini = { ...viejo, llmUrl: "https://generativelanguage.googleapis.com/v1beta/openai/" };
-    expect(normalizePrefs(gemini).llms[1].provider).toBe("gemini");
+    expect(normalizePrefs(gemini).llms[0].provider).toBe("gemini");
     expect(normalizePrefs({ llms: [{ provider: "gemini", models: [] }] }).llms).toEqual([
       { provider: "claude-code", apikey: "", models: ["sonnet"] },
     ]);
-    // ya lo tiene: no se duplica ni se reordena
-    const mio = [
-      { provider: "gemini", apikey: "k", models: ["g"] },
-      { provider: "claude-code", apikey: "", models: ["opus"] },
-    ];
+    // ya no se inyecta claude-code: lo guardado se respeta tal cual
+    const mio = [{ provider: "gemini", apikey: "k", models: ["g"] }];
     expect(normalizePrefs({ llms: mio }).llms).toEqual(mio);
+    expect(normalizePrefs({}).claudeLocal).toBe(false);
+    expect(normalizePrefs({ claudeLocal: true }).claudeLocal).toBe(true);
   });
   it("candolaKey: recorta espacios; inválida -> vacía", () => {
     expect(normalizePrefs({ candolaKey: "  sk-abc \n" }).candolaKey).toBe("sk-abc");

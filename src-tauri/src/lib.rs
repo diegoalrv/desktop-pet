@@ -304,7 +304,6 @@ pub fn run() {
             meeting::meetings_list,
             meeting::meeting_retry,
             meeting::meetings_ask,
-            ai::ai_proxy,
             ai::ai_check,
             ai::ai_chat,
             web::web_api,

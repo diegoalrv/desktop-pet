@@ -299,7 +299,8 @@ reuniones, chat) andan sin instalar Claude Code ni Ollama ni sacar API keys. Aju
 "Key de Candola"**; por detrás todas las llamadas van a `https://ai.spadelab.xyz` con los modelos de LiteLLM. Hoy
 en Windows nada de eso funciona sin setup: reuniones y Gestión dependen de `claude-code` (no instalado),
 "preguntarle a las reuniones" de Ollama local y el chat de `claude -p`.
-**En Mac todo sigue exactamente igual** (cadena de proveedores editable, `claude-code`, Ollama, `claude -p`).
+**Desde nov-2026 es el modo por defecto en todos los sistemas** (también Mac y el dueño); Claude Code local
+(`claude -p`, cadena de proveedores editable, Ollama) es opt-in con la pref `claudeLocal` (Ajustes → Asistente).
 Es el tier gratis de pruebas; más adelante las funciones de IA serán pagadas (ver "Después" abajo).
 
 Misma rama y mismo código, decidido por SO (no ramas separadas: divergirían y cada fix habría que portarlo; el CI

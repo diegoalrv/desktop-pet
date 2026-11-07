@@ -1,6 +1,5 @@
-//! IA por el proxy propio (F19): en Windows una sola "Key de Candola" (Ajustes) reemplaza la cadena de modelos y
-//! todo va a ai.spadelab.xyz (LiteLLM). En Mac nada cambia, salvo que se arranque con `PET_AI=candola` para probar
-//! el flujo de Windows.
+//! IA por el proxy propio (F19): en todos los sistemas una sola "Key de Candola" (Ajustes) reemplaza la cadena de
+//! modelos y todo va a ai.spadelab.xyz (LiteLLM). Claude Code local (`claude -p`) es opt-in: pref `claudeLocal`.
 use crate::meeting::Llm;
 use std::time::Duration;
 use tauri::AppHandle;
@@ -8,15 +7,18 @@ use tauri::AppHandle;
 /// Mismo destino que `meeting::base_url("candola")`.
 const PROXY: &str = "https://ai.spadelab.xyz/v1";
 
-/// ¿La IA va por el proxy? Windows siempre; en otro sistema solo con `PET_AI=candola`.
-fn proxy_mode() -> bool {
-    cfg!(windows) || std::env::var("PET_AI").is_ok_and(|v| v == "candola")
+fn prefs(app: &AppHandle) -> serde_json::Value {
+    use tauri_plugin_store::StoreExt;
+    app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default()
+}
+
+/// ¿La IA va por el proxy? Siempre, salvo que en Ajustes se haya elegido Claude Code local (`claudeLocal`).
+fn proxy_mode(app: &AppHandle) -> bool {
+    !prefs(app)["claudeLocal"].as_bool().unwrap_or(false)
 }
 
 fn candola_key(app: &AppHandle) -> String {
-    use tauri_plugin_store::StoreExt;
-    let prefs = app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default();
-    prefs["candolaKey"].as_str().unwrap_or("").trim().to_string()
+    prefs(app)["candolaKey"].as_str().unwrap_or("").trim().to_string()
 }
 
 /// Para qué se llama a la IA: la app solo nombra la misión; LiteLLM elige modelo y respaldo (BACKEND_ROADMAP, Fase 2).
@@ -64,9 +66,9 @@ pub fn friendly(status: u16, body: &str) -> String {
     }
 }
 
-/// Key de Candola si la IA va por el proxy (vacía si no la han pegado: el proxy la rechaza); `None` = flujo de Mac.
+/// Key de Candola si la IA va por el proxy (vacía si no la han pegado: el proxy la rechaza); `None` = Claude Code local (opt-in).
 pub fn proxy_key(app: &AppHandle) -> Option<String> {
-    proxy_mode().then(|| candola_key(app))
+    proxy_mode(app).then(|| candola_key(app))
 }
 
 /// La cadena de modelos que de verdad se usa: reuniones, gestión y preguntas pasan por aquí.
@@ -77,11 +79,11 @@ pub fn llms(app: &AppHandle, llms: Vec<Llm>, mision: Mision) -> Vec<Llm> {
     }
 }
 
-/// Un turno del chat de Windows (`src/lib/candolaChat.ts` lleva el bucle de herramientas): `messages` y `tools` en
+/// Un turno del chat por el proxy (`src/lib/candolaChat.ts` lleva el bucle de herramientas): `messages` y `tools` en
 /// formato OpenAI a la misión `candola-chat`; devuelve el `message` de la respuesta (texto y/o `tool_calls`).
 #[tauri::command]
 pub async fn ai_chat(app: AppHandle, messages: serde_json::Value, tools: serde_json::Value) -> Result<serde_json::Value, String> {
-    let key = proxy_key(&app).ok_or("el chat por el proxy es solo para el modo Windows")?;
+    let key = proxy_key(&app).ok_or("el chat por el proxy está apagado: Claude Code local activado en Ajustes")?;
     if key.is_empty() {
         return Err(NO_KEY.into());
     }
@@ -143,12 +145,6 @@ fn parse_embeddings(v: &serde_json::Value) -> Result<Vec<Vec<f32>>, String> {
     Ok(data.into_iter().map(|(_, e)| e).collect())
 }
 
-/// Para Ajustes: muestra solo el campo de la key en vez del editor de modelos.
-#[tauri::command]
-pub fn ai_proxy() -> bool {
-    proxy_mode()
-}
-
 /// Botón "Probar" de Ajustes: la key abre `/models` del proxy.
 #[tauri::command]
 pub async fn ai_check(key: String) -> Result<(), String> {
@@ -183,7 +179,7 @@ mod tests {
             assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models.as_slice()), (1, "candola", "sk-x", &[alias.to_string()][..]));
         }
         let c = chain(false, "sk-x".into(), mac, Mision::Reuniones);
-        assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models[0].as_str()), (1, "claude-code", "", "sonnet")); // Mac: intacta
+        assert_eq!((c.len(), c[0].provider.as_str(), c[0].apikey.as_str(), c[0].models[0].as_str()), (1, "claude-code", "", "sonnet")); // Claude Code local: intacta
     }
 
     #[test]
