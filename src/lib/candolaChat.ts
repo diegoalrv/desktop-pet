@@ -6,16 +6,22 @@ import { emit } from "@tauri-apps/api/event";
 import { makeCall, TOOLS } from "../../mcp/tools.mjs";
 import candola from "../../src-tauri/src/candola.md?raw";
 import { logChat } from "./db";
+import { cancelProposals, GOOGLE_TOOLS, isGoogleTool, runGoogleTool } from "./googleTools";
 
 type ToolCall = { id: string; function: { name: string; arguments?: string } };
 export type Msg = { role: string; content?: string | null; tool_calls?: ToolCall[]; tool_call_id?: string };
 
 const MAX_TURNS = 8; // vueltas de herramientas por orden
-const tools = TOOLS.map((t) => ({
-  type: "function",
-  function: { name: t.name, description: t.description, parameters: t.inputSchema },
-}));
-const call = makeCall((path, body) => invoke("web_api", { path, body }));
+const tools = [
+  ...TOOLS.map((t) => ({
+    type: "function",
+    function: { name: t.name, description: t.description, parameters: t.inputSchema },
+  })),
+  ...GOOGLE_TOOLS, // correo y calendario: lo que escribe espera el clic en la tarjeta de ChatTab
+];
+const mcpCall = makeCall((path, body) => invoke("web_api", { path, body }));
+const call = (name: string, args?: Record<string, unknown>) =>
+  isGoogleTool(name) ? runGoogleTool(name, args) : mcpCall(name, args);
 
 /** Sección `## título` de candola.md (sin el título); vacía si no está. */
 export const section = (md: string, title: string) =>
@@ -61,7 +67,10 @@ export async function runTools(
 let history: Msg[] = []; // la conversación en curso (se borra con "Nuevo chat")
 let cancelled = false;
 export const candolaReset = () => void (history = []);
-export const candolaCancel = () => void (cancelled = true);
+export const candolaCancel = () => {
+  cancelled = true;
+  cancelProposals(); // una tarjeta sin responder no deja el bucle colgado
+};
 
 /** Una orden del chat: corre el bucle y avisa por `claude://event` / `claude://exit` como `claude -p`. */
 export async function candolaAsk(prompt: string) {

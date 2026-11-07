@@ -6,6 +6,7 @@ import { useSettings } from "../store/useSettings";
 import { Icon } from "./icons";
 import idleSprite from "../../examples/candolita/idle.png";
 import { candolaAsk, candolaCancel, candolaReset } from "../lib/candolaChat";
+import { decide, onProposals, type Proposal } from "../lib/googleTools";
 
 type Line = { kind: "you" | "text" | "tool" | "err"; text: string };
 type Denial = { tool_name: string; tool_input: { command?: string } };
@@ -50,6 +51,9 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
   const [busy, setBusy] = useState(false);
   const [god, setGod] = useState(false); // ponytail: no se guarda; al reabrir la pestaña vuelve a seguro
   const [pending, setPending] = useState<Denial[]>([]);
+  // Correo o calendario que la Candola quiere tocar (googleTools.ts): nada corre sin el clic en la tarjeta.
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  useEffect(() => onProposals(setProposals), []);
   const session = useRef<string | null>(null);
   const spoken = useRef(false); // la orden en curso vino por voz: su respuesta se lee en voz alta
   const log = useRef<HTMLDivElement>(null);
@@ -106,7 +110,10 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
       unExit.then((f) => f());
     };
   }, []);
-  useEffect(() => void log.current?.scrollTo(0, log.current.scrollHeight), [lines.length, pending.length]);
+  useEffect(
+    () => void log.current?.scrollTo(0, log.current.scrollHeight),
+    [lines.length, pending.length, proposals.length],
+  );
 
   const ask = (prompt: string, allow: string[] = []) => {
     setBusy(true);
@@ -143,6 +150,14 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
 
   const color = { you: "var(--accent)", text: "var(--text)", tool: "var(--muted)", err: "#ff6b6b" };
   const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
+  const card = {
+    padding: ".7em",
+    borderRadius: "var(--r-sm)",
+    border: "1px solid var(--accent)",
+    background: "var(--accent-soft)",
+    fontFamily: "system-ui",
+    whiteSpace: "normal",
+  } as const;
   return (
     <div className="stack" style={{ gap: ".7em" }}>
       <div
@@ -224,7 +239,25 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
             </div>
           ),
         )}
-        {busy && (
+        {proposals.map((p) => (
+          <div key={p.id} className="stack" style={{ ...card, gap: ".35em" }}>
+            <b>{p.title}</b>
+            {p.lines.map((l, i) => (
+              <span key={i} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {l}
+              </span>
+            ))}
+            <div className="row" style={{ marginTop: ".3em" }}>
+              <button className="b b-primary b-sm" onClick={() => decide(p.id, true)}>
+                <Icon name="check" size="1em" /> {p.ok}
+              </button>
+              <button className="b b-ghost b-sm" onClick={() => decide(p.id, false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ))}
+        {busy && !proposals.length && (
           <span className="muted" style={{ animation: "pn-pulse 1.4s infinite" }}>
             Candola está pensando…{" "}
             <button
@@ -236,18 +269,7 @@ export function ChatTab({ voice }: { voice?: VoicePrompt }) {
           </span>
         )}
         {pending.length > 0 && !busy && (
-          <div
-            className="stack"
-            style={{
-              gap: ".5em",
-              padding: ".7em",
-              borderRadius: "var(--r-sm)",
-              border: "1px solid var(--accent)",
-              background: "var(--accent-soft)",
-              fontFamily: "system-ui",
-              whiteSpace: "normal",
-            }}
-          >
+          <div className="stack" style={{ ...card, gap: ".5em" }}>
             <b>Quiere ejecutar</b>
             {pending.map((d, i) => (
               <code key={i} style={{ color: "#ffd479", fontFamily: mono, overflowWrap: "anywhere" }}>

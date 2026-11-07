@@ -507,8 +507,8 @@ export function SettingsWindow() {
       <Section title="Conexiones" hint="Google, calendario">
         <GoogleConnect />
         <small style={{ opacity: 0.7 }}>
-          Solo lectura: tus reuniones del calendario principal y, en Gmail, remitente, asunto y vista previa de los
-          últimos correos. Sin cuenta de Google conectada se usa la URL iCal de abajo.
+          Pide ver y editar los eventos de tu calendario y enviar correos (nunca leerlos); la Candola no envía ni
+          cambia nada sin que lo apruebes en el chat. Sin cuenta conectada se usa la URL iCal de abajo.
         </small>
         <input
           type="password"

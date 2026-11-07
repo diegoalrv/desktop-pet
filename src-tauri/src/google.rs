@@ -1,4 +1,4 @@
-//! "Iniciar sesión con Google" (Calendar y Gmail, solo lectura): OAuth 2.0 de app de escritorio con PKCE y redirect
+//! "Iniciar sesión con Google" (leer/editar el calendario y enviar correos): OAuth 2.0 de app de escritorio con PKCE y redirect
 //! loopback (`http://127.0.0.1:<puerto>`), en el navegador del sistema. Sin backend: el refresh token vive en
 //! `<app_data>/google.json` y el access token solo en memoria. Pasos para crear el cliente: GOOGLE_OAUTH.md.
 use std::sync::Mutex;
@@ -13,9 +13,11 @@ const TOKEN: &str = "https://oauth2.googleapis.com/token";
 const REVOKE: &str = "https://oauth2.googleapis.com/revoke";
 const CAL: &str = "https://www.googleapis.com/calendar/v3";
 const GMAIL: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
-// gmail.readonly y no gmail.metadata: metadata es "cabeceras sin cuerpo" (el snippet no está garantizado) y no acepta
-// `q`. Las dos son "restringidas" (mismo trámite de verificación), así que metadata no ahorraba nada.
-const SCOPES: &str = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
+const USERINFO: &str = "https://openidconnect.googleapis.com/v1/userinfo";
+// calendar.events (leer y escribir eventos) y gmail.send (solo enviar): las dos sensibles, sin CASA. Nada que lea
+// correos (gmail.readonly/metadata son restringidas). `openid email` (no sensibles) dan el mail de la cuenta.
+const SCOPES: &str =
+    "openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send";
 const LOGIN_WAIT: Duration = Duration::from_secs(300);
 const SOME_ACCOUNT: &str = "tu cuenta de Google"; // si no se supo el mail; nunca "" (en prefs.google = sin conectar)
 const EXPIRED: &str = "La sesión de Google venció o se revocó: vuelve a conectar en Ajustes → Conexiones";
@@ -108,17 +110,28 @@ fn form(pairs: &[(&str, &str)]) -> String {
     pairs.iter().map(|(k, v)| format!("{k}={}", enc(v))).collect::<Vec<_>>().join("&")
 }
 
-/// base64url sin relleno (RFC 4648 §5), lo que pide PKCE.
-fn b64url(data: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+/// base64 (RFC 4648): `url` = base64url sin relleno (PKCE, `raw` de Gmail); si no, el estándar con `=` (MIME).
+fn b64(data: &[u8], url: bool) -> String {
+    let a: &[u8; 64] = if url {
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    } else {
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    };
     let mut out = String::new();
     for c in data.chunks(3) {
         let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..=c.len() {
-            out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            out.push(a[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+        if !url {
+            out.push_str(&"=".repeat(3 - c.len()));
         }
     }
     out
+}
+
+fn b64url(data: &[u8]) -> String {
+    b64(data, true)
 }
 
 /// Verifier al azar (2 UUID v4 = 244 bits del RNG del SO, 64 caracteres hex: dentro de 43..128) y su challenge S256.
@@ -193,14 +206,19 @@ fn google_err(v: &Value) -> String {
     v["error"]["message"].as_str().or(v["error_description"].as_str()).or(v["error"].as_str()).unwrap_or("error").to_string()
 }
 
-fn api_get(app: &AppHandle, url: &str) -> Result<Value, String> {
-    let token = access_token(app)?;
-    let res = agent_cfg(ureq::get(url))
-        .header("Authorization", format!("Bearer {token}"))
-        .call()
-        .map_err(|_| "sin conexión con Google".to_string())?;
+/// Pedido a una API de Google con el access token; `body` va como JSON (POST/PATCH).
+fn api(app: &AppHandle, method: &str, url: &str, body: Option<&Value>) -> Result<Value, String> {
+    let auth = format!("Bearer {}", access_token(app)?);
+    let json = body.map(Value::to_string).unwrap_or_default();
+    let res = match method {
+        "POST" => agent_cfg(ureq::post(url)).header("Authorization", &auth).header("Content-Type", "application/json").send(json),
+        "PATCH" => agent_cfg(ureq::patch(url)).header("Authorization", &auth).header("Content-Type", "application/json").send(json),
+        "DELETE" => agent_cfg(ureq::delete(url)).header("Authorization", &auth).call(),
+        _ => agent_cfg(ureq::get(url)).header("Authorization", &auth).call(),
+    }
+    .map_err(|_| "sin conexión con Google".to_string())?;
     match read(res)? {
-        (200, v) => Ok(v),
+        (200..=299, v) => Ok(v),
         (401, _) => {
             *ACCESS.lock().unwrap() = None; // el próximo pedido refresca
             Err("Google rechazó el token; reintenta".into())
@@ -208,6 +226,10 @@ fn api_get(app: &AppHandle, url: &str) -> Result<Value, String> {
         (403, v) => Err(format!("Google sin permiso: {} (desconecta y vuelve a conectar marcando el acceso)", google_err(&v))),
         (s, v) => Err(format!("Google {s}: {}", google_err(&v))),
     }
+}
+
+fn api_get(app: &AppHandle, url: &str) -> Result<Value, String> {
+    api(app, "GET", url, None)
 }
 
 fn access_token(app: &AppHandle) -> Result<String, String> {
@@ -288,11 +310,10 @@ fn login(app: &AppHandle) -> Result<String, String> {
     cache(&v)?;
     // Guarda antes de pedir el mail: api_get lee la sesión si el access token venciera.
     save(app, &Session { refresh_token: refresh.clone(), email: SOME_ACCOUNT.into() })?;
-    // El mail sale del perfil de Gmail; si no se dio ese permiso (consentimiento por casillas), del calendario principal.
-    let email = api_get(app, &format!("{GMAIL}/profile"))
+    // El mail sale de OpenID (scope `email`).
+    let email = api_get(app, USERINFO)
         .ok()
-        .and_then(|p| p["emailAddress"].as_str().map(str::to_string))
-        .or_else(|| api_get(app, &format!("{CAL}/calendars/primary")).ok().and_then(|c| c["id"].as_str().map(str::to_string)))
+        .and_then(|p| p["email"].as_str().map(str::to_string))
         .unwrap_or_else(|| SOME_ACCOUNT.into());
     save(app, &Session { refresh_token: refresh, email: email.clone() })?;
     Ok(email)
@@ -413,61 +434,195 @@ pub fn calendar_ics(app: &AppHandle) -> Result<String, String> {
     api_get(app, &url).map(|v| events_to_ics(&v))
 }
 
-// --- Gmail ---
-
-#[derive(Serialize, Debug, PartialEq)]
-pub struct Mail {
-    id: String,
-    from: String,
-    subject: String,
-    snippet: String,
-    date: i64, // ms epoch
-    unread: bool,
+/// Corre un pedido bloqueante fuera del hilo principal.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
 }
 
-/// El snippet de Gmail viene con entidades HTML.
-fn unescape(s: &str) -> String {
-    s.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+// --- Calendar: escribir (solo tras el clic de confirmación en el chat, ver src/lib/googleTools.ts) ---
+
+/// Fecha con hora RFC 3339 normalizada a UTC (Google acepta cualquier offset; así se valida antes de mandarla).
+fn utc(s: &str) -> Result<String, String> {
+    let t = chrono::DateTime::parse_from_rfc3339(s.trim()).map_err(|_| format!("fecha inválida: {s}"))?;
+    Ok(t.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
-fn parse_mail(v: &Value) -> Mail {
-    let header = |name: &str| {
-        v["payload"]["headers"]
-            .as_array()
-            .and_then(|hs| hs.iter().find(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name))))
-            .and_then(|h| h["value"].as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-    Mail {
-        id: v["id"].as_str().unwrap_or_default().into(),
-        from: header("From"),
-        subject: header("Subject"),
-        snippet: unescape(v["snippet"].as_str().unwrap_or_default()),
-        date: v["internalDate"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
-        unread: v["labelIds"].as_array().is_some_and(|ls| ls.iter().any(|l| l == "UNREAD")),
+fn emails(list: &[String]) -> Result<Vec<String>, String> {
+    list.iter()
+        .map(|a| a.trim())
+        .filter(|a| !a.is_empty())
+        .map(|a| {
+            let ok = a.contains('@') && !a.contains(|c: char| c.is_whitespace() || "<>\",;:".contains(c));
+            if ok { Ok(a.to_string()) } else { Err(format!("correo inválido: {a}")) }
+        })
+        .collect()
+}
+
+/// Cuerpo de events.insert/patch con solo los campos que vienen (los demás no se tocan al editar).
+fn event_body(
+    title: Option<&str>,
+    start: Option<&str>,
+    end: Option<&str>,
+    description: Option<&str>,
+    attendees: Option<&[String]>,
+) -> Result<Value, String> {
+    let mut b = serde_json::Map::new();
+    if let Some(t) = title {
+        b.insert("summary".into(), t.trim().into());
     }
+    let (s, e) = (start.map(utc).transpose()?, end.map(utc).transpose()?);
+    if let (Some(s), Some(e)) = (&s, &e) {
+        if e <= s {
+            return Err("el evento debe terminar después de empezar".into()); // mismo formato UTC: se comparan como texto
+        }
+    }
+    if let Some(s) = s {
+        b.insert("start".into(), serde_json::json!({ "dateTime": s }));
+    }
+    if let Some(e) = e {
+        b.insert("end".into(), serde_json::json!({ "dateTime": e }));
+    }
+    if let Some(d) = description {
+        b.insert("description".into(), d.into());
+    }
+    if let Some(a) = attendees {
+        let list: Vec<Value> = emails(a)?.into_iter().map(|email| serde_json::json!({ "email": email })).collect();
+        b.insert("attendees".into(), list.into());
+    }
+    Ok(Value::Object(b))
 }
 
-/// Últimos `max` correos de la bandeja de entrada (solo los no leídos con `unread`): remitente, asunto y snippet.
-/// ponytail: un GET por correo (máx. 25); el endpoint batch de Gmail si algún día se piden muchos.
+/// Invitaciones y avisos por mail solo si el evento tiene (o tenía) asistentes.
+fn send_updates(attendees: bool) -> &'static str {
+    if attendees { "all" } else { "none" }
+}
+
+fn has_attendees(v: &Value) -> bool {
+    v["attendees"].as_array().is_some_and(|a| a.iter().any(|x| x["self"] != true))
+}
+
+/// Lo que se le devuelve a la Candola de un evento (también lo que lista `calendar_events`).
+fn brief(v: &Value) -> Value {
+    let when = |w: &Value| w["dateTime"].as_str().or(w["date"].as_str()).unwrap_or_default().to_string();
+    let attendees: Vec<&str> =
+        v["attendees"].as_array().map(|a| a.iter().filter_map(|x| x["email"].as_str()).collect()).unwrap_or_default();
+    serde_json::json!({
+        "id": v["id"], "title": v["summary"].as_str().unwrap_or(""), "start": when(&v["start"]), "end": when(&v["end"]),
+        "attendees": attendees, "description": v["description"].as_str().unwrap_or(""),
+    })
+}
+
+fn event_url(id: &str) -> String {
+    format!("{CAL}/calendars/primary/events/{}", enc(id))
+}
+
+/// Eventos del calendario principal en [from, to) (RFC 3339), con su id para editarlos o borrarlos.
 #[tauri::command]
-pub async fn gmail_recent(app: AppHandle, max: Option<u32>, unread: Option<bool>) -> Result<Vec<Mail>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let n = max.unwrap_or(10).clamp(1, 25);
-        let filter = if unread.unwrap_or(false) { "&labelIds=UNREAD" } else { "" };
-        let list = api_get(&app, &format!("{GMAIL}/messages?maxResults={n}&labelIds=INBOX{filter}"))?;
-        let ids = list["messages"].as_array().cloned().unwrap_or_default();
-        ids.iter()
-            .filter_map(|m| m["id"].as_str())
-            .map(|id| {
-                let url = format!("{GMAIL}/messages/{id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject");
-                api_get(&app, &url).map(|v| parse_mail(&v))
-            })
-            .collect()
+pub async fn calendar_events(app: AppHandle, from: String, to: String) -> Result<Vec<Value>, String> {
+    blocking(move || {
+        let url = format!(
+            "{CAL}/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin={}&timeMax={}",
+            enc(&utc(&from)?),
+            enc(&utc(&to)?)
+        );
+        let v = api_get(&app, &url)?;
+        Ok(v["items"].as_array().map(|a| a.iter().filter(|e| e["status"] != "cancelled").map(brief).collect()).unwrap_or_default())
     })
     .await
-    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn calendar_event_create(
+    app: AppHandle,
+    title: String,
+    start: String,
+    end: String,
+    description: Option<String>,
+    attendees: Option<Vec<String>>,
+) -> Result<Value, String> {
+    blocking(move || {
+        let body = event_body(Some(&title), Some(&start), Some(&end), description.as_deref(), attendees.as_deref())?;
+        let url = format!("{CAL}/calendars/primary/events?sendUpdates={}", send_updates(has_attendees(&body)));
+        api(&app, "POST", &url, Some(&body)).map(|v| brief(&v))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn calendar_event_update(
+    app: AppHandle,
+    id: String,
+    title: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    description: Option<String>,
+    attendees: Option<Vec<String>>,
+) -> Result<Value, String> {
+    blocking(move || {
+        let body = event_body(title.as_deref(), start.as_deref(), end.as_deref(), description.as_deref(), attendees.as_deref())?;
+        let before = api_get(&app, &event_url(&id))?;
+        let notify = send_updates(has_attendees(&before) || has_attendees(&body));
+        api(&app, "PATCH", &format!("{}?sendUpdates={notify}", event_url(&id)), Some(&body)).map(|v| brief(&v))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn calendar_event_delete(app: AppHandle, id: String) -> Result<Value, String> {
+    blocking(move || {
+        let before = api_get(&app, &event_url(&id))?;
+        let url = format!("{}?sendUpdates={}", event_url(&id), send_updates(has_attendees(&before)));
+        api(&app, "DELETE", &url, None)?;
+        Ok(serde_json::json!({ "deleted": brief(&before) }))
+    })
+    .await
+}
+
+// --- Gmail: solo enviar ---
+
+/// Asunto como encoded-words de RFC 2047 si no es ASCII (trozos de ≤ 45 bytes sin cortar caracteres → ≤ 75 columnas).
+fn encode_subject(s: &str) -> String {
+    if s.is_ascii() {
+        return s.to_string();
+    }
+    let mut words = vec![String::new()];
+    for ch in s.chars() {
+        if words.last().unwrap().len() + ch.len_utf8() > 45 {
+            words.push(String::new());
+        }
+        words.last_mut().unwrap().push(ch);
+    }
+    words.iter().map(|w| format!("=?UTF-8?B?{}?=", b64(w.as_bytes(), false))).collect::<Vec<_>>().join("\r\n ")
+}
+
+/// Mensaje RFC 2822 en texto plano UTF-8 (cuerpo en base64 de 76 columnas). `From` lo pone Gmail.
+fn mime_message(to: &str, subject: &str, body: &str) -> Result<String, String> {
+    if subject.contains(['\r', '\n']) {
+        return Err("el asunto no puede tener saltos de línea".into());
+    }
+    let to = emails(&to.split(',').map(str::to_string).collect::<Vec<_>>())?;
+    if to.is_empty() {
+        return Err("falta el destinatario".into());
+    }
+    let b = b64(body.replace("\r\n", "\n").replace('\n', "\r\n").as_bytes(), false);
+    let lines: Vec<&str> = b.as_bytes().chunks(76).map(|c| std::str::from_utf8(c).unwrap()).collect();
+    Ok(format!(
+        "To: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
+        to.join(", "),
+        encode_subject(subject.trim()),
+        lines.join("\r\n")
+    ))
+}
+
+/// Envía un correo desde la cuenta conectada (users.messages.send); devuelve el id del mensaje.
+#[tauri::command]
+pub async fn gmail_send(app: AppHandle, to: String, subject: String, body: String) -> Result<Value, String> {
+    blocking(move || {
+        let raw = b64url(mime_message(&to, &subject, &body)?.as_bytes());
+        let v = api(&app, "POST", &format!("{GMAIL}/messages/send"), Some(&serde_json::json!({ "raw": raw })))?;
+        Ok(serde_json::json!({ "sent": true, "id": v["id"], "to": to }))
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -503,7 +658,7 @@ mod tests {
         assert!(u.contains("&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123&"));
         assert!(u.contains("&response_type=code&"));
         assert!(u.contains(
-            "&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly&"
+            "&scope=openid%20email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.send&"
         ));
         assert!(u.contains("&code_challenge=CH-_&code_challenge_method=S256&state=st&access_type=offline&prompt=consent"));
     }
@@ -544,34 +699,84 @@ mod tests {
     }
 
     #[test]
-    fn gmail_mensaje() {
-        let v = json!({
-            "id": "18c1", "threadId": "18c1", "labelIds": ["UNREAD", "INBOX"],
-            "snippet": "Hola, te mando el informe &amp; los n&#39;meros",
-            "internalDate": "1762444800000",
-            "payload": {"headers": [
-                {"name": "Subject", "value": "Informe semanal"},
-                {"name": "from", "value": "Ana Pérez <ana@x.com>"}
-            ]}
-        });
-        assert_eq!(
-            parse_mail(&v),
-            Mail {
-                id: "18c1".into(),
-                from: "Ana Pérez <ana@x.com>".into(),
-                subject: "Informe semanal".into(),
-                snippet: "Hola, te mando el informe & los n'meros".into(),
-                date: 1762444800000,
-                unread: true,
-            }
-        );
-        let leido = parse_mail(&json!({"id": "1", "labelIds": ["INBOX"]}));
-        assert!(!leido.unread && leido.subject.is_empty() && leido.date == 0);
-    }
-
-    #[test]
     fn errores_de_google() {
         assert_eq!(google_err(&json!({"error": {"code": 403, "message": "Insufficient Permission"}})), "Insufficient Permission");
         assert_eq!(google_err(&json!({"error": "invalid_grant", "error_description": "Token has been expired or revoked."})), "Token has been expired or revoked.");
+    }
+
+    #[test]
+    fn base64_estandar_con_relleno() {
+        assert_eq!(b64(b"f", false), "Zg==");
+        assert_eq!(b64(b"fo", false), "Zm8=");
+        assert_eq!(b64(b"foo", false), "Zm9v");
+        assert_eq!(b64(&[0xfb, 0xff], false), "+/8=");
+    }
+
+    #[test]
+    fn evento_nuevo_y_editado() {
+        let att = vec!["ana@x.com".to_string(), " ".to_string()];
+        // lo que manda googleTools.ts (toISOString) o el modelo con offset: todo a UTC
+        let b = event_body(Some(" Daily "), Some("2026-11-07T10:00:00-03:00"), Some("2026-11-07T13:30:00.000Z"), Some("notas"), Some(&att))
+            .unwrap();
+        assert_eq!(
+            b,
+            json!({"summary": "Daily", "start": {"dateTime": "2026-11-07T13:00:00Z"}, "end": {"dateTime": "2026-11-07T13:30:00Z"},
+                   "description": "notas", "attendees": [{"email": "ana@x.com"}]})
+        );
+        assert_eq!(send_updates(has_attendees(&b)), "all");
+        // termina antes de empezar (10:30Z < 13:00Z)
+        assert!(event_body(None, Some("2026-11-07T10:00:00-03:00"), Some("2026-11-07T10:30:00Z"), None, None).is_err());
+        // al editar solo va lo que cambia
+        assert_eq!(event_body(Some("Nuevo"), None, None, None, None).unwrap(), json!({"summary": "Nuevo"}));
+        assert!(event_body(None, Some("mañana a las 10"), None, None, None).is_err());
+        assert!(event_body(None, None, None, None, Some(&["Ana <ana@x.com>".to_string()])).is_err());
+    }
+
+    #[test]
+    fn asistentes_y_resumen_de_evento() {
+        let v = json!({
+            "id": "abc123", "status": "confirmed", "summary": "Cliente", "htmlLink": "https://calendar.google.com/x",
+            "start": {"dateTime": "2026-11-07T10:00:00-03:00"}, "end": {"dateTime": "2026-11-07T11:00:00-03:00"},
+            "attendees": [{"email": "yo@x.com", "self": true}, {"email": "ana@x.com"}]
+        });
+        assert!(has_attendees(&v));
+        assert!(!has_attendees(&json!({"attendees": [{"email": "yo@x.com", "self": true}]})));
+        assert!(!has_attendees(&json!({"summary": "solo"})));
+        assert_eq!(send_updates(false), "none");
+        assert_eq!(
+            brief(&v),
+            json!({"id": "abc123", "title": "Cliente", "start": "2026-11-07T10:00:00-03:00", "end": "2026-11-07T11:00:00-03:00",
+                   "attendees": ["yo@x.com", "ana@x.com"], "description": ""})
+        );
+        assert_eq!(brief(&json!({"id": "d", "start": {"date": "2026-11-08"}}))["start"], "2026-11-08");
+        assert_eq!(event_url("a b/c"), format!("{CAL}/calendars/primary/events/a%20b%2Fc"));
+    }
+
+    #[test]
+    fn correo_rfc2822() {
+        let m = mime_message("juan@x.com, ana@x.com", "Reunión mañana", "Hola Juan,\nnos vemos.").unwrap();
+        let (head, body) = m.split_once("\r\n\r\n").unwrap();
+        assert_eq!(
+            head,
+            "To: juan@x.com, ana@x.com\r\nSubject: =?UTF-8?B?UmV1bmnDs24gbWHDsWFuYQ==?=\r\nMIME-Version: 1.0\r\n\
+             Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64"
+        );
+        assert_eq!(body, format!("{}\r\n", b64("Hola Juan,\r\nnos vemos.".as_bytes(), false)));
+        assert!(mime_message("juan@x.com", "Hola", "x").unwrap().contains("\r\nSubject: Hola\r\n"));
+        // inyección de cabeceras y destinatarios raros
+        assert!(mime_message("juan@x.com", "Hola\r\nBcc: otro@x.com", "x").is_err());
+        assert!(mime_message("juan@x.com\r\nBcc: otro@x.com", "Hola", "x").is_err());
+        assert!(mime_message("", "Hola", "x").is_err());
+        assert!(mime_message("no-es-correo", "Hola", "x").is_err());
+    }
+
+    #[test]
+    fn asunto_largo_en_varias_palabras() {
+        let s = "ñ".repeat(40); // 80 bytes → 2 encoded-words de ≤ 45 bytes
+        let e = encode_subject(&s);
+        let words: Vec<&str> = e.split("\r\n ").collect();
+        assert_eq!(words.len(), 2);
+        assert!(words.iter().all(|w| w.starts_with("=?UTF-8?B?") && w.ends_with("?=") && w.len() <= 75));
+        assert_eq!(words[0], format!("=?UTF-8?B?{}?=", b64("ñ".repeat(22).as_bytes(), false)));
     }
 }
