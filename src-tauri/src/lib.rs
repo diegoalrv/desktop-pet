@@ -3,6 +3,7 @@ mod apps;
 mod claude;
 mod db;
 mod errors;
+mod google;
 mod meeting;
 mod music;
 mod timer;
@@ -49,9 +50,21 @@ pub fn download_ical(url: &str) -> Result<String, String> {
     String::from_utf8(out.stdout).map_err(|_| "respuesta no es texto".into())
 }
 
+/// El calendario como .ics: con sesión de Google, de la Calendar API (google.rs); si no hay o falla, de la URL iCal.
+pub fn calendar_ics(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
+    if google::connected(app) {
+        match google::calendar_ics(app) {
+            Ok(ics) => return Ok(ics),
+            Err(e) if url.is_empty() => return Err(e),
+            Err(_) => {}
+        }
+    }
+    download_ical(url)
+}
+
 #[tauri::command]
-async fn fetch_ical(url: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || download_ical(&url)).await.map_err(|e| e.to_string())?
+async fn fetch_ical(app: tauri::AppHandle, url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || calendar_ics(&app, &url)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -290,6 +303,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_hit_rect,
             fetch_ical,
+            google::google_status,
+            google::google_connect,
+            google::google_disconnect,
+            google::gmail_recent,
             claude::claude_ask,
             claude::claude_cancel,
             voice::voice_say,

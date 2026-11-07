@@ -84,9 +84,10 @@ export function PetWindow() {
   }, []);
 
   // Calendario: baja el .ics cada 5 min (próximas 24 h); el aviso lo revisa remind() cada 20 s.
+  // Con Google conectado Rust lo arma desde la Calendar API (google.rs); si no, de la URL iCal.
   const meetings = useRef<Meeting[]>([]);
   useEffect(() => {
-    if (!prefs.icalUrl) return void (meetings.current = []);
+    if (!prefs.icalUrl && !prefs.google) return void (meetings.current = []);
     const load = () =>
       invoke<string>("fetch_ical", { url: prefs.icalUrl })
         .then(
@@ -96,7 +97,7 @@ export function PetWindow() {
     load();
     const id = setInterval(load, 5 * 60_000);
     return () => clearInterval(id);
-  }, [prefs.icalUrl]);
+  }, [prefs.icalUrl, prefs.google]);
 
   const active = useTimer((s) => s.snap.status !== "idle");
   const snap = useTimer((s) => s.snap);

@@ -135,10 +135,10 @@ fn invoke(app: &AppHandle, c: Cmd) -> Result<Value, String> {
             let ctx = serde_json::from_value(a["ctx"].clone()).unwrap_or(None);
             meeting::meeting_start(app.clone(), app.state(), llms(app), a["manage"].as_bool().unwrap_or(false), ctx).map(|_| Value::Null)
         }
-        // La URL secreta del calendario sale de Ajustes, no del navegador (que no tiene las prefs).
+        // La URL secreta del calendario (o la sesión de Google) sale de Ajustes, no del navegador (que no tiene las prefs).
         "fetch_ical" => {
             let prefs = app.store("settings.json").ok().and_then(|s| s.get("prefs")).unwrap_or_default();
-            crate::download_ical(prefs["icalUrl"].as_str().unwrap_or("")).map(Value::from)
+            crate::calendar_ics(app, prefs["icalUrl"].as_str().unwrap_or("")).map(Value::from)
         }
         "meeting_stop" => ok(meeting::meeting_stop(app.state())),
         "meeting_reset" => ok(meeting::meeting_reset(app.clone(), app.state())),

@@ -94,3 +94,54 @@ describe("meetingsBetween", () => {
     expect(currentMeeting(ms, m.end + 11 * 60_000)).toBeUndefined();
   });
 });
+
+// Lo que arma google.rs (events_to_ics) desde la Calendar API: horas en UTC, series ya expandidas, CRLF.
+const GOOGLE_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "PRODID:-//SpadeLab//Candola//ES",
+  "BEGIN:VEVENT",
+  "UID:ev1_20261106T150000Z",
+  "DTSTART:20261106T150000Z",
+  "DTEND:20261106T153000Z",
+  "SUMMARY:Daily\\, equipo\\; sync",
+  "DESCRIPTION:Línea 1\\nLínea 2",
+  'ATTENDEE;CN="Ana  A  Pérez":mailto:ana@x.com',
+  "ATTENDEE:mailto:bob@x.com",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:feriado",
+  "DTSTART;VALUE=DATE:20261107",
+  "DTEND;VALUE=DATE:20261108",
+  "SUMMARY:Feriado",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:cancelada",
+  "DTSTART:20261106T180000Z",
+  "DTEND:20261106T190000Z",
+  "SUMMARY:",
+  "STATUS:CANCELLED",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
+describe("calendario desde la Calendar API (google.rs)", () => {
+  it("se lee igual que el .ics de la URL secreta", () => {
+    const ms = meetingsBetween(
+      GOOGLE_ICS,
+      Date.parse("2026-11-06T00:00:00Z"),
+      Date.parse("2026-11-09T00:00:00Z"),
+    );
+    expect(ms).toEqual([
+      {
+        key: `ev1_20261106T150000Z@${Date.parse("2026-11-06T15:00:00Z")}`,
+        title: "Daily, equipo; sync",
+        start: Date.parse("2026-11-06T15:00:00Z"),
+        end: Date.parse("2026-11-06T15:30:00Z"),
+        attendees: ["Ana  A  Pérez", "bob@x.com"],
+        description: "Línea 1\nLínea 2",
+      },
+    ]); // sin el día completo ni la cancelada
+  });
+});
