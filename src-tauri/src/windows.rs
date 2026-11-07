@@ -123,11 +123,12 @@ pub fn center_pet(app: &AppHandle) {
     let _ = app.emit_to("pet", "pet://center", ());
 }
 
-/// Margen al borde izquierdo y alto de la casita (px lógicos); = `HOUSE` en src/pet/House.tsx.
+/// Margen al borde derecho, ancho y alto de la casita (px lógicos); = `HOUSE` en src/pet/House.tsx.
 const HOUSE_MARGIN: f64 = 8.0;
+const HOUSE_W: f64 = 112.0;
 const HOUSE_H: f64 = 100.0;
 
-/// La mascota avisa si va o está en la casa: texto del menú de la barra, casita visible (abajo a la izquierda de la
+/// La mascota avisa si va o está en la casa: texto del menú de la barra, casita visible (abajo a la derecha de la
 /// pantalla principal, apoyada en el borde del work area) y si dibujarla con ella adentro.
 /// Async: el menú y las ventanas esperan al hilo principal.
 #[tauri::command]
@@ -144,7 +145,7 @@ pub async fn house_set(app: AppHandle, bed: bool, home: bool, show: bool) {
     // (con 3 monitores quedaba bajo el borde inferior de la principal).
     if let Ok(Some(m)) = app.primary_monitor() {
         let (wa, k) = (m.work_area(), m.scale_factor());
-        let x = wa.position.x as f64 / k + HOUSE_MARGIN;
+        let x = (wa.position.x as f64 + wa.size.width as f64) / k - HOUSE_W - HOUSE_MARGIN;
         let y = (wa.position.y as f64 + wa.size.height as f64) / k - HOUSE_H;
         let _ = h.set_position(tauri::LogicalPosition::new(x, y));
     }

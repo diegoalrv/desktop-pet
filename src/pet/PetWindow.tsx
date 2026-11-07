@@ -186,8 +186,9 @@ export function PetWindow() {
     const pickTarget = () => {
       target = area.x + Math.random() * (area.w - size.w);
     };
-    // Pet x para quedar frente a la puerta (centro de la casita, abajo a la izquierda del work area).
-    const doorX = () => clamp(area.x + (HOUSE.margin + HOUSE.w / 2) * scale - size.w / 2, area.x, maxX());
+    // Pet x para quedar frente a la puerta (casita abajo a la derecha del work area).
+    const doorX = () =>
+      clamp(area.x + area.w - (HOUSE.margin + HOUSE.w - HOUSE.door) * scale - size.w / 2, area.x, maxX());
     const move = () => win.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
     relayout.current = async () => {
       const p = await refreshArea();
@@ -279,7 +280,9 @@ export function PetWindow() {
       if ((!d.skipped || d.next) && sound.current.sound) chime(d.mode === "focus" ? "rest" : "work");
     });
     const unDistract = listen("focus://distraction", () => send({ type: "distracted" }));
-    const unVoice = listen<boolean>("voice://listening", (e) => send({ type: e.payload ? "voiceStart" : "voiceEnd" }));
+    const unVoice = listen<boolean>("voice://listening", (e) =>
+      send({ type: e.payload ? "voiceStart" : "voiceEnd" }),
+    );
     const unTask = listen("task://done", () => send({ type: "taskDone" }));
     const unClaude = listen("claude://start", () => send({ type: "claudeStart" }));
     const unClaudeEnd = listen<{ outcome: ClaudeOutcome }>("claude://exit", (e) =>
@@ -326,7 +329,10 @@ export function PetWindow() {
       for (const m of dueMeetings(meetings.current, now, warned)) {
         warned.add(m.key);
         const min = Math.round((m.start - now) / 60_000);
-        notify(min > 0 ? `Reunión en ${min} min` : "Reunión ahora", `${m.title} · Escuchar reunión en el panel`);
+        notify(
+          min > 0 ? `Reunión en ${min} min` : "Reunión ahora",
+          `${m.title} · Escuchar reunión en el panel`,
+        );
         // ponytail: el plugin de notificaciones no trae botones en escritorio; el panel abierto en Reunión sí.
         invoke("open_panel_tab", { tab: "meeting" });
         if (sound.current.sound) chime("work");
