@@ -22,6 +22,8 @@ const ANIM: Record<PetState, string> = {
   growl: "dangle .12s ease-in-out infinite alternate",
   bark: "hop .3s ease-in-out infinite",
   away: "bob 3.5s ease-in-out infinite",
+  bed: "hop .35s ease-in-out infinite",
+  home: "bob 3.5s ease-in-out infinite",
 };
 
 const CSS = `

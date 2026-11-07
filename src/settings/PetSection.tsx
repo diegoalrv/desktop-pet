@@ -187,6 +187,15 @@ export function PetSection() {
         )}
       </label>
 
+      <label>
+        <input
+          type="checkbox"
+          checked={prefs.houseOnDesktop}
+          onChange={(e) => setPrefs({ houseOnDesktop: e.target.checked })}
+        />{" "}
+        Dejar casa en el escritorio (si no, solo aparece mientras está acostada)
+      </label>
+
       <h3 style={sub}>Animaciones</h3>
       {pack ? (
         <>

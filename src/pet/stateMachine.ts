@@ -16,7 +16,9 @@ export type PetState =
   | "listen" // le estás hablando (atajo de voz mantenido)
   | "growl" // foco: la cámara te ve con el teléfono (aviso, no cuenta)
   | "bark" // foco: distracción que cuenta (app de la lista o teléfono pasado `barkAfterSec`)
-  | "away"; // foco pausado porque la cámara no te ve: se echa a esperarte
+  | "away" // foco pausado porque la cámara no te ve: se echa a esperarte
+  | "bed" // "A acostarse": camina a la casa
+  | "home"; // en la casa: no se pasea hasta que la despiertes o arranque un foco
 
 /** Cómo terminó una orden a Claude Code. */
 export type ClaudeOutcome = "mission" | "oops" | "ask";
@@ -43,7 +45,9 @@ export type PetEvent =
   | { type: "claudeEnd"; outcome: ClaudeOutcome }
   | { type: "voiceStart" } // mantienes el atajo de voz: te escucha
   | { type: "voiceEnd" } // lo soltaste: vuelve a lo suyo (si la orden llega, Claude la pone a trabajar)
-  | { type: "dayEnd"; met: boolean }; // cierre del día: meta cumplida -> celebra; si no, toma té
+  | { type: "dayEnd"; met: boolean } // cierre del día: meta cumplida -> celebra; si no, toma té
+  | { type: "bed" } // "A acostarse": va a la casa (al llegar, `arrive` la deja en `home`)
+  | { type: "wake" }; // "Despertar": sale de la casa
 
 export interface Ctx {
   state: PetState;
@@ -119,7 +123,7 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
       if (c.after === "focus") return { ...c, after: "break" }; // terminó mientras la arrastraban
       return c;
     case "taskDone": {
-      if (c.state === "dragged" || c.state === "fall" || c.state === "celebrate") return c;
+      if (["dragged", "fall", "celebrate", "bed", "home"].includes(c.state)) return c;
       return to(c, "celebrate", CELEBRATE_S, c.state === "sleep" ? "idle" : c.state);
     }
     case "growl":
@@ -156,7 +160,12 @@ export function transition(c: Ctx, ev: PetEvent, r = Math.random()): Ctx {
     case "input":
       return c.state === "sleep" ? goIdle({ ...c, quiet: 0 }, r) : { ...c, quiet: 0 };
     case "arrive":
+      if (c.state === "bed") return to(c, "home");
       return c.state === "walk" ? goIdle(c, r) : c;
+    case "bed": // con un foco o pausa en curso no se va a dormir
+      return FREE.includes(c.state) ? { ...to(c, "bed"), quiet: 0 } : c;
+    case "wake":
+      return c.state === "bed" || c.state === "home" ? goIdle({ ...c, quiet: 0 }, r) : c;
     case "tick": {
       const resting = c.state === "idle" || c.state === "walk";
       const quiet = resting ? c.quiet + ev.dt : c.quiet;

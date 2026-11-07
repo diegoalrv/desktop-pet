@@ -9,6 +9,7 @@ import { useSettings } from "../store/useSettings";
 import { chime, skinClips } from "../lib/sound";
 import { watchFocusCam } from "../lib/camera";
 import { PILL_H, TimerPill } from "./TimerPill";
+import { HOUSE } from "./House";
 import { notify, timer, togglePanel } from "../lib/ipc";
 import * as db from "../lib/db";
 import { load } from "@tauri-apps/plugin-store";
@@ -127,6 +128,13 @@ export function PetWindow() {
       .then(() => relayout.current());
   }, [skin, size]);
 
+  // Casita: se ve con la pref o mientras está acostada; Rust la ubica, cambia el menú de la barra y le avisa si está adentro.
+  const bed = view.state === "bed" || view.state === "home";
+  const home = view.state === "home";
+  useEffect(() => {
+    invoke("house_set", { bed, home, show: bed || prefs.houseOnDesktop }).catch(() => {});
+  }, [bed, home, prefs.houseOnDesktop]);
+
   // Informa a Rust la zona opaca para el click-through (sprite, + píldora si hay timer). Se re-mide cuando cambia el
   // tamaño del sprite o de la ventana: al arrancar (sobre todo en Windows) el primer layout no es el final y un rect
   // viejo deja a la mascota sin poder tomarse.
@@ -134,7 +142,8 @@ export function PetWindow() {
     const el = (active ? hit : body).current!;
     const report = () => {
       const r = el.getBoundingClientRect();
-      invoke("set_hit_rect", { rect: [r.x, r.y, r.width, r.height] });
+      // en la casa no se ve: los clics pasan (a la casita, que la despierta)
+      invoke("set_hit_rect", { rect: home ? [0, 0, 0, 0] : [r.x, r.y, r.width, r.height] });
     };
     report();
     // El sprite va pegado abajo: si la ventana cambia de alto (setSize es async) se mueve sin cambiar de tamaño.
@@ -145,7 +154,7 @@ export function PetWindow() {
       ro.disconnect();
       window.removeEventListener("resize", report);
     };
-  }, [active, skin, overlap, size]);
+  }, [active, skin, overlap, size, home]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -169,6 +178,7 @@ export function PetWindow() {
       ctx = transition(ctx, ev);
       if (ctx.state !== prev) {
         if (ctx.state === "walk") pickTarget();
+        if (ctx.state === "bed") target = doorX();
         setView((v) => ({ ...v, state: ctx.state }));
       }
     };
@@ -176,6 +186,8 @@ export function PetWindow() {
     const pickTarget = () => {
       target = area.x + Math.random() * (area.w - size.w);
     };
+    // Pet x para quedar frente a la puerta (centro de la casita, abajo a la izquierda del work area).
+    const doorX = () => clamp(area.x + (HOUSE.margin + HOUSE.w / 2) * scale - size.w / 2, area.x, maxX());
     const move = () => win.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
     relayout.current = async () => {
       const p = await refreshArea();
@@ -278,7 +290,7 @@ export function PetWindow() {
       send({ type: e.payload ? "panelOpen" : "panelClose" }),
     );
     // Atajo / menú "Traer a Candolita al centro": al centro de la pantalla principal, en el suelo.
-    const unCenter = listen("pet://center", async () => {
+    const toPrimary = async () => {
       const [m, s] = await Promise.all([primaryMonitor(), win.outerSize()]);
       if (!m) return;
       const wa = m.workArea;
@@ -292,6 +304,18 @@ export function PetWindow() {
       if (ctx.state === "dragged") send({ type: "drop" });
       if (ctx.state === "fall") send({ type: "land" });
       if (ctx.state === "walk") pickTarget();
+    };
+    const unCenter = listen("pet://center", () => {
+      if (ctx.state === "bed" || ctx.state === "home") send({ type: "wake" });
+      return toPrimary();
+    });
+    // "A acostarse" / "Despertar" (menú de la barra o clic en la casita). La casa vive en la pantalla principal:
+    // si está en otra, primero la trae al centro de la principal.
+    const unBed = listen("pet://bed", async () => {
+      if (ctx.state === "bed" || ctx.state === "home") return send({ type: "wake" });
+      const m = await primaryMonitor();
+      if (m && (m.workArea.position.x !== area.x || m.workArea.position.y !== area.y)) await toPrimary();
+      send({ type: "bed" });
     });
     const stopCam = watchFocusCam(send); // F17: solo abre la cámara con la pref y un foco corriendo
 
@@ -341,8 +365,9 @@ export function PetWindow() {
       last = now;
       send({ type: "tick", dt });
       const floor = groundY(area, size.h, cfg.current.groundOffset * scale);
-      if (ctx.state === "walk") {
-        const s = walkStep(x, clamp(target, area.x, maxX()), cfg.current.walkSpeed * scale, dt);
+      if (ctx.state === "walk" || ctx.state === "bed") {
+        const speed = cfg.current.walkSpeed * scale * (ctx.state === "bed" ? 2 : 1); // a acostarse va apurada
+        const s = walkStep(x, clamp(target, area.x, maxX()), speed, dt);
         x = s.x;
         y = floor;
         if (s.dir !== dir) {
@@ -389,6 +414,7 @@ export function PetWindow() {
       unPanel.then((f) => f());
       stopCam();
       unCenter.then((f) => f());
+      unBed.then((f) => f());
       clearInterval(remindTimer);
       el.removeEventListener("mousedown", onMouseDown);
     };
@@ -398,7 +424,14 @@ export function PetWindow() {
     <div
       style={{ position: "fixed", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "center" }}
     >
-      <div ref={hit} style={{ cursor: view.state === "dragged" ? "grabbing" : "grab" }}>
+      <div
+        ref={hit}
+        style={{
+          cursor: view.state === "dragged" ? "grabbing" : "grab",
+          opacity: home ? 0 : 1,
+          transition: "opacity .5s",
+        }}
+      >
         <div style={{ marginBottom: -Math.min(overlap, PILL_H), position: "relative", zIndex: 1 }}>
           <TimerPill snap={snap} />
         </div>
