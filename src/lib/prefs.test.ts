@@ -40,7 +40,7 @@ describe("prefs", () => {
       claudeCwd: "",
       dayEndHour: 18,
       dailyGoalMin: 120,
-      houseOnDesktop: false,
+      houseOnDesktop: true,
       petSize: 128,
       musicProvider: "ytm",
       musicFolder: "",
