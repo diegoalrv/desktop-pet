@@ -55,8 +55,10 @@ export const prefsSchema = z.object({
   userName: z.string().trim().catch(""), // quién es "Yo" en las reuniones (meeting.rs lo lee de settings.json)
   // LLMs que sacan las tareas de la reunión al terminar, en orden de fallback (meeting.rs: ask_any)
   llms: z.array(llmSchema).catch(DEFAULT_LLMS),
-  // Key de Candola (F19): en Windows reemplaza a `llms`; toda la IA va al proxy propio (ai.rs)
+  // Key de Candola (F19): toda la IA va al proxy propio (ai.rs) y `llms` solo cuenta con `claudeLocal`
   candolaKey: z.string().trim().catch(""),
+  // Opt-in: usar Claude Code local (`claude -p`) y la cadena `llms` en vez del proxy (ai.rs lo lee de settings.json)
+  claudeLocal: z.boolean().catch(false),
   // Carpeta desde la que corre Claude Code en el chat (lee su CLAUDE.md); vacía = home
   claudeCwd: z.string().trim().catch(""),
   // Cierre del día (pet/PetWindow.tsx): hora del aviso (0 = apagado) y meta de foco diaria en minutos
@@ -79,8 +81,6 @@ export const normalizePrefs = (raw: unknown): Prefs => {
   const p = prefsSchema.parse(
     old ? { ...r, llms: [{ provider: r.llmUrl, apikey: r.llmKey, models: [r.llmModel] }] } : r,
   );
-  // claude-code va siempre primero (sin key ni API): prefs guardadas antes de que existiera lo heredan.
-  if (!p.llms.some((l) => l.provider === "claude-code")) p.llms = [...DEFAULT_LLMS, ...p.llms];
   return p;
 };
 
