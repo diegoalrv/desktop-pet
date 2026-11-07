@@ -26,6 +26,7 @@ const toMd = (m: Saved, n?: db.Notes) =>
     `# ${titleOf(m)}`,
     m.title ? fmtDate(m.id * 1000) : "",
     m.attendees?.length ? `Participantes: ${m.attendees.join(", ")}` : "",
+    n?.project && `Proyecto: ${n.project}`,
     n?.summary && `## Resumen\n\n${n.summary}`,
     db.decisionsOf(n).length && `## Decisiones\n\n${db.decisionsOf(n).map((d) => `- ${d}`).join("\n")}`,
     n ? `## Transcripción\n\n${m.text}` : m.text,
@@ -52,6 +53,24 @@ function ProjectInput({ value, onChange }: { value: string; onChange: (v: string
         ))}
       </datalist>
     </>
+  );
+}
+
+/** Proyecto de la reunión: los de las tareas (más el actual, si ya no queda ninguna con él). */
+function MeetingProject({ id, value }: { id: number; value: string }) {
+  const projects = projectsOf(useTasks((s) => s.tasks));
+  return (
+    <select
+      className="d-in"
+      value={value}
+      onChange={(e) => db.setMeetingProject(id, e.target.value)}
+      aria-label="Proyecto de la reunión"
+    >
+      <option value="">Sin proyecto</option>
+      {(value && !projects.includes(value) ? [value, ...projects] : projects).map((p) => (
+        <option key={p}>{p}</option>
+      ))}
+    </select>
   );
 }
 
@@ -161,6 +180,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
   const cur = id ? list.find((m) => m.id === id) : undefined;
   const of = (mid: number) => sugs.filter((s) => s.meeting === mid);
   const busy = live?.status.startsWith("Buscando tareas");
+  const proj = new Map(notes.map((n) => [n.meeting, n.project]));
 
   if (cur) {
     const mine = of(cur.id);
@@ -183,6 +203,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
             .filter(Boolean)
             .join(" · ")}
         >
+          <MeetingProject id={cur.id} value={note?.project ?? ""} />
           <button
             className="d-b sm"
             disabled={busy || live?.active}
@@ -319,6 +340,7 @@ export function Meetings({ id, tab }: { id?: number; tab?: string }) {
                 <b>{titleOf(m)}</b>
                 <span className="d-dim" style={{ fontSize: 13 }}>
                   {m.title && `${fmtDate(m.id * 1000)} · `}
+                  {proj.get(m.id) && `${proj.get(m.id)} · `}
                   {words(m.text)} palabras · {parse(m.text).length} intervenciones
                   {q && ` · ${countHits(m.text, q)} coincidencias`}
                 </span>

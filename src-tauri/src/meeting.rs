@@ -693,7 +693,9 @@ fn finalize(app: &AppHandle, llms: &[Llm], id: u64, lines: &[Line], manage: bool
     if let Some((summary, decisions)) = notes {
         let at = chrono::Utc::now().timestamp_millis();
         run(
-            "INSERT OR REPLACE INTO meeting_notes (meeting, summary, decisions, model, at) VALUES ($1, $2, $3, $4, $5)",
+            // upsert (no REPLACE): conserva el proyecto elegido a mano
+            "INSERT INTO meeting_notes (meeting, summary, decisions, model, at) VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT(meeting) DO UPDATE SET summary = excluded.summary, decisions = excluded.decisions, model = excluded.model, at = excluded.at",
             &[id.clone(), json!(summary), json!(json!(decisions).to_string()), json!(model), json!(at)],
         )?;
         update(app, |g| (g.snap.summary, g.snap.decisions) = (summary, decisions));

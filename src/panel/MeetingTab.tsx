@@ -6,6 +6,7 @@ import { useSettings } from "../store/useSettings";
 import { useLive, useTasks } from "../store/useTasks";
 import { describeAction, parseAction } from "../lib/suggestions";
 import { meetingCtx } from "../lib/ipc";
+import { projectsOf } from "../lib/tasks";
 import { Icon } from "./icons";
 
 interface Snapshot {
@@ -32,6 +33,7 @@ export function MeetingTab() {
   const [manage, setManage] = useState(false);
   const [err, setErr] = useState("");
   const suggestions = useLive(() => db.listSuggestions("pending")) ?? [];
+  const notes = useLive(() => db.listNotes()) ?? [];
   const log = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,6 +53,8 @@ export function MeetingTab() {
 
   if (!s) return null;
   const mode = s.active ? s.manage : manage;
+  const last = notes.reduce<db.Notes | undefined>((a, n) => (!a || n.at > a.at ? n : a), undefined); // última reunión revisada
+  const projects = projectsOf(tasks);
   return (
     <div className="stack" style={{ gap: "1em" }}>
       <div className="card stack center" style={{ gap: ".7em", padding: "1.2em 1em" }}>
@@ -119,6 +123,23 @@ export function MeetingTab() {
           </div>
         )}
       </div>
+
+      {!s.active && !busy && !s.manage && last && (
+        <label className="row" style={{ gap: ".5em" }}>
+          <span className="small muted">Proyecto de la última reunión</span>
+          <select
+            className="field field-sm grow"
+            value={last.project ?? ""}
+            onChange={(e) => db.setMeetingProject(last.meeting, e.target.value)}
+            aria-label="Proyecto de la última reunión"
+          >
+            <option value="">Sin proyecto</option>
+            {(last.project && !projects.includes(last.project) ? [last.project, ...projects] : projects).map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {suggestions.length > 0 && (
         <section className="stack" style={{ gap: ".4em" }}>
