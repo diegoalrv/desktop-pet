@@ -57,6 +57,8 @@ const ANIM_OF: Record<PetState, string> = {
   growl: "growl",
   bark: "bark",
   away: "away",
+  bed: "walk", // camina a la casa
+  home: "sleep", // en la casa no se ve
 };
 /** Segunda opción antes de `idle` para skins que no traen la animación (la que usaban antes). */
 const SECOND: Record<string, string> = { growl: "oops", bark: "oops", away: "sleep" };

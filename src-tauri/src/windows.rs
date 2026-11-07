@@ -123,6 +123,35 @@ pub fn center_pet(app: &AppHandle) {
     let _ = app.emit_to("pet", "pet://center", ());
 }
 
+/// Margen al borde izquierdo y alto de la casita (px lógicos); = `HOUSE` en src/pet/House.tsx.
+const HOUSE_MARGIN: f64 = 8.0;
+const HOUSE_H: f64 = 100.0;
+
+/// La mascota avisa si va o está en la casa: texto del menú de la barra, casita visible (abajo a la izquierda de la
+/// pantalla principal, apoyada en el borde del work area) y si dibujarla con ella adentro.
+/// Async: el menú y las ventanas esperan al hilo principal.
+#[tauri::command]
+pub async fn house_set(app: AppHandle, bed: bool, home: bool, show: bool) {
+    if let Some(item) = app.try_state::<crate::tray::BedItem>() {
+        let _ = item.0.set_text(if bed { "Despertar" } else { "A acostarse" });
+    }
+    let Some(h) = app.get_webview_window("house") else { return };
+    if !show {
+        let _ = h.hide();
+        return;
+    }
+    // En px lógicos: la ventana oculta puede tener la escala de otro monitor y convertiría mal los físicos
+    // (con 3 monitores quedaba bajo el borde inferior de la principal).
+    if let Ok(Some(m)) = app.primary_monitor() {
+        let (wa, k) = (m.work_area(), m.scale_factor());
+        let x = wa.position.x as f64 / k + HOUSE_MARGIN;
+        let y = (wa.position.y as f64 + wa.size.height as f64) / k - HOUSE_H;
+        let _ = h.set_position(tauri::LogicalPosition::new(x, y));
+    }
+    let _ = h.show();
+    let _ = app.emit_to("house", "house://home", home);
+}
+
 /// Atajos globales registrados, por tipo ("panel", "focus"…): para reemplazar el de un tipo sin tocar los demás.
 #[derive(Default)]
 pub struct Shortcuts(pub Mutex<HashMap<&'static str, String>>);

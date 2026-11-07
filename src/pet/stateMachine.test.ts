@@ -189,4 +189,20 @@ describe("stateMachine", () => {
     expect(run(initial(), { type: "timerStart" }, on).state).toBe("focus");
     expect(run(initial(), { type: "drag" }, on, off).state).toBe("dragged");
   });
+  it("a acostarse: camina a la casa, se queda en home y sale al despertar o con un foco", () => {
+    const bed = run(initial(), { type: "bed" });
+    expect(bed.state).toBe("bed");
+    const home = run(bed, { type: "arrive" });
+    expect(home.state).toBe("home");
+    // en casa no se pasea, no se duerme aparte ni la sacan tareas, pausas, Claude o el panel
+    const busy: PetEvent[] = [tick(5000), { type: "taskDone" }, { type: "breakStart" }, { type: "claudeStart" }];
+    expect(run(home, ...busy).state).toBe("home");
+    expect(run(home, { type: "panelOpen" }).state).toBe("home");
+    expect(run(home, { type: "wake" }).state).toBe("idle");
+    expect(run(bed, { type: "wake" }).state).toBe("idle");
+    expect(run(home, { type: "timerStart" }).state).toBe("focus");
+    // con un foco en curso no se va a dormir; arrastrarla en camino cancela la ida
+    expect(run(initial(), { type: "timerStart" }, { type: "bed" }).state).toBe("focus");
+    expect(run(bed, { type: "drag" }, { type: "drop" }, { type: "land" }).state).toBe("idle");
+  });
 });

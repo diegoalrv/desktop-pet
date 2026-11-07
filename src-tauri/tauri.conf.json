@@ -26,6 +26,22 @@
         "visibleOnAllWorkspaces": true
       },
       {
+        "label": "house",
+        "title": "house",
+        "url": "index.html",
+        "width": 112,
+        "height": 100,
+        "visible": false,
+        "focus": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "resizable": false,
+        "visibleOnAllWorkspaces": true
+      },
+      {
         "label": "panel",
         "title": "panel",
         "url": "index.html",
