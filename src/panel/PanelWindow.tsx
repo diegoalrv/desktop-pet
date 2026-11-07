@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { TaskList } from "./TaskList";
 import { TimerControls } from "./TimerControls";
 import { DayClose } from "./DayClose";
@@ -55,8 +55,11 @@ export function PanelWindow() {
   // Rust (open_panel_tab) abre el panel en una pestaña: el aviso de reunión lo deja en "Reunión".
   // Lo dictado con el atajo de voz (voice.rs): va al chat como si lo hubieras escrito.
   const [voice, setVoice] = useState<VoicePrompt>();
+  // La mascota va o está en su casita (windows.rs: house_set); el panel vive oculto, así que no pierde el aviso.
+  const [bed, setBed] = useState(false);
   useEffect(() => {
     const un = listen<Tab>("panel://tab", (e) => setTab(e.payload));
+    const unBed = listen<boolean>("pet://bedstate", (e) => setBed(e.payload));
     const unVoice = listen<string>("voice://text", (e) => {
       setVoice((v) => ({ text: e.payload, n: (v?.n ?? 0) + 1 }));
       setTab("chat");
@@ -64,6 +67,7 @@ export function PanelWindow() {
     return () => {
       un.then((f) => f());
       unVoice.then((f) => f());
+      unBed.then((f) => f());
     };
   }, []);
 
@@ -84,6 +88,14 @@ export function PanelWindow() {
           <div className="pn-title">Candolita</div>
           <Status />
         </div>
+        <button
+          className="b b-ghost b-sq"
+          title={bed ? "Despertar a la Candola" : "A acostarse (se va a su casita)"}
+          aria-label={bed ? "Despertar" : "A acostarse"}
+          onClick={() => emitTo("pet", "pet://bed")}
+        >
+          <Icon name={bed ? "sun" : "moon"} />
+        </button>
         <button
           className="b b-ghost b-sq"
           title="Abrir el panel web en el navegador"

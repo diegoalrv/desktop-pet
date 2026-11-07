@@ -136,6 +136,7 @@ pub async fn house_set(app: AppHandle, bed: bool, home: bool, show: bool) {
     if let Some(item) = app.try_state::<crate::tray::BedItem>() {
         let _ = item.0.set_text(if bed { "Despertar" } else { "A acostarse" });
     }
+    let _ = app.emit_to("panel", "pet://bedstate", bed); // botón luna/sol del panel
     let Some(h) = app.get_webview_window("house") else { return };
     if !show {
         let _ = h.hide();
