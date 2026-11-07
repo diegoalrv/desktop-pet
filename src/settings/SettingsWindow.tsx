@@ -92,6 +92,59 @@ function CandolaKey({ value, onSave }: { value: string; onSave: (key: string) =>
   );
 }
 
+/** "Iniciar sesión con Google" (google.rs): abre el navegador y espera a que autorices. La sesión vive en Rust;
+ *  `prefs.google` solo guarda el mail para que la mascota recargue el calendario al conectar o desconectar. */
+function GoogleConnect() {
+  const email = useSettings((s) => s.prefs.google);
+  const setPrefs = useSettings((s) => s.setPrefs);
+  const onChange = (google: string) => void setPrefs({ google });
+  const [configured, setConfigured] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // Al abrir y cuando Rust avisa (la sesión venció o se revocó): que el mail guardado siga lo que dice google.rs.
+  useEffect(() => {
+    const sync = () =>
+      invoke<{ configured: boolean; email: string | null }>("google_status")
+        .then((s) => {
+          setConfigured(s.configured);
+          if ((s.email ?? "") !== email) setPrefs({ google: s.email ?? "" });
+        })
+        .catch(() => {});
+    sync();
+    const un = listen("google://changed", sync);
+    return () => void un.then((f) => f());
+  }, [email, setPrefs]);
+  const run = (cmd: "google_connect" | "google_disconnect") => {
+    setBusy(true);
+    setErr("");
+    invoke<string | null>(cmd)
+      .then((e) => onChange(e ?? ""))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {email ? `Conectado como ${email}` : "Google Calendar y Gmail: sin conectar"}
+        </span>
+        {email ? (
+          <button style={btn} disabled={busy} onClick={() => run("google_disconnect")}>
+            Desconectar
+          </button>
+        ) : (
+          // Sin bloquear mientras espera: si cerraste la pestaña, otro clic abre un login nuevo.
+          <button style={{ ...btn, whiteSpace: "nowrap" }} disabled={!configured} onClick={() => run("google_connect")}>
+            {busy ? "Esperando al navegador…" : "Iniciar sesión con Google"}
+          </button>
+        )}
+      </div>
+      {!configured && <small style={note}>Esta versión se compiló sin cliente OAuth de Google (GOOGLE_OAUTH.md).</small>}
+      {err && <small style={{ color: "#ff6b6b" }}>{err}</small>}
+    </div>
+  );
+}
+
 /** Número que se puede escribir: guarda apenas el valor queda dentro de [min, max] (escribir "47" pasa por "4", que
  *  si se guardara al tiro el saneo de prefs lo devolvería al valor por defecto); al salir con uno inválido, vuelve. */
 function NumInput({
@@ -446,7 +499,12 @@ export function SettingsWindow() {
         )}
       </Section>
 
-      <Section title="Conexiones" hint="calendario">
+      <Section title="Conexiones" hint="Google, calendario">
+        <GoogleConnect />
+        <small style={{ opacity: 0.7 }}>
+          Solo lectura: tus reuniones del calendario principal y, en Gmail, remitente, asunto y vista previa de los
+          últimos correos. Sin cuenta de Google conectada se usa la URL iCal de abajo.
+        </small>
         <input
           type="password"
           placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
@@ -455,8 +513,8 @@ export function SettingsWindow() {
           style={{ ...btn, padding: 4 }}
         />
         <small style={{ opacity: 0.7 }}>
-          Google Calendar → Configuración → tu calendario → “Dirección secreta en formato iCal”. Avisa 2 min
-          antes de cada reunión.
+          Alternativa sin iniciar sesión: Google Calendar → Configuración → tu calendario → “Dirección secreta en
+          formato iCal”. Avisa 2 min antes de cada reunión.
         </small>
       </Section>
 

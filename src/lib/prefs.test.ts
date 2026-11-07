@@ -32,6 +32,7 @@ describe("prefs", () => {
       barkAfterSec: 3,
       awayPauseSec: 90,
       icalUrl: "",
+      google: "",
       userName: "",
       llms: [{ provider: "claude-code", apikey: "", models: ["sonnet"] }],
       candolaKey: "",
