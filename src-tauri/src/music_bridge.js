@@ -36,13 +36,14 @@
   const spRows = () => {
     const b = document.querySelector('[data-testid="control-button-queue"]');
     if (b && !spOpened && b.getAttribute("aria-pressed") !== "true") (spOpened = true), b.click();
-    return [...document.querySelectorAll('aside [data-testid="tracklist-row"], aside [role="row"]')];
+    const rows = [...document.querySelectorAll('aside [data-testid="tracklist-row"], aside [role="row"]')];
+    return rows.filter((r) => !rows.some((o) => o !== r && r.contains(o))); // una fila puede casar con ambos selectores anidados: solo la más interna
   };
   const spTitle = (el) =>
     (el.querySelector('[data-testid="internal-track-link"], a[href*="/track/"]')?.textContent ?? "").trim();
   const spArtist = (el) => [...el.querySelectorAll('a[href*="/artist/"]')].map((a) => a.textContent.trim()).join(", ");
   const queueItems = () =>
-    site === "spotify" ? spRows().filter(spTitle) : [...document.querySelectorAll("ytmusic-player-queue-item")];
+    site === "spotify" ? spRows().filter(spTitle) : [...document.querySelectorAll("ytmusic-player-queue-item")].filter((el) => !el.closest("#counterpart-renderer")); // YTM duplica cada canción con su versión de video (contraparte)
   // Los siguientes (hasta 12) tras el que suena; `i` es el índice absoluto para `jump`.
   const upNext = (title) => {
     if (site === "local") return local()?.queue() ?? [];
