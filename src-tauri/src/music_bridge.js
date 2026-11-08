@@ -7,6 +7,24 @@
     location.hostname
   ];
   if (!site || window.__pet) return;
+
+  // Mientras la web carga (WKWebView muestra blanco unos segundos) se tapa con "Cargando…"; se quita en cuanto hay contenido
+  // (también sirve para el login) o a los 12 s por si acaso.
+  // ponytail: heurística de "hay texto en el body"; sin evento fiable de "SPA lista".
+  if (site !== "local") {
+    const o = document.createElement("div");
+    o.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;display:grid;place-content:center;justify-items:center;gap:16px;background:#121214;color:#b8b8c0;font:15px -apple-system,sans-serif";
+    o.innerHTML =
+      '<style>@keyframes petspin{to{transform:rotate(360deg)}}</style><div style="width:34px;height:34px;border:3px solid #333;border-top-color:#e8704f;border-radius:50%;animation:petspin .8s linear infinite"></div>Cargando…';
+    const t0 = Date.now();
+    const tick = setInterval(() => {
+      if (!o.isConnected && document.documentElement) document.documentElement.append(o);
+      if ((document.body?.innerText.length > 40 && Date.now() - t0 > 600) || Date.now() - t0 > 12000)
+        clearInterval(tick), o.remove();
+    }, 100);
+    document.documentElement && document.documentElement.append(o);
+  }
   const local = () => window.__petLocal;
   const P = "PETSTATE:";
   const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
