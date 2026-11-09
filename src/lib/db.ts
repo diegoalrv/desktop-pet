@@ -60,7 +60,8 @@ export const logCamSegment = async (g: Segment) => {
 export const query = select;
 
 export const listCategories = () => select<Category>("SELECT * FROM categories ORDER BY sort, id");
-export const listTasks = () => select<Task>("SELECT * FROM tasks");
+export const listTasks = () =>
+  select<Task>("SELECT *, (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = tasks.id) AS comments FROM tasks");
 
 export interface NewTask {
   title: string;
@@ -70,11 +71,12 @@ export interface NewTask {
   due_at: number | null;
   est_pomodoros: number;
   repeat: Repeat;
+  description?: string | null;
 }
 export const addTask = (t: NewTask) =>
   exec(
-    "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-    [t.title, t.category_id, t.project, t.priority, t.due_at, t.est_pomodoros, t.repeat, Date.now()],
+    "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    [t.title, t.category_id, t.project, t.priority, t.due_at, t.est_pomodoros, t.repeat, Date.now(), t.description ?? null],
   );
 /** Edita un campo de la tarea (el nombre de columna sale del tipo, nunca del usuario). */
 export const updateTask = <K extends keyof NewTask>(id: number, field: K, value: NewTask[K]) =>
@@ -86,7 +88,22 @@ export const setDone = async (id: number, done: boolean) => {
   await call("task_set_done", { id, done }); // la app avisa a sus ventanas
   if (IS_WEB) window.dispatchEvent(new Event("db://changed")); // y esta pestaña recarga ya
 };
-export const deleteTask = (id: number) => exec("DELETE FROM tasks WHERE id = $1", [id]);
+// ponytail: sin PRAGMA foreign_keys el ON DELETE CASCADE no corre; se borran a mano.
+export const deleteTask = async (id: number) => {
+  await exec("DELETE FROM task_comments WHERE task_id = $1", [id]);
+  return exec("DELETE FROM tasks WHERE id = $1", [id]);
+};
+export type Comment = { id: number; task_id: number; author: string; body: string; created_at: number };
+export const listComments = (taskId: number) =>
+  select<Comment>("SELECT * FROM task_comments WHERE task_id = $1 ORDER BY created_at, id", [taskId]);
+export const addComment = (taskId: number, body: string, author = "Yo") =>
+  exec("INSERT INTO task_comments (task_id, author, body, created_at) VALUES ($1, $2, $3, $4)", [
+    taskId,
+    author,
+    body,
+    Date.now(),
+  ]);
+export const deleteComment = (id: number) => exec("DELETE FROM task_comments WHERE id = $1", [id]);
 export const markNotified = (id: number) => exec("UPDATE tasks SET notified = 1 WHERE id = $1", [id]);
 
 export const saveCategory = (c: Category) =>
@@ -192,6 +209,7 @@ export const acceptSuggestion = async (s: Suggestion, title = s.title, project: 
       due_at: a?.fecha ? dueFromDate(a.fecha) : null,
       est_pomodoros: a?.pomodoros ?? 1,
       repeat: "none",
+      description: a?.descripcion ?? (s.detail || null),
     });
   } else if (a.op === "completar") await setDone(a.id!, true);
   else {
@@ -200,6 +218,7 @@ export const acceptSuggestion = async (s: Suggestion, title = s.title, project: 
     if (a.prioridad != null) await updateTask(a.id!, "priority", a.prioridad);
     if (a.fecha) await updateTask(a.id!, "due_at", dueFromDate(a.fecha));
     if (a.pomodoros != null) await updateTask(a.id!, "est_pomodoros", a.pomodoros);
+    if (a.descripcion) await updateTask(a.id!, "description", a.descripcion);
   }
   await setSuggestion(s.id, "accepted");
 };

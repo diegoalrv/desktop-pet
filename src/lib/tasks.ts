@@ -29,6 +29,8 @@ export interface Task {
   created_at: number;
   repeat: Repeat; // al completarla, db.rs crea la siguiente (task_set_done)
   done_at: number | null; // ms epoch en que se completó (task_set_done)
+  description?: string | null; // ficha: qué es, contexto y cuándo está lista
+  comments?: number; // cuántos comentarios tiene (listTasks)
 }
 
 export const PRIORITIES = ["Baja", "Media", "Alta"] as const;

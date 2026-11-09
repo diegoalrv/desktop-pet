@@ -285,7 +285,7 @@ fn to_naive(ms: i64) -> Option<NaiveDateTime> {
 /// La original queda hecha: el historial no se toca. Sin fecha, la base es `now`.
 pub async fn set_done(pool: &SqlitePool, id: i64, done: bool, now_ms: i64) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let row = sqlx::query("SELECT done, due_at, repeat, title, category_id, project, priority, est_pomodoros FROM tasks WHERE id = ?")
+    let row = sqlx::query("SELECT done, due_at, repeat, title, category_id, project, priority, est_pomodoros, description FROM tasks WHERE id = ?")
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?;
@@ -306,7 +306,8 @@ pub async fn set_done(pool: &SqlitePool, id: i64, done: bool, now_ms: i64) -> Re
             .and_then(|n| Local.from_local_datetime(&n).earliest()); // hora inexistente por cambio de horario → None
         if let Some(next) = next {
             sqlx::query(
-                "INSERT INTO tasks (title, category_id, project, priority, est_pomodoros, due_at, repeat, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                // La ficha pasa a la siguiente; los comentarios no (son de esa vez).
+                "INSERT INTO tasks (title, category_id, project, priority, est_pomodoros, due_at, repeat, created_at, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(r.get::<String, _>("title"))
             .bind(r.get::<Option<i64>, _>("category_id"))
@@ -316,6 +317,7 @@ pub async fn set_done(pool: &SqlitePool, id: i64, done: bool, now_ms: i64) -> Re
             .bind(next.timestamp_millis())
             .bind(&repeat)
             .bind(now_ms)
+            .bind(r.get::<Option<String>, _>("description"))
             .execute(&mut *tx)
             .await?;
         }
@@ -471,21 +473,23 @@ mod tests {
         sqlx::raw_sql(include_str!("../migrations/001_init.sql")).execute(&pool).await.unwrap();
         sqlx::raw_sql(include_str!("../migrations/002_project.sql")).execute(&pool).await.unwrap();
         sqlx::raw_sql(include_str!("../migrations/007_task_repeat.sql")).execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!("../migrations/019_task_detail.sql")).execute(&pool).await.unwrap();
         let due = Local.with_ymd_and_hms(2026, 10, 20, 9, 0, 0).unwrap().timestamp_millis();
         let now = Local.with_ymd_and_hms(2026, 10, 22, 10, 0, 0).unwrap().timestamp_millis();
-        sqlx::query("INSERT INTO tasks (title, project, due_at, notified, repeat, created_at) VALUES ('regar', 'casa', ?, 1, 'daily', 0)")
+        sqlx::query("INSERT INTO tasks (title, project, due_at, notified, repeat, created_at, description) VALUES ('regar', 'casa', ?, 1, 'daily', 0, 'helechos')")
             .bind(due)
             .execute(&pool)
             .await
             .unwrap();
         set_done(&pool, 1, true, now).await.unwrap();
         set_done(&pool, 1, true, now).await.unwrap(); // ya estaba hecha: no duplica
-        let rows = select(&pool, "SELECT id, done, done_at, due_at, notified, project, repeat FROM tasks ORDER BY id", &[]).await.unwrap();
+        let rows = select(&pool, "SELECT id, done, done_at, due_at, notified, project, repeat, description FROM tasks ORDER BY id", &[]).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!((rows[0]["done"].clone(), rows[0]["done_at"].clone()), (1.into(), now.into()));
         let next = Local.with_ymd_and_hms(2026, 10, 23, 9, 0, 0).unwrap().timestamp_millis();
         assert_eq!((rows[1]["done"].clone(), rows[1]["due_at"].clone(), rows[1]["notified"].clone()), (0.into(), next.into(), 0.into()));
         assert_eq!((rows[1]["project"].as_str(), rows[1]["repeat"].as_str()), (Some("casa"), Some("daily")));
+        assert_eq!(rows[1]["description"].as_str(), Some("helechos"));
         set_done(&pool, 1, false, now).await.unwrap(); // desmarcar no crea nada y borra done_at
         let rows = select(&pool, "SELECT done_at FROM tasks", &[]).await.unwrap();
         assert_eq!((rows.len(), rows[0]["done_at"].clone()), (2, Value::Null));

@@ -269,6 +269,12 @@ pub fn run() {
                             sql: include_str!("../migrations/018_meeting_project.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 19,
+                            description: "task_detail",
+                            sql: include_str!("../migrations/019_task_detail.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

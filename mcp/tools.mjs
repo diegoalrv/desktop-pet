@@ -11,16 +11,17 @@ export const TOOLS = [
   {
     name: "list_tasks",
     description:
-      "Tareas del usuario. filter: today (pendientes que vencen hoy o antes), pending (todas las pendientes, por defecto) o all (incluye hechas). priority: 0 baja, 1 media, 2 alta; due en hora local.",
+      "Tareas del usuario. filter: today (pendientes que vencen hoy o antes), pending (todas las pendientes, por defecto) o all (incluye hechas). priority: 0 baja, 1 media, 2 alta; due en hora local. description es la ficha (qué es la tarea); comments, cuántos comentarios tiene. Para la ficha completa con comentarios: task_get.",
     inputSchema: obj({ filter: { type: "string", enum: ["today", "pending", "all"] } }),
   },
   {
     name: "add_task",
     description:
-      'Crea una tarea. due: fecha local "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" (sin hora = 09:00). priority: 0 baja, 1 media, 2 alta. repeat: none, daily, weekdays, weekly o monthly (necesita due).',
+      'Crea una tarea. due: fecha local "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" (sin hora = 09:00). priority: 0 baja, 1 media, 2 alta. repeat: none, daily, weekdays, weekly o monthly (necesita due). description: la ficha (qué hay que hacer, contexto, cuándo está lista).',
     inputSchema: obj(
       {
         title: str,
+        description: str,
         due: str,
         project: str,
         priority: { type: "integer", minimum: 0, maximum: 2 },
@@ -33,7 +34,7 @@ export const TOOLS = [
   {
     name: "suggest_task",
     description:
-      'Propone un cambio en las tareas sin hacerlo: queda en "Propuestas" de la app y el usuario lo aprueba o descarta. op: crear (por defecto), editar o completar (estos dos con id de list_tasks). title: la tarea nueva o la existente; new_title solo al editar. date: "AAAA-MM-DD". priority: 0 baja, 1 media, 2 alta. detail: de dónde salió, en una línea.',
+      'Propone un cambio en las tareas sin hacerlo: queda en "Propuestas" de la app y el usuario lo aprueba o descarta. op: crear (por defecto), editar o completar (estos dos con id de list_tasks). title: la tarea nueva o la existente; new_title solo al editar. date: "AAAA-MM-DD". priority: 0 baja, 1 media, 2 alta. description: la ficha de la tarea (qué es, contexto, cuándo está lista). detail: de dónde salió, en una línea.',
     inputSchema: obj(
       {
         op: { type: "string", enum: ["crear", "editar", "completar"] },
@@ -44,15 +45,48 @@ export const TOOLS = [
         priority: { type: "integer", minimum: 0, maximum: 2 },
         date: str,
         pomodoros: { type: "integer", minimum: 1 },
+        description: str,
         detail: str,
       },
       ["title"],
     ),
   },
   {
-    name: "complete_task",
-    description: "Marca una tarea como hecha (si se repite, la app crea la siguiente).",
+    name: "task_get",
+    description:
+      "Ficha completa de una tarea (id de list_tasks): todos sus campos, description, tiempo de foco total y sus comentarios en orden (author: Yo = el usuario, Candola o Claude).",
     inputSchema: id,
+  },
+  {
+    name: "update_task",
+    description:
+      'Edita una tarea: solo cambia los campos que pases. description reemplaza la ficha entera (léela antes con task_get si vas a agregarle algo). due: "AAAA-MM-DD" o "AAAA-MM-DD HH:MM", o "" para quitar la fecha. priority: 0 baja, 1 media, 2 alta. Para reabrir una hecha: done false.',
+    inputSchema: obj(
+      {
+        id: int,
+        title: str,
+        description: str,
+        project: str,
+        priority: { type: "integer", minimum: 0, maximum: 2 },
+        due: str,
+        est_pomodoros: { type: "integer", minimum: 1 },
+        repeat: { type: "string", enum: ["none", "daily", "weekdays", "weekly", "monthly"] },
+        done: { type: "boolean" },
+      },
+      ["id"],
+    ),
+  },
+  {
+    name: "comment_task",
+    description:
+      "Deja un comentario en la bitácora de una tarea (avance, decisión, bloqueo, link). Queda firmado y con fecha.",
+    inputSchema: obj({ id: int, body: str }, ["id", "body"]),
+  },
+  {
+    name: "complete_task",
+    description:
+      "Cierra una tarea (si se repite, la app crea la siguiente). comment: opcional, cómo quedó o por qué se cierra; va a su bitácora.",
+    inputSchema: obj({ id: int, comment: str }, ["id"]),
   },
   {
     name: "timer_get",
@@ -91,7 +125,8 @@ export const TOOLS = [
   },
   {
     name: "meetings_list",
-    description: "Reuniones grabadas, la más reciente primero: id, fecha, título, proyecto, participantes y resumen.",
+    description:
+      "Reuniones grabadas, la más reciente primero: id, fecha, título, proyecto, participantes y resumen.",
     inputSchema: obj({ limit: { type: "integer", minimum: 1 } }),
   },
   {
@@ -123,10 +158,34 @@ export const TOOLS = [
   },
 ];
 
-// Fuera de la app (sin PET_TOKEN: Claude Code, Claude Desktop/Cowork) no toca las tareas directo: solo las propone con
-// suggest_task y el usuario las revisa en la app. La Candola del chat de la app sí puede crear y completar.
-const DIRECT = ["add_task", "complete_task", "suggestion_set"];
+// Fuera de la app (sin PET_TOKEN: Claude Code, Claude Desktop/Cowork) no crea tareas: las propone con suggest_task y
+// el usuario las revisa en la app. Sí puede editar, comentar y cerrar las que ya existen (pedido del usuario, 2026-11).
+const DIRECT = ["add_task", "suggestion_set"];
 export const toolsFor = (external) => (external ? TOOLS.filter((t) => !DIRECT.includes(t.name)) : TOOLS);
+
+const REPEATS = ["none", "daily", "weekdays", "weekly", "monthly"];
+
+/** Argumentos de update_task → columnas a cambiar (solo las presentes). Las claves son fijas: van tal cual al SQL. */
+export function taskChanges(a) {
+  const set = {};
+  if (a.title !== undefined) {
+    if (!String(a.title).trim()) throw new Error("title no puede quedar vacío");
+    set.title = String(a.title).trim();
+  }
+  if (a.description !== undefined) set.description = String(a.description).trim() || null;
+  if (a.project !== undefined) set.project = String(a.project).trim() || null;
+  if (a.priority !== undefined) set.priority = Math.min(2, Math.max(0, Number(a.priority)));
+  if (a.est_pomodoros !== undefined) set.est_pomodoros = Math.max(1, Number(a.est_pomodoros));
+  if (a.repeat !== undefined) {
+    if (!REPEATS.includes(a.repeat)) throw new Error(`repeat debe ser ${REPEATS.join(", ")}`);
+    set.repeat = a.repeat;
+  }
+  if (a.due !== undefined) {
+    set.due_at = String(a.due).trim() ? parseDue(a.due) : null;
+    set.notified = 0; // fecha nueva: vuelve a avisar
+  }
+  return set;
+}
 
 /** "AAAA-MM-DD" o "AAAA-MM-DD HH:MM" en hora local → epoch ms. Sin hora, 09:00 (como las fechas del modo Gestión). */
 export function parseDue(s) {
@@ -178,11 +237,31 @@ export function makeCall(api, external = false) {
   const invoke = (cmd, args = {}) => api("/api/invoke", { cmd, args });
 
   async function notes(id) {
-    const [n] = await select("SELECT summary, decisions, project FROM meeting_notes WHERE meeting = $1", [id]);
-    return { summary: n?.summary ?? "", decisions: n ? JSON.parse(n.decisions || "[]") : [], project: n?.project ?? null };
+    const [n] = await select("SELECT summary, decisions, project FROM meeting_notes WHERE meeting = $1", [
+      id,
+    ]);
+    return {
+      summary: n?.summary ?? "",
+      decisions: n ? JSON.parse(n.decisions || "[]") : [],
+      project: n?.project ?? null,
+    };
   }
 
   const timer = async (cmd, args) => (cmd && (await invoke(cmd, args)), invoke("timer_get"));
+  const author = external ? "Claude" : "Candola";
+  const mustExist = async (id) => {
+    if (!Number.isInteger(id)) throw new Error("falta id (list_tasks)");
+    const [t] = await select("SELECT * FROM tasks WHERE id = $1", [id]);
+    if (!t) throw new Error(`no existe la tarea ${id}`);
+    return t;
+  };
+  const comment = (id, body) =>
+    execute("INSERT INTO task_comments (task_id, author, body, created_at) VALUES ($1, $2, $3, $4)", [
+      id,
+      author,
+      body,
+      Date.now(),
+    ]);
 
   /** Ejecuta una herramienta; el resultado va como texto JSON para que la Candola lo lea. */
   return async function call(name, a = {}) {
@@ -191,7 +270,9 @@ export function makeCall(api, external = false) {
     switch (name) {
       case "list_tasks": {
         const rows = await select(
-          "SELECT id, title, project, priority, done, due_at, est_pomodoros, done_pomodoros, repeat FROM tasks ORDER BY done, due_at IS NULL, due_at, priority DESC",
+          `SELECT id, title, description, project, priority, done, due_at, est_pomodoros, done_pomodoros, repeat,
+             (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = tasks.id) AS comments
+           FROM tasks ORDER BY done, due_at IS NULL, due_at, priority DESC`,
         );
         const endOfDay = new Date().setHours(23, 59, 59, 999);
         const keep =
@@ -211,7 +292,7 @@ export function makeCall(api, external = false) {
         if (repeat !== "none" && due == null) throw new Error("una tarea que se repite necesita due");
         const prio = Math.min(2, Math.max(0, a.priority ?? 1));
         const r = await execute(
-          "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)",
+          "INSERT INTO tasks (title, category_id, project, priority, due_at, est_pomodoros, repeat, created_at, description) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)",
           [
             title,
             a.project?.trim() || null,
@@ -220,6 +301,7 @@ export function makeCall(api, external = false) {
             Math.max(1, a.est_pomodoros ?? 1),
             repeat,
             Date.now(),
+            a.description?.trim() || null,
           ],
         );
         return { id: r.lastInsertId, title, due: due == null ? null : fmtMs(due) };
@@ -247,6 +329,7 @@ export function makeCall(api, external = false) {
           prioridad: a.priority,
           fecha: date,
           pomodoros: a.pomodoros,
+          descripcion: a.description?.trim() || undefined,
         };
         const r = await execute(
           "INSERT INTO meeting_tasks (meeting, title, detail, action) VALUES (0, $1, $2, $3)",
@@ -259,10 +342,72 @@ export function makeCall(api, external = false) {
           note: "queda en Propuestas para que el usuario la revise",
         };
       }
+      case "task_get": {
+        const {
+          id,
+          title,
+          description,
+          project,
+          priority,
+          done,
+          due_at,
+          done_at,
+          created_at,
+          est_pomodoros,
+          done_pomodoros,
+          repeat,
+        } = await mustExist(a.id);
+        const [{ secs }] = await select(
+          "SELECT COALESCE(SUM(end - start), 0) / 1000 AS secs FROM sessions WHERE mode = 'focus' AND task_id = $1",
+          [a.id],
+        );
+        const comments = await select(
+          "SELECT author, body, created_at FROM task_comments WHERE task_id = $1 ORDER BY created_at, id",
+          [a.id],
+        );
+        return {
+          id,
+          title,
+          description,
+          project,
+          priority,
+          est_pomodoros,
+          done_pomodoros,
+          repeat,
+          done: !!done,
+          due: due_at == null ? null : fmtMs(due_at),
+          created: fmtMs(created_at),
+          closed: done_at == null ? null : fmtMs(done_at),
+          focus_minutes: Math.round(secs / 60),
+          comments: comments.map((c) => ({ author: c.author, at: fmtMs(c.created_at), body: c.body })),
+        };
+      }
+      case "update_task": {
+        await mustExist(a.id);
+        const set = taskChanges(a);
+        const cols = Object.keys(set); // nombres fijos de taskChanges, nunca del input
+        if (!cols.length && a.done === undefined) throw new Error("no pasaste nada que cambiar");
+        if (cols.length)
+          await execute(
+            `UPDATE tasks SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(", ")} WHERE id = $${cols.length + 1}`,
+            [...Object.values(set), a.id],
+          );
+        if (a.done !== undefined) await invoke("task_set_done", { id: a.id, done: !!a.done });
+        return {
+          id: a.id,
+          changed: [...cols.filter((c) => c !== "notified"), ...(a.done === undefined ? [] : ["done"])],
+        };
+      }
+      case "comment_task": {
+        await mustExist(a.id);
+        const body = String(a.body ?? "").trim();
+        if (!body) throw new Error("falta body");
+        await comment(a.id, body);
+        return { id: a.id, commented: true, author };
+      }
       case "complete_task": {
-        if (!Number.isInteger(a.id)) throw new Error("falta id");
-        if (!(await select("SELECT id FROM tasks WHERE id = $1", [a.id])).length)
-          throw new Error(`no existe la tarea ${a.id}`);
+        await mustExist(a.id);
+        if (a.comment?.trim()) await comment(a.id, a.comment.trim());
         await invoke("task_set_done", { id: a.id, done: true });
         return { done: a.id };
       }
@@ -304,7 +449,14 @@ export function makeCall(api, external = false) {
         return Promise.all(
           ms.map(async (m) => {
             const n = await notes(m.id);
-            return { id: m.id, date: fmtMs(m.id * 1000), title: m.title, project: n.project, attendees: m.attendees, summary: n.summary };
+            return {
+              id: m.id,
+              date: fmtMs(m.id * 1000),
+              title: m.title,
+              project: n.project,
+              attendees: m.attendees,
+              summary: n.summary,
+            };
           }),
         );
       }

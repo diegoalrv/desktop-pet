@@ -113,7 +113,10 @@ export function TasksWindow() {
     e.preventDefault();
     const x0 = e.clientX;
     // El borde reparte ancho entre la columna i y la siguiente: el total no cambia y nada se sale de la tabla.
-    const w0 = Array.from((e.currentTarget.parentElement!.parentElement as HTMLElement).children, (th) => (th as HTMLElement).offsetWidth);
+    const w0 = Array.from(
+      (e.currentTarget.parentElement!.parentElement as HTMLElement).children,
+      (th) => (th as HTMLElement).offsetWidth,
+    );
     let last = cols;
     const move = (m: PointerEvent) => {
       const d = Math.max(-(w0[i] - 40), Math.min(w0[i + 1] - 40, m.clientX - x0));
@@ -215,7 +218,12 @@ export function TasksWindow() {
           style={btn}
         />
         <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} style={btn} />
-        <select value={repeat} onChange={(e) => setRepeat(e.target.value as Repeat)} style={btn} title="Repetir">
+        <select
+          value={repeat}
+          onChange={(e) => setRepeat(e.target.value as Repeat)}
+          style={btn}
+          title="Repetir"
+        >
           {REPEATS.map((r) => (
             <option key={r} value={r}>
               {r === "none" ? "↻ —" : `↻ ${REPEAT_LABEL[r]}`}
@@ -289,7 +297,15 @@ export function TasksWindow() {
                 {i > 0 && i < all.length - 2 && (
                   <span
                     onPointerDown={(e) => startResize(e, i)}
-                    style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 8, cursor: "col-resize", touchAction: "none" }}
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 8,
+                      cursor: "col-resize",
+                      touchAction: "none",
+                    }}
                   />
                 )}
               </th>
@@ -319,115 +335,220 @@ export function TasksWindow() {
 
 function Row({ t, secs }: { t: Task; secs: number }) {
   const { cats } = useTasks();
+  const [open, setOpen] = useState(false);
   const up = <K extends keyof db.NewTask>(f: K, v: db.NewTask[K]) => db.updateTask(t.id, f, v);
+  const marks = [
+    t.description && "con ficha",
+    t.comments && `${t.comments} comentario${t.comments > 1 ? "s" : ""}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   // key={valor}: si cambia en la BD (otra ventana), el input se remonta con el dato nuevo.
   return (
-    <tr style={{ borderTop: `1px solid ${T.line}`, opacity: t.done ? 0.5 : 1 }}>
-      <td style={{ padding: 6, borderLeft: `3px solid ${PRIO_COLOR[t.priority]}` }}>
+    <>
+      <tr style={{ borderTop: `1px solid ${T.line}`, opacity: t.done ? 0.5 : 1 }}>
+        <td style={{ padding: 6, borderLeft: `3px solid ${PRIO_COLOR[t.priority]}` }}>
+          <input
+            type="checkbox"
+            checked={!!t.done}
+            onChange={async (e) => {
+              await db.setDone(t.id, e.target.checked);
+              if (e.target.checked && !db.IS_WEB) emit("task://done");
+            }}
+          />
+        </td>
+        <td style={{ padding: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <button
+              title={
+                (open ? "Cerrar ficha" : "Abrir ficha (detalle y comentarios)") + (marks ? ` — ${marks}` : "")
+              }
+              onClick={() => setOpen(!open)}
+              style={{
+                ...btn,
+                padding: "0 4px",
+                border: 0,
+                background: "transparent",
+                color: marks ? T.accent : T.dim, // con ficha o comentarios: en color
+              }}
+            >
+              {open ? "▾" : "▸"}
+            </button>
+            <input
+              key={t.title}
+              defaultValue={t.title}
+              onBlur={(e) =>
+                e.target.value.trim() &&
+                e.target.value !== t.title &&
+                db.renameTask(t.id, e.target.value.trim())
+              }
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              style={{
+                ...cell,
+                border: 0,
+                background: "transparent",
+                textDecoration: t.done ? "line-through" : "none",
+              }}
+            />
+          </div>
+        </td>
+        <td style={{ padding: 4 }}>
+          <input
+            key={t.project ?? ""}
+            list="tm-projects"
+            defaultValue={t.project ?? ""}
+            onBlur={(e) =>
+              e.target.value.trim() !== (t.project ?? "") && up("project", e.target.value.trim() || null)
+            }
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            style={cell}
+          />
+        </td>
+        <td style={{ padding: 4 }}>
+          <select
+            value={t.category_id ?? ""}
+            onChange={(e) => up("category_id", Number(e.target.value))}
+            style={cell}
+          >
+            {cats.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.icon} {c.name}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: 4 }}>
+          <select value={t.priority} onChange={(e) => up("priority", Number(e.target.value))} style={cell}>
+            {PRIORITIES.map((p, i) => (
+              <option key={p} value={i}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: 4, whiteSpace: "nowrap" }}>
+          {t.done_pomodoros}/
+          <input
+            key={t.est_pomodoros}
+            type="number"
+            min={1}
+            max={20}
+            defaultValue={t.est_pomodoros}
+            onBlur={(e) =>
+              Number(e.target.value) !== t.est_pomodoros &&
+              up("est_pomodoros", Math.max(1, Number(e.target.value)))
+            }
+            style={{ ...cell, width: 44 }}
+          />
+        </td>
+        <td style={{ padding: 4 }}>
+          <input
+            key={t.due_at ?? ""}
+            type="datetime-local"
+            defaultValue={toLocal(t.due_at)}
+            onBlur={(e) => fromLocal(e.target.value) !== t.due_at && up("due_at", fromLocal(e.target.value))}
+            style={cell}
+          />
+        </td>
+        <td style={{ padding: 4 }}>
+          <select value={t.repeat} onChange={(e) => up("repeat", e.target.value as Repeat)} style={cell}>
+            {REPEATS.map((r) => (
+              <option key={r} value={r}>
+                {r === "none" ? "—" : REPEAT_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>
+          {secs ? fmtDur(secs) : "—"}
+        </td>
+        <td style={{ padding: 4 }}>
+          <button
+            title="Eliminar"
+            onClick={async () => (await confirmDelete(t.title)) && db.deleteTask(t.id)}
+            style={{ ...btn, padding: 2, border: 0, background: "transparent" }}
+          >
+            🗑
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td />
+          <td colSpan={9} style={{ padding: "4px 6px 12px" }}>
+            <Ficha t={t} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+const fmtAt = (ms: number) =>
+  new Date(ms).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+/** Ficha de la tarea: descripción editable y bitácora de comentarios (del usuario, la Candola o Claude por el MCP). */
+function Ficha({ t }: { t: Task }) {
+  const [comments, setComments] = useState<db.Comment[]>([]);
+  const [draft, setDraft] = useState("");
+  // t cambia de identidad cada vez que la BD avisa (db://changed): así entran los comentarios hechos por el MCP.
+  useEffect(() => {
+    db.listComments(t.id).then(setComments);
+  }, [t]);
+  const send = async () => {
+    if (!draft.trim()) return;
+    await db.addComment(t.id, draft.trim());
+    setDraft("");
+    setComments(await db.listComments(t.id));
+  };
+  return (
+    <div style={{ display: "grid", gap: 8, background: T.card, borderRadius: 8, padding: 10 }}>
+      <textarea
+        key={t.description ?? ""}
+        defaultValue={t.description ?? ""}
+        placeholder="¿De qué se trata? Contexto, links, qué la da por terminada…"
+        rows={Math.min(12, Math.max(3, (t.description ?? "").split("\n").length + 1))}
+        onBlur={(e) =>
+          e.target.value.trim() !== (t.description ?? "") &&
+          db.updateTask(t.id, "description", e.target.value.trim() || null)
+        }
+        style={{ ...cell, resize: "vertical", fontFamily: "inherit", fontSize: 13, lineHeight: 1.4 }}
+      />
+      <div style={{ color: T.dim, fontSize: 12 }}>
+        Creada {fmtAt(t.created_at)}
+        {t.done_at ? ` · cerrada ${fmtAt(t.done_at)}` : ""}
+      </div>
+      {comments.map((c) => (
+        <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+          <b style={{ color: c.author === "Yo" ? T.text : T.accent, whiteSpace: "nowrap" }}>{c.author}</b>
+          <span style={{ color: T.dim, fontSize: 11, whiteSpace: "nowrap" }}>{fmtAt(c.created_at)}</span>
+          <span style={{ whiteSpace: "pre-wrap", flex: 1 }}>{c.body}</span>
+          <button
+            title="Borrar comentario"
+            onClick={async () => {
+              await db.deleteComment(c.id);
+              setComments(await db.listComments(t.id));
+            }}
+            style={{ ...btn, padding: 0, border: 0, background: "transparent", fontSize: 11, opacity: 0.6 }}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 6 }}>
         <input
-          type="checkbox"
-          checked={!!t.done}
-          onChange={async (e) => {
-            await db.setDone(t.id, e.target.checked);
-            if (e.target.checked && !db.IS_WEB) emit("task://done");
-          }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          placeholder="Comentar… (Enter)"
+          style={{ ...cell, flex: 1 }}
         />
-      </td>
-      <td style={{ padding: 4 }}>
-        <input
-          key={t.title}
-          defaultValue={t.title}
-          onBlur={(e) =>
-            e.target.value.trim() && e.target.value !== t.title && db.renameTask(t.id, e.target.value.trim())
-          }
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          style={{
-            ...cell,
-            border: 0,
-            background: "transparent",
-            textDecoration: t.done ? "line-through" : "none",
-          }}
-        />
-      </td>
-      <td style={{ padding: 4 }}>
-        <input
-          key={t.project ?? ""}
-          list="tm-projects"
-          defaultValue={t.project ?? ""}
-          onBlur={(e) =>
-            e.target.value.trim() !== (t.project ?? "") && up("project", e.target.value.trim() || null)
-          }
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          style={cell}
-        />
-      </td>
-      <td style={{ padding: 4 }}>
-        <select
-          value={t.category_id ?? ""}
-          onChange={(e) => up("category_id", Number(e.target.value))}
-          style={cell}
-        >
-          {cats.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.icon} {c.name}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td style={{ padding: 4 }}>
-        <select value={t.priority} onChange={(e) => up("priority", Number(e.target.value))} style={cell}>
-          {PRIORITIES.map((p, i) => (
-            <option key={p} value={i}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td style={{ padding: 4, whiteSpace: "nowrap" }}>
-        {t.done_pomodoros}/
-        <input
-          key={t.est_pomodoros}
-          type="number"
-          min={1}
-          max={20}
-          defaultValue={t.est_pomodoros}
-          onBlur={(e) =>
-            Number(e.target.value) !== t.est_pomodoros &&
-            up("est_pomodoros", Math.max(1, Number(e.target.value)))
-          }
-          style={{ ...cell, width: 44 }}
-        />
-      </td>
-      <td style={{ padding: 4 }}>
-        <input
-          key={t.due_at ?? ""}
-          type="datetime-local"
-          defaultValue={toLocal(t.due_at)}
-          onBlur={(e) => fromLocal(e.target.value) !== t.due_at && up("due_at", fromLocal(e.target.value))}
-          style={cell}
-        />
-      </td>
-      <td style={{ padding: 4 }}>
-        <select value={t.repeat} onChange={(e) => up("repeat", e.target.value as Repeat)} style={cell}>
-          {REPEATS.map((r) => (
-            <option key={r} value={r}>
-              {r === "none" ? "—" : REPEAT_LABEL[r]}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td style={{ padding: 4, color: secs ? T.text : T.dim, textAlign: "right" }}>
-        {secs ? fmtDur(secs) : "—"}
-      </td>
-      <td style={{ padding: 4 }}>
-        <button
-          title="Eliminar"
-          onClick={async () => (await confirmDelete(t.title)) && db.deleteTask(t.id)}
-          style={{ ...btn, padding: 2, border: 0, background: "transparent" }}
-        >
-          🗑
-        </button>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

@@ -44,7 +44,7 @@ async function api(path, body) {
   if (!r.ok) throw new Error(typeof v === "string" ? v : `la app respondió ${r.status}`);
   return v;
 }
-export { fmtMs, groupRoutines, parseDue, search, TOOLS, toolsFor } from "./tools.mjs";
+export { fmtMs, groupRoutines, parseDue, search, taskChanges, TOOLS, toolsFor } from "./tools.mjs";
 const EXTERNAL = !process.env.PET_TOKEN;
 export const call = makeCall(api, EXTERNAL);
 

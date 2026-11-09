@@ -10,6 +10,7 @@ export interface Action {
   fecha?: string; // AAAA-MM-DD
   pomodoros?: number;
   detalle?: string;
+  descripcion?: string; // ficha de la tarea
 }
 
 export const parseAction = (json: string | null | undefined): Action | null => {

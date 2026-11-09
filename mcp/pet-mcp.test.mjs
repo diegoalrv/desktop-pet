@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtMs, groupRoutines, parseDue, rpc, search, TOOLS, toolsFor } from "./pet-mcp.mjs";
+import { fmtMs, groupRoutines, parseDue, rpc, search, taskChanges, TOOLS, toolsFor } from "./pet-mcp.mjs";
 
 describe("pet-mcp", () => {
   it("JSON-RPC: initialize, notificaciones, tools/list y métodos desconocidos", async () => {
@@ -27,13 +27,22 @@ describe("pet-mcp", () => {
     expect(err.result).toEqual({ content: [{ type: "text", text: "no" }], isError: true });
   });
 
-  it("fuera de la app solo sugiere", () => {
+  it("fuera de la app no crea tareas, pero sí edita, comenta y cierra", () => {
     const names = toolsFor(true).map((t) => t.name);
-    expect(names).toContain("suggest_task");
+    expect(names).toEqual(expect.arrayContaining(["suggest_task", "task_get", "update_task", "comment_task", "complete_task"]));
     expect(names).not.toContain("add_task");
-    expect(names).not.toContain("complete_task");
     expect(names).not.toContain("suggestion_set");
     expect(toolsFor(false)).toBe(TOOLS);
+  });
+
+  it("update_task solo toca lo que viene", () => {
+    expect(taskChanges({ id: 1, description: "  ficha  " })).toEqual({ description: "ficha" });
+    expect(taskChanges({ description: "", project: " " })).toEqual({ description: null, project: null });
+    expect(taskChanges({ due: "" })).toEqual({ due_at: null, notified: 0 });
+    expect(taskChanges({ priority: 9, est_pomodoros: 0 })).toEqual({ priority: 2, est_pomodoros: 1 });
+    expect(() => taskChanges({ title: " " })).toThrow("vacío");
+    expect(() => taskChanges({ repeat: "yearly" })).toThrow("repeat");
+    expect(taskChanges({ id: 3, done: true })).toEqual({});
   });
 
   it("fechas locales", () => {
